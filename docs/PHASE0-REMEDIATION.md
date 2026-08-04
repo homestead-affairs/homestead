@@ -160,7 +160,16 @@ Stated because a list of only failures gives no signal about what survives:
 - The sealed-log **tamper matrix was never run**; those rows are predictions
   from an eleven-line function. The unrun script is preserved at
   `docs/audits/unrun_tamper_matrix.py`.
-- **macOS and Windows were never exercised.** Everything platform-specific is a
-  Linux result. No macOS `BUNDLE` stanza exists, so there is no `.app`.
-- File permissions on the log files, `.venv` collision behaviour, and Windows
-  `cp1252` encoding are all unverified.
+- ~~**macOS and Windows were never exercised.**~~ **Stale as written — corrected
+  2026-08-04.** True of both audits, and false of this branch: R-3's CI job runs
+  the full suite *and* builds and smoke-runs the artifact on `ubuntu-latest`,
+  `macos-latest` and `windows-latest`, and all three are green. The gap was
+  closed by the fix and the gap list was not updated, which is the same defect
+  as everything else here — a claim that does not match its mechanism — running
+  in the understating direction for once. What remains true: **no macOS
+  `BUNDLE` stanza exists, so there is no `.app`**, and nothing is signed or
+  notarized.
+- File permissions on the log files and `.venv` collision behaviour are
+  unverified. Windows `cp1252` is now **partly** covered — the suite passes on
+  `windows-latest` — but only because every read and write in `keep/` passes
+  `encoding="utf-8"` explicitly. Nothing tests that a future caller must.
