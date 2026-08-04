@@ -7,7 +7,16 @@ evidence and log core that every module on the face pins. It is the base repo,
 and on this face the base repo is **not optional** — a module cannot pin an
 engine that does not exist.
 
-**Status: Phase 0.** The resolver, the two logs, the rung type, a window that
+> **Phase 0 does not meet its exit criteria.** Two independent audits
+> (`docs/audits/`) found the implementations roughly right and **the enforcement
+> theatre** — the path scans miss the Desktop leak they were written to prevent,
+> `SealedLog.append()` has no lock and breaks its own chain under concurrent use,
+> `ensure()`'s containment check is lexical, and the packaged artifact crashes on
+> startup. Nothing below should be trusted as enforced until
+> **`docs/PHASE0-REMEDIATION.md`** is worked. The list is written down; the fixes
+> are not made.
+
+**Status: Phase 0, audited and not yet clean.** The resolver, the two logs, the rung type, a window that
 opens and shows nothing, and the invariant suite. There is no record layer, no
 deadline arithmetic and no matter registry yet. Nothing here is installable by
 anyone who is not building it.
@@ -26,7 +35,10 @@ pip install pytest && pip install -e .
 pytest -q          # bare, from a cold checkout. No out-of-band install step.
 ```
 
-## What is enforced here today
+## What is *claimed* to be enforced here today
+
+*Read with the banner above — several of these are weaker than stated, and the
+audit says exactly how.*
 
 | | |
 |---|---|
