@@ -16,6 +16,16 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if "--smoke" in argv:
+        # Start, prove the interpreter and every import survived packaging, and
+        # exit without a display. This is what CI runs against the built
+        # artifact — the check that would have caught the excludes that made the
+        # first binary die on startup.
+        from homestead.keep import logs, paths, rungs  # noqa: F401
+        print("homestead: smoke ok")
+        return 0
+
     # Imported inside main so the module stays importable on a headless box —
     # the test suite reads this file, it does not open a display.
     import tkinter as tk

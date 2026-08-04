@@ -5,8 +5,18 @@
 and **the enforcement is theatre**: every claimed guarantee is weaker than its
 documentation, and in three cases the documentation is the defect.
 
-Nothing here is fixed yet. This is the list, written down so it survives the
-session that produced it.
+> **R-1 through R-7 are done (2026-08-04).** The suite is **27 passed / 13
+> xfailed**, up from 19/13, with every new test a regression against a defect
+> the audits demonstrated. **The one open decision below is still open** — the
+> sealed log's threat model — and until it is made, `SealedLog`'s docstring
+> states its limits rather than its ambition.
+>
+> Two false positives surfaced while fixing, both from my own new scans and both
+> the same family: the literal check fired on `paths.py`'s docstring (which
+> documents the banned pattern) and then on the string `"home"` inside
+> `__all__` (a symbol name, not a path). Both were fixed by narrowing scope, not
+> by editing the code being scanned. **A scan broad enough to catch its own
+> vocabulary gets switched off, and a switched-off scan is worse than none.**
 
 ---
 
@@ -47,13 +57,13 @@ the failure the "packaging at Phase 0" decision was made to prevent.
 
 | # | Fix | Source |
 |---|---|---|
-| **R-1** | **Lock `SealedLog.append()`** — a process-wide `threading.Lock` for threads plus an advisory file lock (`fcntl`, best-effort) for processes, and re-check the tail inside the lock. Prior art: `nestor/cascade.py:ledger_append`. | narrow D1 |
-| **R-2** | **Resolve in `ensure()`**, put it in `__all__`, and test it against `..`, symlinks and absolute-outside. | narrow D3, D9 |
-| **R-3** | **Fix `homestead.spec` excludes** and add a CI job that **builds the artifact and smoke-runs it**. An artifact nothing builds is not a Phase 0 deliverable. | broad #2 |
-| **R-4** | **Widen the path scans from names to mechanisms** — `os.environ[...]`, `getenv`, `expandvars`, bound `Path.home`, aliased `expanduser` — and make the literal ban segment-wise rather than substring. Re-run the injection above as a regression test. | broad #1 |
-| **R-5** | **Resolve the `home()` contradiction.** It is exported in `paths.__all__` and calling it anywhere outside the resolver is banned, so the invariant fires on correct code the first time Phase 1 needs the root. Either the scan permits `paths.home()` through the module, or the resolver stops exporting it. | broad, extra |
-| **R-6** | **Give every pending test its own reason string and a liveness assertion**, so an `ImportError` from a typo cannot masquerade as an unbuilt phase. Demonstrated: a registry satisfying I-23 exactly, with one wrong symbol name, left the suite green at 13 xfailed. | broad #5 |
-| **R-7** | **Make `VisibleLog.event` a closed enum.** `record(event, ref)` is two strings — the same shape as the predecessor's `log_activity(event_type, summary)` — so the leak moved to argument one. The current test asserts only that a kwarg *named* `body` raises `TypeError`, which tests Python's calling convention rather than the invariant. | broad #4 |
+| ~~**R-1**~~ **done** | **Lock `SealedLog.append()`** — a process-wide `threading.Lock` for threads plus an advisory file lock (`fcntl`, best-effort) for processes, and re-check the tail inside the lock. Prior art: `nestor/cascade.py:ledger_append`. | narrow D1 |
+| ~~**R-2**~~ **done** | **Resolve in `ensure()`**, put it in `__all__`, and test it against `..`, symlinks and absolute-outside. | narrow D3, D9 |
+| ~~**R-3**~~ **done** | **Fix `homestead.spec` excludes** and add a CI job that **builds the artifact and smoke-runs it**. An artifact nothing builds is not a Phase 0 deliverable. | broad #2 |
+| ~~**R-4**~~ **done** | **Widen the path scans from names to mechanisms** — `os.environ[...]`, `getenv`, `expandvars`, bound `Path.home`, aliased `expanduser` — and make the literal ban segment-wise rather than substring. Re-run the injection above as a regression test. | broad #1 |
+| ~~**R-5**~~ **done** | **Resolve the `home()` contradiction.** It is exported in `paths.__all__` and calling it anywhere outside the resolver is banned, so the invariant fires on correct code the first time Phase 1 needs the root. Either the scan permits `paths.home()` through the module, or the resolver stops exporting it. | broad, extra |
+| ~~**R-6**~~ **done** | **Give every pending test its own reason string and a liveness assertion**, so an `ImportError` from a typo cannot masquerade as an unbuilt phase. Demonstrated: a registry satisfying I-23 exactly, with one wrong symbol name, left the suite green at 13 xfailed. | broad #5 |
+| ~~**R-7**~~ **done** | **Make `VisibleLog.event` a closed enum.** `record(event, ref)` is two strings — the same shape as the predecessor's `log_activity(event_type, summary)` — so the leak moved to argument one. The current test asserts only that a kwarg *named* `body` raises `TypeError`, which tests Python's calling convention rather than the invariant. | broad #4 |
 
 ## Documentation corrections — the plan overclaims
 
@@ -63,8 +73,10 @@ These are not code fixes and matter as much:
   deliver.** Correct the plan, not just the scan.
 - **I-22 claims tamper-evidence the code does not provide** (see the decision
   below).
-- **`logs.py:23-24` says "the sealed half is worthless to a user who loses the
-  key." There is no key.** F-6 recommended hash-chained *and encrypted*; the
+- ~~**`logs.py` claimed a key that does not exist**~~ — **fixed.** The sentence
+  is removed rather than quietly corrected, and the docstring now states the
+  limits: what it detects, what it does not withstand, and that the missing
+  `read()` is a naming convention rather than a control. Original finding: F-6 recommended hash-chained *and encrypted*; the
   encryption was dropped and only its stated cost was kept. That is a sentence
   describing the honest price of a mechanism that was never built, in a file
   whose docstring lectures about exactly this.

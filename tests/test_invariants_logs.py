@@ -12,6 +12,7 @@ Note → log → prompt, and the log was one keystroke from the screen.
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 
@@ -28,16 +29,25 @@ def keep(tmp_path, monkeypatch):
 
 def test_i15_visible_log_stores_a_reference_never_content(keep):
     log = keep.VisibleLog()
-    log.record("note_added", ref=("custody", "atom", "ATM-001"))
+    log.record(keep.Event.NOTE_ADDED, ref=("custody", "atom", "ATM-001"))
     (entry,) = log.read()
     assert entry["ref"] == "custody/atom/ATM-001"
+    assert entry["event"] == "note_added"
     assert "body" not in entry and "text" not in entry
 
 
-def test_i15_visible_log_refuses_free_text(keep):
+def test_i15_visible_log_refuses_free_text_in_any_position(keep):
+    """The first version asserted only that a kwarg *named* `body` raised —
+    a test of Python's calling convention. The leak had simply moved to
+    argument one, exactly as it did in law-gazelle's `log_activity(event_type,
+    summary)`. `event` is now a closed enum."""
     log = keep.VisibleLog()
     with pytest.raises(TypeError):
-        log.record("note_added", ref=("custody", "atom", "A"), body="he threatened")
+        log.record("Note added: he was drunk again at pickup", ref=("custody", "atom", "A"))
+    with pytest.raises(TypeError):
+        log.record("note_added", ref=("custody", "atom", "A"))
+    with pytest.raises(TypeError):
+        log.record(keep.Event.NOTE_ADDED, ref=("custody", "atom", "A"), body="content")
 
 
 # ── the sealed log ───────────────────────────────────────────────────────────
@@ -52,6 +62,37 @@ def test_sealed_log_is_hash_chained(keep):
     assert log.verify() is True
 
 
+def test_i22_concurrent_appends_do_not_break_the_chain(keep):
+    """Eight threads, twenty appends each. Before `append()` took a lock this
+    wrote all 160 lines with 72 duplicate `prev` links and `verify()` False —
+    an audit trail that indicts itself, which is `cascade.ledger_append`'s
+    documented failure reproduced at the same thread count."""
+    log = keep.SealedLog()
+
+    def worker(n):
+        for i in range(20):
+            log.append({"kind": "verification", "ref": f"t{n}-{i}"})
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    lines = [json.loads(x) for x in log.path.read_text().splitlines() if x.strip()]
+    prevs = [e["prev"] for e in lines]
+    assert len(lines) == 160, f"lost lines: {len(lines)}"
+    assert len(prevs) == len(set(prevs)), f"{len(prevs) - len(set(prevs))} duplicate prev links"
+    assert log.verify() is True
+
+
+def test_verify_accepts_a_matching_expected_head(keep):
+    log = keep.SealedLog()
+    log.append({"kind": "verification", "ref": "a"})
+    assert log.verify(expected_head=log.head()) is True
+    assert log.verify(expected_head="not-the-head") is False
+
+
 def test_sealed_log_detects_tampering(keep):
     log = keep.SealedLog()
     log.append({"kind": "verification", "ref": "a"})
@@ -63,8 +104,11 @@ def test_sealed_log_detects_tampering(keep):
     assert log.verify() is False
 
 
-def test_i22_sealed_log_has_no_render_path(keep):
-    """The app appends to it and never shows it. That is the whole point."""
+def test_sealed_log_has_no_public_read_method(keep):
+    """A naming convention, not a control — `_lines()` returns everything and
+    `.path` is public. This shapes the app's own habits and stops nobody with
+    filesystem access. See the module docstring; the threat model is the one
+    open decision in docs/PHASE0-REMEDIATION.md."""
     log = keep.SealedLog()
     for forbidden in ("read", "render", "tail", "entries", "all", "show"):
         assert not hasattr(log, forbidden), (

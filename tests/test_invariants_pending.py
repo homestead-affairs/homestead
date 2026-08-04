@@ -12,14 +12,56 @@ to prevent, in an app that has already produced that failure once.
 """
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 
-pending = pytest.mark.xfail(strict=True, reason="phase not built yet")
+# Every module a pending test reaches for, and the phase that builds it.
+UNBUILT = {
+    "homestead.keep.dates": "Phase 1",
+    "homestead.keep.surfaces": "Phase 2",
+    "homestead.keep.registry": "Phase 3",
+    "homestead.keep.record": "Phase 3",
+    "homestead.keep.egress": "Phase 4",
+    "homestead.keep.patterns": "Phase 4",
+    "homestead.app.window": "Phase 4",
+    "homestead.app.cover": "Phase 4",
+}
+
+
+def pending(module: str, why: str):
+    """xfail with a reason naming *this* test's module and phase.
+
+    A shared reason string made four different states indistinguishable —
+    unbuilt phase, uninstalled package, partial implementation, and a **typo in
+    an imported symbol**. The audit demonstrated the last one: a registry
+    satisfying I-23 exactly, with the pending test importing `all_matter_types`
+    instead of `all_matters`, left the suite green at 13 xfailed. Naming the
+    module per test, plus `test_pending_liveness` below, closes that.
+    """
+    phase = UNBUILT.get(module, "unknown phase")
+    return pytest.mark.xfail(strict=True, reason=f"{module} unbuilt ({phase}) — {why}")
+
+
+def test_pending_liveness():
+    """The guard the shared reason string could not provide.
+
+    Asserts exactly which modules are still unbuilt. When a phase lands, this
+    fails *first* and by name — so a pending test cannot keep xfailing for a
+    reason nobody checked, and cannot be silently dropped because someone
+    mistyped a symbol.
+    """
+    built = sorted(m for m in UNBUILT if importlib.util.find_spec(m) is not None)
+    assert not built, (
+        f"these modules now exist: {built}. Their pending tests must be "
+        "promoted out of this file, and this list updated — do not leave them "
+        "xfailing."
+    )
 
 
 # ── Phase 1 · dates ──────────────────────────────────────────────────────────
 
-@pending
+@pending("homestead.keep.dates", "i1 i2 strict parse or refuse")
 def test_i1_i2_strict_parse_or_refuse():
     """BUG-1: `_days_until` sliced to 10 chars before trying the long-form
     formats it declared, so every `"July 1, 2026"` returned None — and the
@@ -34,7 +76,7 @@ def test_i1_i2_strict_parse_or_refuse():
             parse_deadline(junk)
 
 
-@pending
+@pending("homestead.keep.dates", "i3 overdue never disagrees with days until")
 def test_i3_overdue_never_disagrees_with_days_until():
     """BUG-3: `overdue` string-compared the raw value while `days_until`
     parsed it, so one item carried days_until=-91 and overdue=False at once."""
@@ -45,7 +87,7 @@ def test_i3_overdue_never_disagrees_with_days_until():
     assert d.overdue is True
 
 
-@pending
+@pending("homestead.keep.dates", "i5 no free text dates reach storage")
 def test_i5_no_free_text_dates_reach_storage():
     """BUG-4: snooze took free text and `is_snoozed` compared it to today as a
     string, so `"next week"` hid an item until 2099 and `"08/11/2026"` did
@@ -58,7 +100,7 @@ def test_i5_no_free_text_dates_reach_storage():
 
 # ── Phase 2 · rungs ──────────────────────────────────────────────────────────
 
-@pending
+@pending("homestead.keep.registry", "classify_schema is Phase 2")
 def test_i11_unclassified_field_is_a_build_failure():
     from homestead.keep.rungs import classify_schema
 
@@ -66,7 +108,7 @@ def test_i11_unclassified_field_is_a_build_failure():
         classify_schema({"body": None})  # no rung declared
 
 
-@pending
+@pending("homestead.keep.surfaces", "i13 l5 has no override on any surface")
 def test_i13_l5_has_no_override_on_any_surface():
     """BUG-5: `_fact_blocked` tested only `needs_source`, so `do_not_use` —
     the *stronger* rejection — still flowed into the drafting packet and the
@@ -78,7 +120,7 @@ def test_i13_l5_has_no_override_on_any_surface():
         assert may_render(Rung.L5, surface, purpose="anything") is False
 
 
-@pending
+@pending("homestead.keep.surfaces", "i35 the list pane cannot render an l4 payload")
 def test_i35_the_list_pane_cannot_render_an_l4_payload():
     from homestead.keep.rungs import Rung, may_render
     from homestead.keep.surfaces import Surface
@@ -88,7 +130,7 @@ def test_i35_the_list_pane_cannot_render_an_l4_payload():
     assert may_render(Rung.L4, Surface.S1_DETAIL, purpose=None) is True
 
 
-@pending
+@pending("homestead.keep.surfaces", "i13 l4 never reaches a model prompt")
 def test_i13_l4_never_reaches_a_model_prompt():
     from homestead.keep.rungs import Rung, may_render
     from homestead.keep.surfaces import Surface
@@ -98,7 +140,7 @@ def test_i13_l4_never_reaches_a_model_prompt():
 
 # ── Phase 3 · the registry ───────────────────────────────────────────────────
 
-@pending
+@pending("homestead.keep.registry", "i23 the registry is the only enumeration")
 def test_i23_the_registry_is_the_only_enumeration():
     """BUG-6: workers' comp — one of three advertised matter types — was
     structurally absent from the urgent queue, because three types were
@@ -108,7 +150,7 @@ def test_i23_the_registry_is_the_only_enumeration():
     assert set(all_matters()) == set(REGISTRY)
 
 
-@pending
+@pending("homestead.keep.record", "i36 nothing deletes canonical data")
 def test_i36_nothing_deletes_canonical_data():
     from homestead.keep.record import Canonical
 
@@ -118,14 +160,14 @@ def test_i36_nothing_deletes_canonical_data():
 
 # ── Phase 4 · surfaces ───────────────────────────────────────────────────────
 
-@pending
+@pending("homestead.app.window", "i21 the app does not render on start")
 def test_i21_the_app_does_not_render_on_start():
     from homestead.app.window import Window
 
     assert Window().state == "cover"
 
 
-@pending
+@pending("homestead.app.cover", "i31 the cover survives re identification")
 def test_i31_the_cover_survives_re_identification():
     """'1 overdue' over a household where one matter has deadlines identifies
     that matter. The L2 check is not theoretical at three matters."""
@@ -135,7 +177,7 @@ def test_i31_the_cover_survives_re_identification():
     assert "overdue" not in counts
 
 
-@pending
+@pending("homestead.keep.egress", "i17 no egress without an explicit per call act")
 def test_i17_no_egress_without_an_explicit_per_call_act():
     from homestead.keep.egress import send
 
@@ -143,7 +185,7 @@ def test_i17_no_egress_without_an_explicit_per_call_act():
         send("https://example.invalid/", payload={"x": 1})
 
 
-@pending
+@pending("homestead.keep.patterns", "i18 extraction patterns reject pii")
 def test_i18_extraction_patterns_reject_pii():
     """F-3: the citation regex matched `1420 Maple 87501` and missed
     `347 F.3d 1120`, and the path POSTed what it matched."""

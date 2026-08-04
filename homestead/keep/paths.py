@@ -24,7 +24,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-__all__ = ["home", "app_data", "logs_dir", "record_dir", "matter_dir", "drafts_dir"]
+__all__ = ["home", "app_data", "logs_dir", "record_dir", "matter_dir",
+           "drafts_dir", "ensure"]
 
 _ROOT_ENV = "HOMESTEAD_HOME"
 _ROOT_NAME = ".homestead"
@@ -59,11 +60,23 @@ def drafts_dir() -> Path:
     return home() / "drafts"
 
 
-def ensure(path: Path) -> Path:
-    """Create a directory under the root. Refuses anything outside it."""
-    root = home()
-    resolved = path if path.is_absolute() else root / path
-    if root != resolved and root not in resolved.parents:
-        raise ValueError(f"refusing to create {resolved} outside {root}")
-    resolved.mkdir(parents=True, exist_ok=True)
-    return resolved
+def ensure(path: Path | str) -> Path:
+    """Create a directory under the root. Refuses anything outside it.
+
+    **Resolves before checking.** `Path.parents` is lexical — it does not
+    normalize `..` — so the first version of this guard accepted
+    `home()/".."/".."/"x"` and `mkdir` created a directory at the filesystem
+    root. Absolute-outside was correctly refused the whole time; the hole was
+    normalization, not a missing check.
+
+    `resolve()` also follows symlinks, which is the other half: a symlink
+    planted under the root would otherwise redirect writes outside it.
+    """
+    root = home().resolve()
+    candidate = Path(path)
+    target = candidate if candidate.is_absolute() else root / candidate
+    target = target.resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"refusing to create {target} outside {root}")
+    target.mkdir(parents=True, exist_ok=True)
+    return target
