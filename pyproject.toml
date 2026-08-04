@@ -9,9 +9,28 @@ description = "The seat of Homestead · Affairs — the shared record, deadline 
 requires-python = ">=3.10"
 license = { text = "MIT" }
 
-# I-27: declared dependencies are TRUE. Phase 0 has none, and the suite must
-# pass from a cold checkout with nothing but pytest installed.
-dependencies = []
+# I-27: declared dependencies are TRUE. A cold checkout runs `pip install -e .`
+# and then bare `pytest -q`, with no out-of-band install step and no CI escape
+# hatch — so anything imported has to be named here.
+#
+# `holidays` is the first real dependency in this repo (Phase 1). MIT, verified
+# from the installed distribution's own metadata by
+# tests/test_invariants_dates.py, not from a report about it. It brings
+# `python-dateutil` (Apache-2.0 / BSD-3-Clause dual) which brings `six` (MIT) —
+# three packages, all pure Python, no compiled extensions, no network code.
+#
+# FRCP 6(a)(6) defines "legal holiday" as the federal holidays; this is that
+# calendar. The counting rules themselves are ours, in homestead/keep/dates.py,
+# because no open-source Python court-deadline engine exists to depend on.
+#
+# `dateutil` arrives transitively and MUST NOT be imported: `dateutil.parser`
+# invents missing components from today ('2026' -> 2026-08-04), which is BUG-1
+# inverted. test_i1_i2_nothing_else_in_this_package_parses_a_date enforces it.
+#
+# The floor is the version this was verified against, not the oldest that might
+# work. The cap is because python-holidays is pre-1.0 and this is a dependency
+# that decides when a court deadline falls.
+dependencies = ["holidays>=0.102,<1.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

@@ -18,7 +18,10 @@ import pytest
 
 # Every module a pending test reaches for, and the phase that builds it.
 UNBUILT = {
-    "homestead.keep.dates": "Phase 1",
+    # homestead.keep.dates was Phase 1 and is built. Its three tests moved to
+    # tests/test_invariants_dates.py, unmarked — which is what this file is
+    # for: test_pending_liveness failed the moment the module existed and would
+    # not go green again until they were promoted out.
     "homestead.keep.surfaces": "Phase 2",
     "homestead.keep.registry": "Phase 3",
     "homestead.keep.record": "Phase 3",
@@ -57,45 +60,6 @@ def test_pending_liveness():
         "promoted out of this file, and this list updated — do not leave them "
         "xfailing."
     )
-
-
-# ── Phase 1 · dates ──────────────────────────────────────────────────────────
-
-@pending("homestead.keep.dates", "i1 i2 strict parse or refuse")
-def test_i1_i2_strict_parse_or_refuse():
-    """BUG-1: `_days_until` sliced to 10 chars before trying the long-form
-    formats it declared, so every `"July 1, 2026"` returned None — and the
-    failure was data-dependent, because `"May 5 2026"` is exactly 10."""
-    from homestead.keep.dates import parse_deadline
-
-    assert parse_deadline("2026-08-10").iso == "2026-08-10"
-    assert parse_deadline("July 1, 2026").iso == "2026-07-01"
-    assert parse_deadline("May 5, 2026").iso == "2026-05-05"
-    for junk in ("2026", "June", "30", "next week", "", "not a date"):
-        with pytest.raises(ValueError):
-            parse_deadline(junk)
-
-
-@pending("homestead.keep.dates", "i3 overdue never disagrees with days until")
-def test_i3_overdue_never_disagrees_with_days_until():
-    """BUG-3: `overdue` string-compared the raw value while `days_until`
-    parsed it, so one item carried days_until=-91 and overdue=False at once."""
-    from homestead.keep.dates import Deadline
-
-    d = Deadline.from_text("May 5, 2026", today="2026-08-04")
-    assert d.days_until == -91
-    assert d.overdue is True
-
-
-@pending("homestead.keep.dates", "i5 no free text dates reach storage")
-def test_i5_no_free_text_dates_reach_storage():
-    """BUG-4: snooze took free text and `is_snoozed` compared it to today as a
-    string, so `"next week"` hid an item until 2099 and `"08/11/2026"` did
-    nothing at all — and there was no un-snooze anywhere in the codebase."""
-    from homestead.keep.dates import parse_deadline
-
-    with pytest.raises(ValueError):
-        parse_deadline("next week")
 
 
 # ── Phase 2 · rungs ──────────────────────────────────────────────────────────
