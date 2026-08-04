@@ -5,6 +5,20 @@
 and **the enforcement is theatre**: every claimed guarantee is weaker than its
 documentation, and in three cases the documentation is the defect.
 
+> **All eight are done (2026-08-04) — R-1 through R-7, and the open decision
+> is decided.** Suite: **30 passed / 13 xfailed**, from 19/13.
+>
+> **The decision: rename and anchor now, encrypt at Phase 4.** `SealedLog` is
+> now `IntegrityLog` — renamed rather than defended, because a name is a claim
+> and that one outran its mechanism. The chain tip is written to a *separate*
+> anchor file after each append, so truncation and tail rewrites are now caught;
+> both have tests. The honest limit has a test too:
+> `test_anchor_does_not_stop_someone_who_edits_both` asserts that a forged chain
+> plus its own anchor verifies clean, and that only a head recorded **off the
+> machine** catches it. Encryption is a named Phase 4 item, not an oversight.
+>
+> Original note follows.
+>
 > **R-1 through R-7 are done (2026-08-04).** The suite is **27 passed / 13
 > xfailed**, up from 19/13, with every new test a regression against a defect
 > the audits demonstrated. **The one open decision below is still open** — the
@@ -87,7 +101,15 @@ These are not code fixes and matter as much:
 
 ---
 
-## The one open decision — what must the sealed log withstand?
+## ~~The one open decision~~ — DECIDED 2026-08-04
+
+**Rename and anchor now; encrypt at Phase 4.** Option 1 of the three below,
+with option 2 scheduled rather than dropped. The analysis that produced it is
+kept intact.
+
+---
+
+## The decision as it stood — what must the sealed log withstand?
 
 `SealedLog` is an **unkeyed SHA-256 chain in plaintext JSONL at a predictable
 path**. `_lines()` returns every entry and `.path` is public, so "no read

@@ -53,7 +53,7 @@ def test_i15_visible_log_refuses_free_text_in_any_position(keep):
 # ── the sealed log ───────────────────────────────────────────────────────────
 
 def test_sealed_log_is_hash_chained(keep):
-    log = keep.SealedLog()
+    log = keep.IntegrityLog()
     log.append({"kind": "verification", "ref": "custody/atom/ATM-001"})
     log.append({"kind": "export", "ref": "custody/draft/D-1"})
     lines = [json.loads(x) for x in log.path.read_text().splitlines()]
@@ -67,7 +67,7 @@ def test_i22_concurrent_appends_do_not_break_the_chain(keep):
     wrote all 160 lines with 72 duplicate `prev` links and `verify()` False —
     an audit trail that indicts itself, which is `cascade.ledger_append`'s
     documented failure reproduced at the same thread count."""
-    log = keep.SealedLog()
+    log = keep.IntegrityLog()
 
     def worker(n):
         for i in range(20):
@@ -86,15 +86,63 @@ def test_i22_concurrent_appends_do_not_break_the_chain(keep):
     assert log.verify() is True
 
 
+def test_anchor_catches_truncation(keep):
+    """What the anchor is for. Without it, deleting the tail verified clean —
+    the chain from genesis to any earlier point is still internally consistent,
+    which is why a chain alone cannot detect a shorter chain."""
+    log = keep.IntegrityLog()
+    for i in range(4):
+        log.append({"kind": "verification", "ref": f"e{i}"})
+    lines = log.path.read_text().splitlines()
+    log.path.write_text("\n".join(lines[:2]) + "\n")     # drop the last two
+    assert log.verify() is False
+
+
+def test_anchor_catches_a_rewritten_final_line(keep):
+    """The chain vouches for every line except the last, which nothing follows.
+    The anchor is what follows it."""
+    log = keep.IntegrityLog()
+    log.append({"kind": "verification", "ref": "a"})
+    log.append({"kind": "verification", "ref": "b"})
+    lines = log.path.read_text().splitlines()
+    doctored = json.loads(lines[-1])
+    doctored["ref"] = "c"
+    log.path.write_text("\n".join(lines[:-1] + [json.dumps(doctored, sort_keys=True)]) + "\n")
+    assert log.verify() is False
+
+
+def test_anchor_does_not_stop_someone_who_edits_both(keep):
+    """The honest limit, asserted so nobody assumes otherwise.
+
+    An on-machine anchor detects accident, not an adversary — there is no
+    location on this machine the writer cannot reach. Only a head the operator
+    recorded off the machine closes it, and this test is the reason
+    `verify(expected_head=...)` exists.
+    """
+    log = keep.IntegrityLog()
+    log.append({"kind": "verification", "ref": "real"})
+    true_head = log.head()
+
+    log.path.unlink()
+    log.anchor_path.unlink()
+    forged = keep.IntegrityLog(log.path)
+    forged.append({"kind": "verification", "ref": "forged"})
+
+    assert forged.verify() is True, "a forged chain plus its own anchor is consistent"
+    assert forged.verify(expected_head=true_head) is False, (
+        "an off-machine head is the only thing that catches it"
+    )
+
+
 def test_verify_accepts_a_matching_expected_head(keep):
-    log = keep.SealedLog()
+    log = keep.IntegrityLog()
     log.append({"kind": "verification", "ref": "a"})
     assert log.verify(expected_head=log.head()) is True
     assert log.verify(expected_head="not-the-head") is False
 
 
 def test_sealed_log_detects_tampering(keep):
-    log = keep.SealedLog()
+    log = keep.IntegrityLog()
     log.append({"kind": "verification", "ref": "a"})
     log.append({"kind": "verification", "ref": "b"})
     raw = log.path.read_text().splitlines()
@@ -109,20 +157,20 @@ def test_sealed_log_has_no_public_read_method(keep):
     `.path` is public. This shapes the app's own habits and stops nobody with
     filesystem access. See the module docstring; the threat model is the one
     open decision in docs/PHASE0-REMEDIATION.md."""
-    log = keep.SealedLog()
+    log = keep.IntegrityLog()
     for forbidden in ("read", "render", "tail", "entries", "all", "show"):
         assert not hasattr(log, forbidden), (
-            f"SealedLog.{forbidden}() would hand the audit trail to whoever "
+            f"IntegrityLog.{forbidden}() would hand the audit trail to whoever "
             "opens the app — which is the reader F-6 is protecting against"
         )
 
 
 def test_sealed_log_verify_does_not_return_content(keep):
-    log = keep.SealedLog()
+    log = keep.IntegrityLog()
     log.append({"kind": "verification", "ref": "custody/atom/ATM-001"})
     assert log.verify() in (True, False)
 
 
 def test_both_logs_live_under_the_root(keep, tmp_path):
-    assert tmp_path in keep.SealedLog().path.parents
+    assert tmp_path in keep.IntegrityLog().path.parents
     assert tmp_path in keep.VisibleLog().path.parents

@@ -7,7 +7,14 @@ evidence and log core that every module on the face pins. It is the base repo,
 and on this face the base repo is **not optional** — a module cannot pin an
 engine that does not exist.
 
-> **Phase 0 does not meet its exit criteria.** Two independent audits
+> **Phase 0 was audited, and the findings are fixed.** Suite: **30 passed / 13
+> xfailed**. The path scans now catch the Desktop leak that walked through the
+> first version, `IntegrityLog.append()` takes a lock, `ensure()` resolves
+> before it checks, and CI builds and smoke-runs the artifact on three
+> platforms. Encryption of the integrity log is a named **Phase 4** item.
+> History below, kept rather than edited away.
+>
+> **Phase 0 did not meet its exit criteria.** Two independent audits
 > (`docs/audits/`) found the implementations roughly right and **the enforcement
 > theatre** — the path scans miss the Desktop leak they were written to prevent,
 > `SealedLog.append()` has no lock and breaks its own chain under concurrent use,
@@ -16,7 +23,7 @@ engine that does not exist.
 > **`docs/PHASE0-REMEDIATION.md`** is worked. The list is written down; the fixes
 > are not made.
 
-**Status: Phase 0, audited and not yet clean.** The resolver, the two logs, the rung type, a window that
+**Status: Phase 0, audited and remediated.** The resolver, the two logs, the rung type, a window that
 opens and shows nothing, and the invariant suite. There is no record layer, no
 deadline arithmetic and no matter registry yet. Nothing here is installable by
 anyone who is not building it.
@@ -35,15 +42,15 @@ pip install pytest && pip install -e .
 pytest -q          # bare, from a cold checkout. No out-of-band install step.
 ```
 
-## What is *claimed* to be enforced here today
+## What is enforced here today
 
-*Read with the banner above — several of these are weaker than stated, and the
-audit says exactly how.*
+*Each row was audited and, where it fell short, fixed. `docs/audits/` holds the
+findings; `docs/PHASE0-REMEDIATION.md` holds what changed.*
 
 | | |
 |---|---|
 | **I-19 / I-20** | One resolver, one spelling. `keep/paths.py` is the only module that may reach a home directory, and `expanduser()` is banned outright — it is invisible to the store's vault-leak linter, so the identical path in that spelling vanishes from the report. |
-| **I-22 / I-15** | Two logs. `VisibleLog` carries **references, never content** — it has no parameter for a note body, so the failure is a `TypeError` rather than a leak. `SealedLog` is hash-chained and has **no read method at all**; a test asserts the absence. |
+| **I-22 / I-15** | Two logs. `VisibleLog` takes a **closed `Event` enum** and a reference tuple — there is no free-text parameter in any position. `IntegrityLog` is hash-chained, locked against concurrent appends, and anchored: truncation and tail rewrites are caught. It is **not** encrypted and does **not** withstand someone who edits both the log and its anchor; the docstring says so and a test asserts it. |
 | **I-30 / I-26** | Nothing imports the network and nothing listens. The self-contained shape removes the problem rather than managing it. |
 | **I-14** | A rung is a string. `L3`, never `3` — trust runs the other direction, and `if level >= 3` reads perfectly either way while being right on one scale and catastrophic on the other. |
 | **I-27 / I-28** | Declared dependencies are true (there are none), and bare `pytest -q` works. |
