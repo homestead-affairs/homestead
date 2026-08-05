@@ -94,7 +94,8 @@ from pathlib import Path
 
 import pytest
 
-from homestead.keep.rungs import Rung, classify_schema, compose, may_render
+from homestead.keep.rungs import (Classified, Rung, UnclassifiedField,
+                                  classify_schema, compose, may_render)
 from homestead.keep.surfaces import Surface
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1260,58 +1261,71 @@ def test_i14_nothing_that_is_not_a_rung_is_ever_rendered(bad, surface):
     assert verdict(bad, surface, None) is not True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="UNRESOLVED — Phase 2's two independent hands disagree here and "
-           "neither is obviously wrong. Left failing on purpose so the call "
-           "gets made rather than absorbed. See docs/PHASE2-SURFACES.md.",
-)
 @pytest.mark.parametrize("bad", [3, 1, 0, -1, None, object(), ["L1"], 1.0])
-def test_i14_a_non_rung_is_refused_loudly_rather_than_denied_quietly(bad):
-    """The loudness half, asserted separately and stated as a belief rather
-    than as a derivation, because the model does not settle it.
+def test_i14_a_non_rung_denies_rather_than_raising(bad):
+    """The loudness half. **Decided 2026-08-05: it denies. The spec says so.**
 
-    **This corpus asserts `raise`.** A silent `False` for a mis-typed rung is
-    an unreadable denial: the operator sees a blank pane, the developer sees a
-    working gate, and the fix that gets reached for is a cast at the call site
-    — which is how a `1` becomes an `L1`. Absence fails closed *and loudly*;
-    the fail-closed runtime `L5` in I-11 is for a field that was never
-    classified, not for an argument of the wrong type.
+    This test asserted `raise` when it was written, and it was written blind —
+    the corpus author had not seen the implementation and did not know it
+    disagreed. The disagreement was real, both readings were argued, and the
+    operator resolved it. The history is kept because the reasoning is the
+    valuable part and a resolved question that leaves no trace gets re-opened
+    by the next person.
 
-    ── The disagreement, recorded 2026-08-05 ────────────────────────────────
+    **What decides it.** I-11, in as many words: *"if one reaches runtime
+    unclassified anyway it **reads `L5` and is not served**."* That is a
+    rendering decision, not an exception. `may_render` answers "may this be
+    shown"; an unreadable rung reads `L5`, and `L5` is not shown. Raising here
+    would contradict the sentence the invariant is written in.
 
-    The implementation **denies** rather than raises, and cites I-11 in as many
-    words: *"if one reaches runtime unclassified anyway it reads `L5` and is
-    not served."* That is a rendering decision, not an exception, and raising
-    would contradict the sentence. It is not an oversight — `classify_schema`,
-    `Classified`, and the *surface* argument all raise in the same
-    implementation. The asymmetry is deliberate: a surface is a call-site
-    property that can never come from data, so an unreadable one is a
-    programmer error; a rung **is** a data property, so an unreadable one is
-    the condition I-11 legislates for.
+    **The asymmetry is deliberate, not an oversight.** `classify_schema`,
+    `Classified`, and the *surface* argument all raise. A surface is a
+    call-site property that can never arrive from data, so an unreadable one
+    is a programmer error and should be loud. A rung **is** a data property,
+    so an unreadable one is precisely the condition I-11 legislates for. Loud
+    on type, closed on data.
 
-    The paragraph above it is the corpus's rebuttal, written before it had
-    seen any of that: `3` is not an unclassified field, it is a type
-    confusion, and I-14 exists precisely because `3` means something on the
-    *other* scale.
+    **What the corpus argued, preserved because it is not wrong about the
+    risk:** `3` is not an unclassified field, it is a type confusion, and I-14
+    exists because `3` means something on the *other* scale — `Rookie(1) →
+    Steady(2) → Veteran(3)`, ascending privilege. A silent `False` shows the
+    operator a blank pane and the developer a working gate, and the fix
+    reached for is a cast at the call site, which is how a `1` becomes an
+    `L1`. That risk is real and it is now **carried upstream**: the values
+    cannot enter through `classify_schema` or `Classified`, both of which
+    raise on every one of them. If a later phase opens a path into
+    `may_render` that bypasses both, this reasoning is what says the path is
+    the defect.
 
-    **Neither hand read the other.** That is the point of the exercise, and
-    this is the one cell in Phase 2 where the two readings diverge — which
-    makes it signal rather than noise, and makes it the reviewer's call rather
-    than something either author should settle alone.
-
-    **The safety guarantee does not depend on the outcome.**
+    **The safety guarantee never depended on the outcome.**
     `test_i14_nothing_that_is_not_a_rung_is_ever_rendered` above sweeps 28 bad
-    values × every surface × two purposes, and passes today: nothing that is
-    not a `Rung` is ever served, whichever way this goes. What is at stake is
-    only whether a developer finds out.
-
-    `strict=True`, so this cannot be resolved silently — changing the
-    implementation to raise fails this test and forces the reason to be
-    written down.
+    values × every surface × two purposes and passes either way: nothing that
+    is not a `Rung` is ever served. What was at stake was only whether a
+    developer finds out — and the answer is that they find out upstream.
     """
-    with pytest.raises((TypeError, ValueError, KeyError)):
-        may_render(bad, S1_LIST, purpose=None)
+    assert may_render(bad, S1_LIST, purpose=None) is False
+
+
+@pytest.mark.parametrize("bad", [3, 1, 0, -1, None, object(), ["L1"], 1.0])
+def test_i14_the_same_non_rungs_are_refused_loudly_upstream(bad):
+    """The other half of the decision above, and the reason it is safe.
+
+    `may_render` denying quietly is only defensible because these values
+    **cannot reach it through any classified path**: `classify_schema` and
+    `Classified` both raise on every one of them. Deliberately the same eight
+    values as the test above, so the pair reads as one decision — loud on the
+    way in, closed at the point of render.
+
+    Written 2026-08-05 when the denial was ratified. The argument for quiet
+    denial leans on this being true, and a load-bearing claim with no test is
+    the defect this project keeps finding. Now it has one: if a later change
+    lets any of these through classification, this fails, and the reasoning in
+    the test above stops being valid at the same moment.
+    """
+    with pytest.raises(UnclassifiedField):
+        classify_schema({"a_field": bad})
+    with pytest.raises(UnclassifiedField):
+        Classified(bad, "text")
 
 
 NOT_A_SURFACE = ["S1_LIST", "s1_list", "S1", "screen", "prompt", "", None, 0, 1,

@@ -264,3 +264,26 @@ accepted on report:
 
 The independence of this corpus rests on the agent's discipline, which is
 verified, and not on the mechanism it was promised, which did not exist.
+
+### Disposition of §5 (2026-08-05)
+
+All three disagreements are closed. **§5.1 and §5.3 were adopted by the
+implementation before landing** — `purpose` is keyword-only, and the surface
+argument now takes a `Surface` member rather than accepting the enum's own
+spelling as a bare string, which was this report's substantive finding.
+
+**§5.2 was decided against this corpus, by the operator, and its reasoning was
+kept rather than discarded.** `may_render` **denies** a non-`Rung` rather than
+raising, because I-11 says a value reaching runtime unclassified *"reads `L5`
+and is not served"* — a rendering decision, not an exception. But the risk this
+report identified is real, so it moved upstream instead of being dismissed:
+`test_i14_the_same_non_rungs_are_refused_loudly_upstream` now pins that
+`classify_schema` and `Classified` raise on the same eight values. **Loud on
+the way in, closed at the point of render.** Both arguments are preserved in
+the test docstring and in `docs/PHASE2-SURFACES.md`.
+
+**§4.1 — the non-monotone `S3` column, this report's best finding — is fixed**
+in `safe-app-store`'s `docs/homestead-rungs.md`. The cell now carries its own
+unlock, and monotonicity is stated as a rule rather than left as an
+observation. §4.2 (`L3` on `S2`) is marked open there as a product decision,
+which is what it is.

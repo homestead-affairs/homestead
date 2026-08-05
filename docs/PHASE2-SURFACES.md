@@ -185,35 +185,68 @@ pending marks, `UNBUILT` is the thing to widen. Written up in the file itself.
 
 ## The disagreement with the corpus
 
-> **Reviewer's note, 2026-08-05 — the inferred reading was correct, and the
-> disagreement is now recorded rather than resolved.**
+> **RESOLVED 2026-08-05 by the operator: it denies. The spec says so.**
+>
+> **What decided it.** I-11, in as many words: *"if one reaches runtime
+> unclassified anyway it **reads `L5` and is not served**."* That is a
+> rendering decision, not an exception. `may_render` answers "may this be
+> shown"; an unreadable rung reads `L5`, and `L5` is not shown. Raising would
+> contradict the sentence the invariant is written in. The implementation is
+> correct and unchanged.
+>
+> Neither agent could settle this and neither should have. Proposing and
+> ratifying do not rest in the same hand, and that is exactly what happened
+> here: two authors proposed, a third party ratified.
+>
+> **The corpus's argument was not wrong about the risk, so it is carried
+> rather than discarded.** `3` is not an unclassified field, it is a type
+> confusion, and I-14 exists precisely because `3` means something on the
+> *other* scale — `Rookie(1) → Steady(2) → Veteran(3)`, ascending privilege,
+> so a `1` arriving where a rung is expected is the *least trusted* principal
+> and would coerce to the *least restricted* datum. A quiet `False` shows the
+> operator a blank pane and the developer a working gate, and the fix reached
+> for is a cast at the call site — which is how a `1` becomes an `L1`.
+>
+> **So the risk moved upstream and a test now pins it there.**
+> `test_i14_the_same_non_rungs_are_refused_loudly_upstream` asserts that
+> `classify_schema` and `Classified` raise `UnclassifiedField` on the same
+> eight values — deliberately the same eight, so the pair reads as one
+> decision: **loud on the way in, closed at the point of render.** The quiet
+> denial is defensible *only* while that holds, and a load-bearing claim with
+> no test is the defect this project keeps finding. Verified by injecting an
+> integer-to-rung coercion, which is I-14's exact catastrophe: it trips 24
+> tests, including the safety sweep on egress.
+>
+> **The asymmetry is deliberate, not an oversight.** `classify_schema`,
+> `Classified` and the *surface* argument all raise. A surface is a call-site
+> property that can never arrive from data, so an unreadable one is a
+> programmer error and should be loud. A rung **is** a data property, so an
+> unreadable one is the condition I-11 legislates for. Loud on type, closed on
+> data.
+>
+> The full reasoning on both sides is kept in the test docstring rather than
+> deleted, because a resolved question that leaves no trace gets re-opened by
+> the next person. Suite: **1517 passed / 6 xfailed.**
+>
+> *The original note, written while it was still open, follows.*
+>
+> ---
 >
 > The implementation agent inferred the corpus's position from a test name
 > without ever reading it. Having read both, that inference was right on every
-> point. The corpus's own docstring also **anticipates the argument below and
-> rebuts it**, written before it had seen any of this code: `3` is not an
-> unclassified field, it is a type confusion, and I-14 exists precisely
-> because `3` means something on the *other* scale — the least-trusted
-> principal under WillowGate, which would coerce to the least-restricted
-> datum.
+> point. The corpus's own docstring also **anticipates the argument above and
+> rebuts it**, written before it had seen any of this code.
 >
 > Two hands that never met, each with a reasoned position, each having
 > anticipated the other. **That is the signal this method is built to
-> produce**, and it is not for either author — or for the orchestrator — to
+> produce**, and it was not for either author — or for the orchestrator — to
 > settle by editing the other's file.
 >
-> So the test is now `xfail(strict=True)` with both positions written into its
-> docstring, and the suite is green at **1501 passed / 14 xfailed**. `strict`
-> means it cannot be resolved quietly: changing the implementation to raise
-> turns those eight into failures and forces the reason to be written down.
-> Verified by doing exactly that against a scratch copy.
->
-> **The safety guarantee does not depend on the outcome.**
+> **The safety guarantee never depended on the outcome.**
 > `test_i14_nothing_that_is_not_a_rung_is_ever_rendered` sweeps 28 bad values
-> × every surface × two purposes and passes today. Nothing that is not a
-> `Rung` is ever served, whichever way this is decided. What is at stake is
-> only whether a developer finds out — which is the reason to decide it rather
-> than let it default.
+> × every surface × two purposes and passed throughout. Nothing that is not a
+> `Rung` is ever served either way. What was at stake was only whether a
+> developer finds out — and the answer is that they find out upstream.
 
 Eight of the corpus's parametrizations fail, and they are one test:
 `test_i14_a_non_rung_is_refused_loudly_rather_than_denied_quietly`, over
