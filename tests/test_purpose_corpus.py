@@ -38,7 +38,8 @@ S4_EGRESS  (L2, L4)   lifts — the only surface where a purpose changes an answ
   unreadable one is a programmer error. An unreadable *rung* still denies
   quietly, because I-11 says an unclassified value reaching runtime "reads `L5`
   and is not served".
-* `purpose` stays accepted on all five surfaces and is inert on three. The
+* `purpose` stays accepted on all five surfaces and is inert on four (three at
+  the time this was written; S3's column closed 2026-08-05). The
   proposal to drop it from `S1_DETAIL` was considered and **withdrawn**, because
   it would break the sweep that passes every purpose to every surface to prove
   nothing unlocks `L5` anywhere.
@@ -57,8 +58,11 @@ S4_EGRESS  (L2, L4)   lifts — the only surface where a purpose changes an answ
    `rungs._read_surface` is an `isinstance` check rather than a lookup.
 2. **The enum being decorative in the other direction.** A `_declared` that
    refuses *everything* — members included — satisfies every rejection test ever
-   written and quietly turns S3 and S4 into surfaces on which `L4` can never be
-   served. §4 asserts the lift, exhaustively, so that failure cannot pass.
+   written and quietly turns the lifting surface into one on which `L4` can never
+   be served. §4 asserts the lift, exhaustively, so that failure cannot pass.
+   (Written when S3 and S4 both lifted. S3's column closed 2026-08-05 by
+   decision, which is the opposite of this failure: intended, argued, and
+   asserted by its own test rather than silent.)
 3. **Transposition.** There are now three `str` enums in one three-argument
    call. Six ways to swap two of them, every one type-checks, and the one that
    matters most is a `Purpose` arriving where a `Rung` belongs.
@@ -157,26 +161,39 @@ def verdict(rung, surface, purpose):
 # 1 · The enum is what the contract says it is
 # ═════════════════════════════════════════════════════════════════════════════
 
-def test_the_six_members_are_exactly_the_six_that_were_ratified():
-    """Membership is a **product decision**, ratified 2026-08-05, and it is
-    pinned here so that a seventh member is an edit somebody has to make on
-    purpose rather than a convenience somebody reaches for at midnight.
+def test_the_members_are_exactly_those_that_were_ratified():
+    """Membership is a **product decision** and it is pinned here so that an
+    added member is an edit somebody has to make on purpose rather than a
+    convenience somebody reaches for at midnight.
 
     Two entries from the free-text corpus's own "plausible purposes" list are
     deliberately absent, and the reason is itself the argument for closing the
     set: `"medical"` is a data **category** and `"operator opened the record"`
     is a **surface act**. Free text let all three kinds of thing into one slot,
     which is precisely why `"x"` bought the same lift as `"medical"`.
+
+    **The set was six, ratified 2026-08-05, and became seven the same day.**
+    `COMPELLED_DISCLOSURE` was added by a separate ratification and the pin did
+    its job on the way through: adding it failed four tests in three files, which
+    is what "an edit somebody has to make on purpose" is supposed to feel like.
+    Renamed off the count at the same time — `..._the_six_members_are_exactly_the_six...`
+    would now be a title asserting a number the body contradicts, which is the
+    defect this suite renamed `test_the_ceiling_table_did_not_move` for.
+
+    It sits next to `FILING` rather than at the end, because it exists to be told
+    apart from `FILING` — the two describe the same operation and differ only in
+    who set it in motion, and adjacency is the cheapest way to make a reader see
+    that. docs/DECISION-compelled-disclosure.md.
     """
     assert [p.name for p in Purpose] == [
-        "DRAFTING", "FILING", "EXPORT",
+        "DRAFTING", "FILING", "COMPELLED_DISCLOSURE", "EXPORT",
         "SUBJECT_ACCESS", "REDISCLOSURE", "ANSWERING",
     ]
     assert [p.value for p in Purpose] == [
-        "drafting", "filing", "export",
+        "drafting", "filing", "compelled_disclosure", "export",
         "subject_access", "redisclosure", "answering",
     ]
-    assert len({p.value for p in Purpose}) == 6, (
+    assert len({p.value for p in Purpose}) == 7, (
         "two members sharing a value are one member with two names, and any "
         "table keyed on it silently loses a row"
     )
@@ -411,9 +428,9 @@ def test_l5_is_refused_structurally_rather_than_member_by_member():
     """The property behind the sweep: **the set of surfaces `L5` reaches is
     empty for every purpose, and it is the same empty set every time.**
 
-    Stated this way because "no member unlocks `L5`" could be satisfied by six
-    special cases, and six special cases is five chances to add a seventh member
-    that misses one.
+    Stated this way because "no member unlocks `L5`" could be satisfied by one
+    special case per member, and a special case per member is a chance, every
+    time the set grows, to add a member that misses one.
     """
     reach = {
         purpose: frozenset(s for s in Surface
@@ -585,7 +602,7 @@ def test_s3_derives_rather_than_denies_what_it_no_longer_renders(surface, purpos
     assert decide(Rung.L2, surface, purpose=purpose) is Disposition.RENDER
 
 
-def test_all_six_members_are_interchangeable_at_the_decision_function():
+def test_all_members_are_interchangeable_at_the_decision_function():
     """The corollary, stated as a property over the whole table.
 
     Every member produces the *same* answer as every other member, on every
@@ -594,6 +611,14 @@ def test_all_six_members_are_interchangeable_at_the_decision_function():
     closure of the set, and it is what keeps a magic value unrepresentable. The
     enum exists so that the declaration is auditable and ledgerable, not so that
     the code can start reading it.
+
+    **Renamed off the count on 2026-08-05, and this one is the reason to be
+    careful about counted names.** It iterates `MEMBERS`, so it went on passing
+    the moment a seventh member arrived — green, and its title newly false, with
+    nothing to announce it. The two pinned-set tests had to be edited to accept
+    the addition and so could not be missed; this one had to be *found*. A test
+    that keeps passing while its name goes wrong is worse than one that fails,
+    because only the failure asks to be read.
     """
     answers = {
         purpose: tuple(may_render(r, s, purpose=purpose)
@@ -972,8 +997,8 @@ def test_this_corpus_has_not_been_hollowed_out():
     """Table sizes, asserted, because a table trimmed to two rows is the
     cheapest way for a scan to stop scanning — which is what Phase 0's audit
     found twice."""
-    assert len(Purpose) == 6
-    assert len(VALID_PURPOSES) == 7
+    assert len(Purpose) == 7   # six ratified 2026-08-05, +COMPELLED_DISCLOSURE same day
+    assert len(VALID_PURPOSES) == 8   # the members, and None for "nobody declared one"
     assert len(LADDER) == 5
     assert len(Surface) == 5
     assert len(INERT_SURFACES) == 4   # was 3 until S3's column closed, 2026-08-05

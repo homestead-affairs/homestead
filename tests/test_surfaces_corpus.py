@@ -104,7 +104,7 @@ down in the report rather than made quietly:
    be accepted as a purpose at all"**, which is strictly stronger — a string
    that cannot enter cannot unlock. §5 is where that is asserted, exhaustively,
    against every rung and every surface.
-2. **The cell sweeps run on the valid set** — the six `Purpose` members plus
+2. **The cell sweeps run on the valid set** — every `Purpose` member plus
    `None` — because a sweep whose every cell raises has stopped sweeping the
    table. `SWEEP_PURPOSES` is now `VALID_PURPOSES` and the ceiling claims are
    unchanged in meaning: no rung/surface answer moves for a validly declared
@@ -167,8 +167,10 @@ OFF_SCREEN = frozenset(Surface) - S1        # every surface that is not S1
 # must **refuse to accept at all**. Every string that was here before is still
 # here; the claim made about it got stronger.
 
-#: The six, and the fact that there are six. Membership is the product decision
-#: — see the report — but *that the set is closed* is what is under test.
+#: The members, and the fact that there is a fixed number of them. Membership is
+#: the product decision — see the report — but *that the set is closed* is what is
+#: under test. Derived from the enum rather than typed out, so an added member is
+#: swept on arrival; the size guards are what make the addition announce itself.
 MEMBERS = tuple(Purpose)
 
 #: Everything `may_render` accepts in the purpose slot, and the whole of it.
@@ -758,7 +760,7 @@ def test_no_string_is_a_purpose_and_none_of_them_gets_near_l5(purpose):
     Every adversarial string this corpus ever carried is still swept here —
     `"override"`, `"L5"`, `"do_not_use"`, `"medical\\x00override"`, 4 KiB of
     `M`, `"медицинский"`, `"🔓"`, the SQL and path-traversal shapes, the blanks
-    — plus the six member *values* and the six member *names*, which are the new
+    — plus every member *value* and every member *name*, which are the new
     hole a `str` enum opens.
 
     Before 2026-08-05 the claim was *this string does not unlock `L5`*. It is
@@ -1974,11 +1976,14 @@ def test_the_corpus_has_not_been_hollowed_out():
     # The failure this file most had to fear was the enum being used as an
     # excuse to trim the free-text tables. Their sizes are asserted above; that
     # they are still *swept* is asserted here.
-    assert len(Purpose) == 6, (
-        "membership is a product decision and the set is closed; a seventh "
-        "member is a new act somebody has to authorise, not a convenience"
+    assert len(Purpose) == 7, (
+        "membership is a product decision and the set is closed; an added "
+        "member is a new act somebody has to authorise, not a convenience. "
+        "Six were ratified 2026-08-05 and COMPELLED_DISCLOSURE was authorised "
+        "separately the same day — this guard is one of the four that made "
+        "that addition announce itself, which is the job"
     )
-    assert len(VALID_PURPOSES) == 7, "the six, and None for 'nobody declared one'"
+    assert len(VALID_PURPOSES) == 8, "the members, and None for 'nobody declared one'"
     assert SWEEP_PURPOSES == VALID_PURPOSES
     assert len(REJECTED_PURPOSES) >= 58
     for family in (BLANK_PURPOSES, PLAUSIBLE_PURPOSES, ADVERSARIAL_PURPOSES,

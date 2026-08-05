@@ -26,7 +26,7 @@ quietly, because "the promoted tests keep their original bodies" was a sentence
 this file made true and it is now true with an exception.
 
 The purpose sweeps in this file used to iterate a list of strings. They now
-iterate `PURPOSES` — `None` plus the six members, which is *exhaustive over the
+iterate `PURPOSES` — `None` plus every member, which is *exhaustive over the
 whole domain* rather than over a list somebody typed — and the adversarial
 strings moved to `REFUSED_PURPOSES`, where they are asserted to raise rather
 than merely to fail to lift. That is strictly stronger than what they proved
@@ -89,10 +89,10 @@ PURPOSES = (None, *Purpose)
 #: Every shape that is **not** a purpose, and must therefore raise rather than
 #: quietly failing to lift. Three groups, and the first is the interesting one:
 #:
-#: * the six members' own **spellings**, as bare strings, plus their `.name`s
-#:   and `str()`s. `Purpose` is a `str` enum, so `Purpose.DRAFTING ==
+#: * every member's own **spelling**, as a bare string, plus its `.name`
+#:   and `str()`. `Purpose` is a `str` enum, so `Purpose.DRAFTING ==
 #:   "drafting"` is `True`, and a membership check written against values would
-#:   accept exactly these six strings and refuse every other one. `Surface` had
+#:   accept exactly those strings and refuse every other one. `Surface` had
 #:   that bug at Phase 2 and it was the corpus's most substantive finding.
 #: * the other `str` enums in the package — a `Rung` in the purpose slot is the
 #:   cross-slot confusion the same `str` subclassing invites.
@@ -644,8 +644,14 @@ def test_i13_no_purpose_string_is_magic():
                 may_render(Rung.L1, surface, purpose=purpose)
 
 
-def test_the_purpose_enum_is_the_six_that_were_published():
+def test_the_purpose_enum_is_the_set_that_was_ratified():
     """The contract both hands were bound by, pinned so it cannot drift.
+
+    **`..._is_the_six_that_were_published` until 2026-08-05.** The set is seven
+    now — a ratified addition, below — and a test named for a count is a test
+    that has to be renamed every time the thing it guards legitimately changes.
+    Named for the *property* instead: the set is exactly what was ratified,
+    whatever its size. The count still gets asserted; it just is not the title.
 
     Membership is **provisional** — the ruling says so — but provisional means
     *revisable by decision*, not revisable by whoever is editing the file. A
@@ -653,6 +659,24 @@ def test_the_purpose_enum_is_the_six_that_were_published():
     unlock `L4` on egress. A member removed is a call site that stops
     compiling, which is at least loud, but it is still a product change wearing
     a refactor's clothes.
+
+    **Correction, 2026-08-05 — the pin is right and that stated reason is not,
+    and it is left above rather than rewritten.** "One more call site that can
+    unlock `L4` on egress" implies a seventh member adds exposure. Measured, it
+    adds none: no member is ranked, so a call site wanting `L4` on `S4_EGRESS`
+    declares `DRAFTING` today and gets the identical lift from the identical
+    line. A seventh member is not one more call site that can unlock `L4`; it is
+    the same call site with a different word in it. **The set being closed bounds
+    the vocabulary, not the capability** — which is this repo's own sentence
+    (*`may_render` gains no safety from membership; the value is auditability*)
+    arriving one level up, in the docstring of the test that enforces the bound.
+
+    So why keep the pin? For the second sentence above, which was always the
+    load-bearing one: a membership change is a **product decision**, and one that
+    lands as a quiet diff is a decision nobody made. The ledger vocabulary is
+    what the set is *for*, and a word added to it without ratification is exactly
+    as unreviewed as a lift would have been. See docs/DECISION-compelled-disclosure.md
+    § *The mechanical facts, measured*.
 
     Two entries from the corpus's own plausible list are deliberately **not**
     here, and the reason is the argument for the enum. `"medical"` is a data
@@ -664,6 +688,7 @@ def test_the_purpose_enum_is_the_six_that_were_published():
     assert {p.name: p.value for p in Purpose} == {
         "DRAFTING": "drafting",
         "FILING": "filing",
+        "COMPELLED_DISCLOSURE": "compelled_disclosure",   # ratified 2026-08-05
         "EXPORT": "export",
         "SUBJECT_ACCESS": "subject_access",
         "REDISCLOSURE": "redisclosure",
@@ -680,9 +705,9 @@ def test_a_bare_string_is_not_a_purpose_even_when_it_spells_one():
 
     `Purpose` is a `str` enum, so `Purpose.DRAFTING == "drafting"` is `True`.
     Any check written against *values* — `purpose in {p.value for p in
-    Purpose}`, or `Purpose(purpose)`, which coerces — accepts exactly the six
-    member spellings and refuses every other string. That is not a smaller hole
-    than free text; it is a stranger one, six magic strings where there were
+    Purpose}`, or `Purpose(purpose)`, which coerces — accepts exactly the member
+    spellings and refuses every other string. That is not a smaller hole
+    than free text; it is a stranger one, one magic string per member where there were
     none, and it is invisible to a sampling test because a random sampler never
     produces `"drafting"`.
 
@@ -765,7 +790,7 @@ def test_i13_the_decision_never_reads_the_content_of_a_purpose():
     **Still true, and it means something slightly different, 2026-08-05.** The
     closed enum bounds *which* purposes can arrive; this bounds what the code
     may do with one once it has. Those are independent and the second is not
-    made redundant by the first — a six-member enum plus `if purpose is
+    made redundant by the first — a closed enum plus `if purpose is
     Purpose.FILING: return True` is an escape hatch with a nicer type. The
     decision still turns on whether a purpose was declared and never on which
     one, and the ceiling table still has two columns rather than seven.
@@ -840,7 +865,7 @@ def test_no_purpose_member_is_more_of_a_declaration_than_another():
 
     This is what the AST scan cannot see, because the scan exempts `_declared`
     entirely and a member comparison could hide in there. Here it could not:
-    the six members are asserted interchangeable across the whole
+    every member is asserted interchangeable with every other across the whole
     rung × surface grid, so a `Purpose.FILING` that lifted one cell further
     than `Purpose.EXPORT` fails whatever the code that did it looked like.
 
