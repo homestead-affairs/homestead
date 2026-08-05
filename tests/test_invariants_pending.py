@@ -22,7 +22,29 @@ UNBUILT = {
     # tests/test_invariants_dates.py, unmarked — which is what this file is
     # for: test_pending_liveness failed the moment the module existed and would
     # not go green again until they were promoted out.
-    "homestead.keep.surfaces": "Phase 2",
+    #
+    # homestead.keep.surfaces was Phase 2 and is built. Its three tests, plus
+    # the I-11 test that was mis-attributed to `registry`, moved to
+    # tests/test_invariants_surfaces.py, unmarked. Same mechanism, second
+    # occasion.
+    #
+    # **The mis-attribution was not a typo and is worth leaving written down.**
+    # `test_i11_unclassified_field_is_a_build_failure` imported
+    # `classify_schema` from `homestead.keep.rungs`, which has existed since
+    # Phase 0, and was marked `@pending("homestead.keep.registry", ...)`
+    # because `rungs` could not be named here: a module in this dict is
+    # asserted *not to exist*, and `rungs` did. So a Phase 2 addition to an
+    # already-built module had no honest home, and it borrowed a Phase 3 one.
+    #
+    # That is a real limit of R-6 rather than a slip. This guard is
+    # **module-granular** — `importlib.util.find_spec` answers for a module, not
+    # for a symbol inside it — so a pending test whose real dependency is a
+    # *function* that does not exist yet cannot be tracked by it at all. Two
+    # consequences, both live: the reason string can be wrong in a way nothing
+    # detects, and such a test goes XPASS-strict when its symbol lands, which is
+    # a failure but not one that names the module. Phase 3 adds `registry`,
+    # `record` and functions to modules that already exist; if it needs
+    # symbol-granular pending marks, this dict is the thing to widen.
     "homestead.keep.registry": "Phase 3",
     "homestead.keep.record": "Phase 3",
     "homestead.keep.egress": "Phase 4",
@@ -60,46 +82,6 @@ def test_pending_liveness():
         "promoted out of this file, and this list updated — do not leave them "
         "xfailing."
     )
-
-
-# ── Phase 2 · rungs ──────────────────────────────────────────────────────────
-
-@pending("homestead.keep.registry", "classify_schema is Phase 2")
-def test_i11_unclassified_field_is_a_build_failure():
-    from homestead.keep.rungs import classify_schema
-
-    with pytest.raises(Exception):
-        classify_schema({"body": None})  # no rung declared
-
-
-@pending("homestead.keep.surfaces", "i13 l5 has no override on any surface")
-def test_i13_l5_has_no_override_on_any_surface():
-    """BUG-5: `_fact_blocked` tested only `needs_source`, so `do_not_use` —
-    the *stronger* rejection — still flowed into the drafting packet and the
-    model prompt, while the screen said 'Excluded from drafting'."""
-    from homestead.keep.rungs import Rung, may_render
-    from homestead.keep.surfaces import Surface
-
-    for surface in Surface:
-        assert may_render(Rung.L5, surface, purpose="anything") is False
-
-
-@pending("homestead.keep.surfaces", "i35 the list pane cannot render an l4 payload")
-def test_i35_the_list_pane_cannot_render_an_l4_payload():
-    from homestead.keep.rungs import Rung, may_render
-    from homestead.keep.surfaces import Surface
-
-    assert may_render(Rung.L4, Surface.S1_LIST, purpose=None) is False
-    assert may_render(Rung.L4, Surface.S1_LIST, purpose="medical") is False
-    assert may_render(Rung.L4, Surface.S1_DETAIL, purpose=None) is True
-
-
-@pending("homestead.keep.surfaces", "i13 l4 never reaches a model prompt")
-def test_i13_l4_never_reaches_a_model_prompt():
-    from homestead.keep.rungs import Rung, may_render
-    from homestead.keep.surfaces import Surface
-
-    assert may_render(Rung.L4, Surface.S2_PROMPT, purpose="medical") is False
 
 
 # ── Phase 3 · the registry ───────────────────────────────────────────────────
