@@ -83,6 +83,43 @@ not pinned by the contract, so §8 probes a set of plausible spellings and
 reports which were accepted rather than asserting one. A failure there is an
 **API disagreement**, cheaper to have now than at the first schema. Everything
 in §§1-7 and §9-11 is a safety claim and none of it is shape-tolerant.
+
+---
+
+## The 2026-08-05 conversion — a purpose is a closed enum
+
+This file shipped parameterised on **free-text purposes** throughout, because
+that is what `purpose` was: any non-blank string. The operator ratified the fix
+on 2026-08-05 — *a purpose is a closed enum* — and this is the faithful
+translation of the corpus onto it, performed by the blind hand rather than the
+implementing one, because the translation is what decides what the tests prove.
+
+Three rules governed every edit below, and any departure from them is written
+down in the report rather than made quietly:
+
+1. **Nothing adversarial was deleted.** `"medical\\x00override"`, `"M" * 4096`,
+   `"медицинский"`, `"🔓"`, the blanks, the SQL and path-traversal shapes are all
+   still here, in `ADVERSARIAL_PURPOSES`, still swept. What changed is the claim
+   made about them: they move from *"must not unlock anything"* to **"must not
+   be accepted as a purpose at all"**, which is strictly stronger — a string
+   that cannot enter cannot unlock. §5 is where that is asserted, exhaustively,
+   against every rung and every surface.
+2. **The cell sweeps run on the valid set** — the six `Purpose` members plus
+   `None` — because a sweep whose every cell raises has stopped sweeping the
+   table. `SWEEP_PURPOSES` is now `VALID_PURPOSES` and the ceiling claims are
+   unchanged in meaning: no rung/surface answer moves for a validly declared
+   purpose.
+3. **A valid purpose is used wherever a purpose was standing in for "declared"
+   while some *other* argument was the thing under test.** `verdict(bad_rung,
+   surface, "medical")` would now raise on the purpose and never reach the rung,
+   so every such probe passes vacuously. That substitution is the single largest
+   class of edit in this file and the one most able to hollow it out silently.
+
+**The new guarantees the enum is supposed to buy live in
+`tests/test_purpose_corpus.py`** — that no string is a purpose including the
+member *values*, that no member unlocks `L5` anywhere, that a member is inert on
+the three surfaces whose ceilings are equal, that the decision is stateless, and
+what happens when a `Purpose` and a `Rung` are transposed.
 """
 from __future__ import annotations
 
@@ -94,8 +131,9 @@ from pathlib import Path
 
 import pytest
 
-from homestead.keep.rungs import (Classified, Rung, UnclassifiedField,
-                                  classify_schema, compose, may_render)
+from homestead.keep.rungs import (Classified, Purpose, Rung, UnclassifiedField,
+                                  UndeclaredPurpose, classify_schema, compose,
+                                  may_render)
 from homestead.keep.surfaces import Surface
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -123,14 +161,29 @@ S4 = _by_prefix("S4_")          # egress — drafts, exports, filings, manifests
 OFF_SCREEN = frozenset(Surface) - S1        # every surface that is not S1
 
 # ── purposes ─────────────────────────────────────────────────────────────────
-# A purpose is a free string, so it is also the attack surface: it is the only
-# argument a caller controls. Three families, used differently below.
+# Until 2026-08-05 a purpose was a free string, and therefore the only argument
+# a caller controlled — the attack surface. It is now a closed enum, so the
+# families below split in two: the ones `may_render` **accepts**, and the ones it
+# must **refuse to accept at all**. Every string that was here before is still
+# here; the claim made about it got stronger.
 
-#: Not a declaration. A caller that passes one of these has declared nothing,
-#: and blank must never unlock what `None` does not.
+#: The six, and the fact that there are six. Membership is the product decision
+#: — see the report — but *that the set is closed* is what is under test.
+MEMBERS = tuple(Purpose)
+
+#: Everything `may_render` accepts in the purpose slot, and the whole of it.
+#: `None` is not an error: it means no purpose was declared.
+VALID_PURPOSES = (None,) + MEMBERS
+
+#: Not a declaration, and now not even a well-typed one. A caller that passes
+#: one of these declared nothing; blank must never unlock what `None` does not,
+#: and under the enum it does not get as far as being asked.
 BLANK_PURPOSES = ("", " ", "   ", "\t", "\n", "\t \n ")
 
-#: What a real caller would say.
+#: What a real caller would say — in the free-text world. Two of these are
+#: deliberately *not* members and the reason is the argument for closing the
+#: set: `"medical"` is a data **category** and `"operator opened the record"` is
+#: a **surface act**. Free text invited all three kinds of thing into one slot.
 PLAUSIBLE_PURPOSES = (
     "medical",
     "drafting",
@@ -143,8 +196,9 @@ PLAUSIBLE_PURPOSES = (
 )
 
 #: What someone reaching for an escape hatch would say — including the words
-#: this very model uses about itself. If any of these serves `L5`, the rung is
-#: a label rather than a control.
+#: this very model uses about itself. Before the enum these had to not *serve*
+#: `L5`; now they have to not be *accepted*, which is the stronger claim and the
+#: reason none of them was deleted in the conversion.
 ADVERSARIAL_PURPOSES = (
     "override",
     "admin",
@@ -182,17 +236,31 @@ ADVERSARIAL_PURPOSES = (
 
 PURPOSE_STRINGS = BLANK_PURPOSES + PLAUSIBLE_PURPOSES + ADVERSARIAL_PURPOSES
 
-#: The set the exhaustive cell sweep runs over. Trimmed from the full list so
-#: the sweep stays legible; the full list is used where it matters most, which
-#: is the hunt for anything that serves `L5`.
-SWEEP_PURPOSES = (
-    None, "", "   ", "medical", "drafting", "export", "operator opened the record",
-    "override", "L5", "any", "*", "медицинский",
-)
+#: **The likely hole, and it is new with the enum.** `Purpose` is a `str`
+#: subclass, so `Purpose.DRAFTING == "drafting"` is `True`, and — checked, not
+#: assumed — `hash(Purpose.DRAFTING) == hash("drafting")`, so a `dict` or a
+#: `set` keyed on members finds the bare string. Any membership test written as
+#: `purpose in _VALID` accepts `"drafting"` from a caller who never imported the
+#: enum. `Surface` had exactly this bug in Phase 2. The spellings are both the
+#: value and the member name, because `Purpose["DRAFTING"]` is the other way in.
+MEMBER_VALUE_STRINGS = tuple(p.value for p in Purpose)
+MEMBER_NAME_STRINGS = tuple(p.name for p in Purpose)
+
+#: Everything that must be refused outright. The old free-text corpus in full,
+#: plus the member spellings. Nothing was dropped to build this.
+REJECTED_PURPOSES = PURPOSE_STRINGS + MEMBER_VALUE_STRINGS + MEMBER_NAME_STRINGS
+
+#: The set the exhaustive cell sweep runs over. Before the enum this was a
+#: trimmed selection of free text; it is now the whole accepted set, which is
+#: both smaller and complete — every purpose an implementation may be handed is
+#: swept against every rung on every surface, with none left over.
+SWEEP_PURPOSES = VALID_PURPOSES
 
 
 def _pid(value) -> str:
     """A readable parametrize id for a purpose that may be 4 KiB of `M`."""
+    if isinstance(value, Purpose):
+        return value.name
     text = repr(value)
     return text if len(text) <= 28 else text[:25] + "…"
 
@@ -204,6 +272,14 @@ def verdict(rung, surface, purpose):
     exception object rather than re-raising lets a single assertion cover both
     acceptable answers (refuse loudly / deny quietly) while still failing on
     the one unacceptable answer, which is `True`.
+
+    **Re-checked at the 2026-08-05 conversion**, because the whole type
+    discipline section rests on it: `except Exception` catches
+    `UndeclaredPurpose` (a `TypeError`) exactly as it caught everything before,
+    so every `verdict(...) is not True` assertion survives the change with its
+    meaning intact. What does *not* survive is comparing two `verdict` results
+    with `is` — two raised exceptions are two distinct objects — and the one
+    test that did that is converted explicitly rather than left to rot.
     """
     try:
         return may_render(rung, surface, purpose=purpose)
@@ -212,9 +288,24 @@ def verdict(rung, surface, purpose):
 
 
 def rendered_on(rung, purpose) -> frozenset:
-    """The set of surfaces on which this rung may be rendered as a payload."""
+    """The set of surfaces on which this rung may be rendered as a payload.
+
+    Takes an **accepted** purpose — `None` or a `Purpose`. A rejected one raises
+    out of here, which is deliberate: a helper that swallowed it would turn
+    "refused to accept" into "rendered nowhere", and those are different
+    findings.
+    """
     return frozenset(
         s for s in Surface if may_render(rung, s, purpose=purpose) is True
+    )
+
+
+def surfaces_refusing_to_accept(purpose) -> frozenset:
+    """Every surface on which this purpose is refused **as a purpose**, at every
+    rung. The counterpart to `rendered_on` for the rejected family."""
+    return frozenset(
+        s for s in Surface
+        if all(isinstance(verdict(r, s, purpose), UndeclaredPurpose) for r in LADDER)
     )
 
 
@@ -374,8 +465,17 @@ def test_contract_an_undeclared_rung_is_a_build_failure():
 def test_contract_l5_is_never_served_on_any_surface(surface):
     """`L5` — sealed. Never served on any surface, **including to the
     operator's own agents**. A fact marked `do_not_use` is `L5`, and this is
-    the line BUG-5 walked past."""
-    assert may_render(Rung.L5, surface, purpose="anything") is False
+    the line BUG-5 walked past.
+
+    Was `purpose="anything"`, one string. Under the enum `"anything"` is not a
+    purpose and never reaches the rung, so the claim is made twice instead: once
+    over every purpose that *is* accepted, and once over the string, which must
+    be refused. Losing the second half would be losing the test.
+    """
+    for purpose in VALID_PURPOSES:
+        assert may_render(Rung.L5, surface, purpose=purpose) is False
+    with pytest.raises(UndeclaredPurpose):
+        may_render(Rung.L5, surface, purpose="anything")
 
 
 def test_contract_the_list_pane_never_renders_l4_and_the_detail_pane_does():
@@ -384,16 +484,23 @@ def test_contract_the_list_pane_never_renders_l4_and_the_detail_pane_does():
     accept one, so nothing sensitive can be ambient even by mistake. The detail
     pane serves it with **no purpose string at all**, because the deliberate
     act of opening it *is* the declaration: by widget, not by dialog, so there
-    is no ceremony tax on a person in crisis."""
+    is no ceremony tax on a person in crisis.
+
+    `"medical"` was the purpose here and it is deliberately **not** a member —
+    it is a data category, not a purpose — so the with-a-purpose half runs over
+    every member instead, which is more than it checked before.
+    """
     assert may_render(Rung.L4, S1_LIST, purpose=None) is False
-    assert may_render(Rung.L4, S1_LIST, purpose="medical") is False
+    for purpose in MEMBERS:
+        assert may_render(Rung.L4, S1_LIST, purpose=purpose) is False
     assert may_render(Rung.L4, S1_DETAIL, purpose=None) is True
 
 
 def test_contract_l4_never_reaches_a_model_prompt():
     """I-13's first hard stop. If a local model needs the diagnosis to do its
     job, that is a signal the job is wrong, not that the rung should bend."""
-    assert may_render(Rung.L4, S2_PROMPT, purpose="medical") is False
+    for purpose in VALID_PURPOSES:
+        assert may_render(Rung.L4, S2_PROMPT, purpose=purpose) is False
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -472,7 +579,7 @@ def test_bug5_the_permitted_surfaces_only_shrink_as_the_rung_rises(purpose):
         )
 
 
-@pytest.mark.parametrize("purpose", PURPOSE_STRINGS, ids=[_pid(p) for p in PURPOSE_STRINGS])
+@pytest.mark.parametrize("purpose", VALID_PURPOSES, ids=[_pid(p) for p in VALID_PURPOSES])
 def test_l1_is_rendered_on_every_surface(purpose):
     """`L1` — already public, or publishable, in this matter's own forum;
     survives being read aloud in a hallway. The crossing table says `render` in
@@ -481,11 +588,15 @@ def test_l1_is_rendered_on_every_surface(purpose):
     This test is why the corpus cannot be passed by `return False`. A gate that
     denies everything is not a gate, it is an outage, and a person in crisis
     who cannot see their own hearing date has been failed by the tool.
+
+    **And it is why the enum cannot be passed by refusing everything either.**
+    A `_declared` that rejected every purpose, members included, would satisfy
+    every rejection test in §5 and this one would still fail.
     """
     assert rendered_on(Rung.L1, purpose) == frozenset(Surface)
 
 
-@pytest.mark.parametrize("purpose", PURPOSE_STRINGS, ids=[_pid(p) for p in PURPOSE_STRINGS])
+@pytest.mark.parametrize("purpose", VALID_PURPOSES, ids=[_pid(p) for p in VALID_PURPOSES])
 def test_l2_is_rendered_on_every_surface_without_a_purpose(purpose):
     """`L2` — household. Counts, schedules, operational state; no person's
     identity and no protected category. "Renderable on any household surface
@@ -522,7 +633,7 @@ def test_l4_is_rendered_only_in_the_detail_pane_without_a_purpose():
     assert rendered_on(Rung.L4, None) == frozenset({S1_DETAIL})
 
 
-@pytest.mark.parametrize("purpose", PLAUSIBLE_PURPOSES)
+@pytest.mark.parametrize("purpose", MEMBERS, ids=[p.name for p in MEMBERS])
 def test_l4_with_a_purpose_still_never_reaches_the_list_or_the_prompt(purpose):
     """The two cells a declared purpose does **not** open, whatever it says.
 
@@ -543,7 +654,7 @@ def test_l4_with_a_purpose_still_never_reaches_the_list_or_the_prompt(purpose):
     assert got <= frozenset({S1_DETAIL}) | S3 | S4
 
 
-@pytest.mark.parametrize("purpose", PLAUSIBLE_PURPOSES)
+@pytest.mark.parametrize("purpose", MEMBERS, ids=[p.name for p in MEMBERS])
 def test_l3_with_a_purpose_still_never_reaches_a_model_prompt(purpose):
     """The `L3 · S2` cell reads `derived`, flat, where `L3 · S4` reads
     `explicit act, ledgered` and `L4 · S1` reads `derived unless purpose`. The
@@ -559,22 +670,25 @@ def test_l3_with_a_purpose_still_never_reaches_a_model_prompt(purpose):
     assert S2_PROMPT not in rendered_on(Rung.L3, purpose)
 
 
-@pytest.mark.parametrize("purpose", SWEEP_PURPOSES, ids=[_pid(p) for p in SWEEP_PURPOSES])
-def test_nothing_off_the_operators_screen_serves_l3_without_an_explicit_act(purpose):
+def test_nothing_off_the_operators_screen_serves_l3_without_an_explicit_act():
     """S2, S3 and S4 are the surfaces where a datum *leaves*, and the whole
     `L3` row off S1 is `derived` or `explicit act`. Asserted for every surface
     that is not S1, by prefix, because this file does not know what the S3 and
     S4 members are called.
 
-    Blank strings are included in the sweep deliberately: `""` is not an
-    explicit act.
+    **Converted 2026-08-05.** This was parameterised over the sweep and guarded
+    by `if purpose is None or not str(purpose).strip()`, so what it actually
+    tested was the *undeclared* cases — `None` and the blanks. Under the enum
+    `None` is the whole of "undeclared", because a blank is no longer a value
+    the function will take. So the `None` half is asserted directly here and the
+    blank half moves to the test below it, where it is asserted as a refusal —
+    which is the stronger of the two readings and not a loss.
     """
-    if purpose is None or not str(purpose).strip():
-        for surface in OFF_SCREEN:
-            assert may_render(Rung.L3, surface, purpose=purpose) is False, (
-                f"{surface.name} served an L3 payload on purpose={purpose!r} — "
-                "a blank purpose is not an explicit act"
-            )
+    for surface in OFF_SCREEN:
+        assert may_render(Rung.L3, surface, purpose=None) is False, (
+            f"{surface.name} served an L3 payload with no purpose declared — "
+            "the L3 row off S1 is derived or an explicit act"
+        )
 
 
 @pytest.mark.parametrize("purpose", BLANK_PURPOSES, ids=[_pid(p) for p in BLANK_PURPOSES])
@@ -583,17 +697,23 @@ def test_a_blank_purpose_unlocks_nothing_that_no_purpose_unlocks(purpose):
     cell that `None` does not, then every call site that forgot to fill the
     field is authorized, and the declaration is a formality rather than a
     decision. This is the cheapest possible way for the whole `L4` regime to
-    become decorative."""
+    become decorative.
+
+    **The enum closes this differently and more completely.** A blank is not
+    weighed and found wanting; it is not a `Purpose`, so it is refused before
+    anything is decided, on every rung and every surface. The old assertion
+    (`rendered_on(rung, blank) <= rendered_on(rung, None)`) is kept underneath
+    it in the only form that still means anything — the blank renders nothing
+    anywhere, because it never gets an answer at all.
+    """
     for rung in LADDER:
-        assert rendered_on(rung, purpose) <= rendered_on(rung, None), (
-            f"a blank purpose {purpose!r} opened "
-            f"{sorted(s.name for s in rendered_on(rung, purpose) - rendered_on(rung, None))} "
-            f"for {rung.name}"
-        )
+        for surface in Surface:
+            with pytest.raises(UndeclaredPurpose):
+                may_render(rung, surface, purpose=purpose)
+    assert surfaces_refusing_to_accept(purpose) == frozenset(Surface)
 
 
-@pytest.mark.parametrize("purpose", PLAUSIBLE_PURPOSES + ADVERSARIAL_PURPOSES,
-                         ids=[_pid(p) for p in PLAUSIBLE_PURPOSES + ADVERSARIAL_PURPOSES])
+@pytest.mark.parametrize("purpose", MEMBERS, ids=[p.name for p in MEMBERS])
 def test_declaring_a_purpose_never_takes_a_permission_away(purpose):
     """The other direction: a purpose is a widening, not a filter. If the
     detail pane serves `L4` to a caller who said nothing, it must serve it to a
@@ -613,20 +733,49 @@ def test_declaring_a_purpose_never_takes_a_permission_away(purpose):
 # "A rung with an escape hatch is a label, not a control." This section tries
 # hard to find one.
 
-@pytest.mark.parametrize("purpose", (None,) + PURPOSE_STRINGS,
-                         ids=[_pid(p) for p in (None,) + PURPOSE_STRINGS])
+@pytest.mark.parametrize("purpose", VALID_PURPOSES, ids=[_pid(p) for p in VALID_PURPOSES])
 def test_l5_is_served_by_no_argument_on_no_surface(purpose):
-    """Every purpose this corpus can think of, against every surface. `L5`
+    """Every purpose that can legally be declared, against every surface. `L5`
     includes any fact the operator marked **`do_not_use`** and why, the content
     of a sealed record, export-ledger key material, substance-use treatment
     records under 42 CFR Part 2, and anything under a protective order.
 
-    `do_not_use` is BUG-5's own datum. There is no string a caller can pass
-    that puts it back in the drafting packet.
+    `do_not_use` is BUG-5's own datum. There is no purpose a caller can declare
+    that puts it back in the drafting packet — and now there is no string a
+    caller can pass either, which is the test below.
     """
     assert rendered_on(Rung.L5, purpose) == frozenset(), (
         f"purpose={purpose!r} served L5 on "
         f"{sorted(s.name for s in rendered_on(Rung.L5, purpose))}"
+    )
+
+
+@pytest.mark.parametrize("purpose", REJECTED_PURPOSES,
+                         ids=[_pid(p) for p in REJECTED_PURPOSES])
+def test_no_string_is_a_purpose_and_none_of_them_gets_near_l5(purpose):
+    """**The conversion of the old sweep, and the reason nothing was deleted.**
+
+    Every adversarial string this corpus ever carried is still swept here —
+    `"override"`, `"L5"`, `"do_not_use"`, `"medical\\x00override"`, 4 KiB of
+    `M`, `"медицинский"`, `"🔓"`, the SQL and path-traversal shapes, the blanks
+    — plus the six member *values* and the six member *names*, which are the new
+    hole a `str` enum opens.
+
+    Before 2026-08-05 the claim was *this string does not unlock `L5`*. It is
+    now *this string is not a purpose*, which subsumes it: a value that cannot
+    enter the argument cannot unlock anything at any rung, so this runs the
+    whole ladder rather than just `L5`. Asserted as `UndeclaredPurpose`
+    specifically, because the contract names it — "loud on type, closed on
+    data" — and because a bare `TypeError` here could as easily be an arity
+    error that means the call did not happen at all.
+    """
+    for surface in Surface:
+        for rung in LADDER:
+            with pytest.raises(UndeclaredPurpose):
+                may_render(rung, surface, purpose=purpose)
+    assert rendered_on(Rung.L1, None) == frozenset(Surface), (
+        "sanity: the same call with a declared-nothing purpose still answers, "
+        "so the refusal above is about the purpose and not about the module"
     )
 
 
@@ -677,9 +826,34 @@ def test_l5_is_not_served_by_a_purpose_that_is_not_a_string(purpose, surface):
 
     `_AlwaysEqual` is the sharp one — it is the object shape that walks through
     any equality-based guard, and `may_render` is the guard the whole
-    application routes through.
+    application routes through. Under the enum it is sharper still: a
+    membership test written `purpose == Purpose.DRAFTING` or `purpose in
+    _VALID` is passed by it, and `Purpose` being a `str` subclass makes both
+    spellings the natural ones to write.
+
+    **The safety half is unchanged and is asserted first**, exactly as it was
+    before the enum, so the answer to the loudness question below cannot weaken
+    it.
     """
     assert verdict(Rung.L5, surface, purpose) is not True
+
+
+@pytest.mark.parametrize("purpose", NON_STRING_PURPOSES, ids=[_pid(p) for p in NON_STRING_PURPOSES])
+@pytest.mark.parametrize("surface", list(Surface), ids=[s.name for s in Surface])
+def test_a_purpose_that_is_not_a_purpose_is_refused_loudly(purpose, surface):
+    """The loudness half, separately — and after 2026-08-05 it has an answer.
+
+    Before the enum this was open: refusing loudly and denying quietly were both
+    defensible for a malformed purpose. The ratified rule closes it —
+    **loud on type, closed on data** — and a purpose is a *call-site* property
+    like a surface, never something that arrives from a record, so an unreadable
+    one is a programmer error. Contrast the rung immediately below in §9, which
+    denies quietly because I-11 says an unclassified value reaching runtime
+    "reads `L5` and is not served".
+    """
+    for rung in LADDER:
+        with pytest.raises(UndeclaredPurpose):
+            may_render(rung, surface, purpose=purpose)
 
 
 @pytest.mark.parametrize("purpose", NON_STRING_PURPOSES, ids=[_pid(p) for p in NON_STRING_PURPOSES])
@@ -698,16 +872,31 @@ def test_a_rung_passed_as_a_purpose_is_only_its_own_string(rung):
     `isinstance(purpose, str)` cannot tell the two arguments apart. That is one
     transposed argument away from being written by accident.
 
-    The claim is not that it must be refused — `Rung.L1` *is* the string
-    `"L1"`, and `"L1"` is a purpose string like any other. The claim is that it
-    gets **no special power from being a rung**: whatever `purpose="L1"` does,
-    `purpose=Rung.L1` does, and neither ever moves the rung being scored.
+    **The claim changed on 2026-08-05, and it got stronger — this is a
+    meaning change and it is reported as one.** It used to be *a rung as a
+    purpose gets no special power*: `Rung.L1` **is** the string `"L1"`, `"L1"`
+    was a purpose string like any other, and the two spellings only had to
+    agree. Under a closed enum a `Rung` is not a `Purpose`, so the transposed
+    argument is now **refused**, which is the outcome the old test could not
+    ask for.
+
+    The old assertion cannot be kept verbatim for a mechanical reason worth
+    writing down: it compared two `verdict()` results with `is`, and two raised
+    exceptions are two distinct objects, so it would fail on identity while the
+    behaviour was in fact identical. Agreement between the two spellings is
+    therefore asserted by *type* rather than by identity.
     """
     for surface in Surface:
         for scored in LADDER:
-            assert (
-                verdict(scored, surface, rung) is verdict(scored, surface, rung.value)
-            ), f"purpose={rung!r} and purpose={rung.value!r} disagree"
+            as_member = verdict(scored, surface, rung)
+            as_string = verdict(scored, surface, rung.value)
+            assert isinstance(as_member, UndeclaredPurpose), (
+                f"purpose={rung!r} was accepted as a purpose on {surface.name}"
+            )
+            assert type(as_member) is type(as_string), (
+                f"purpose={rung!r} and purpose={rung.value!r} disagree: "
+                f"{as_member!r} vs {as_string!r}"
+            )
         assert verdict(Rung.L5, surface, rung) is not True
 
 
@@ -746,7 +935,19 @@ def test_purpose_is_keyword_only_and_defaults_to_nothing_permissive():
     every call through it reads the same way.
 
     If `purpose` carries a default it must be `None`. A default of `""`, `"*"`
-    or `"any"` would authorize every caller that forgot the argument.
+    or `"any"` would authorize every caller that forgot the argument — and
+    after 2026-08-05, a default of any `Purpose` member would do the same thing
+    with a type check in front of it.
+
+    **The positional probe had to change and the reason is the sharpest thing
+    in this conversion.** It read `may_render(Rung.L1, S1_LIST, "medical")` and
+    expected `TypeError`. `UndeclaredPurpose` **is** a `TypeError`, so under the
+    enum that line passes whether or not `purpose` is keyword-only: a
+    positional-friendly signature would take `"medical"`, reject it as not a
+    member, and raise the very exception the test is watching for. The probe
+    now passes a **valid** purpose positionally, so the only thing that can
+    raise is the arity — and to make sure of it, the refusal is asserted *not*
+    to be an `UndeclaredPurpose`.
     """
     param = inspect.signature(may_render).parameters["purpose"]
     assert param.kind is inspect.Parameter.KEYWORD_ONLY, (
@@ -757,16 +958,19 @@ def test_purpose_is_keyword_only_and_defaults_to_nothing_permissive():
             f"purpose defaults to {param.default!r} — a default that declares "
             "something is a declaration nobody made"
         )
-    with pytest.raises(TypeError):
-        may_render(Rung.L1, S1_LIST, "medical")
+    with pytest.raises(TypeError) as caught:
+        may_render(Rung.L1, S1_LIST, Purpose.DRAFTING)
+    assert not isinstance(caught.value, UndeclaredPurpose), (
+        "the third positional argument was read as a purpose and rejected on "
+        "its value — which means it was accepted positionally"
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 6 · S2 is a rendering, not "internal processing"
 # ═════════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("purpose", (None,) + PURPOSE_STRINGS,
-                         ids=[_pid(p) for p in (None,) + PURPOSE_STRINGS])
+@pytest.mark.parametrize("purpose", VALID_PURPOSES, ids=[_pid(p) for p in VALID_PURPOSES])
 def test_s2_serves_l1_and_l2_and_refuses_everything_above(purpose):
     """The `S2` column of the crossing table, whole, for every purpose.
 
@@ -790,7 +994,7 @@ def test_s2_is_not_more_permissive_than_the_operators_own_screen():
     screen, on every axis that matters: it is cached, it is summarized, and its
     output is text somebody acts on. If any rung reached `S2` that could not
     reach `S1`, the ladder would be scoring the wrong thing entirely."""
-    for purpose in (None,) + PURPOSE_STRINGS:
+    for purpose in VALID_PURPOSES:
         for rung in LADDER:
             for prompt in S2:
                 if may_render(rung, prompt, purpose=purpose) is True:
@@ -868,7 +1072,10 @@ def test_i12_a_composed_rung_meets_may_render_as_its_max(surface):
     for size in (1, 2, 3):
         for combo in itertools.product(LADDER, repeat=size):
             top = LADDER[max(LADDER.index(r) for r in combo)]
-            for purpose in (None, "medical"):
+            # was `(None, "medical")`; "medical" is a data category, not a
+            # purpose, and never was one — AGENT_RETRIEVAL is the member that
+            # actually lifts a ceiling, which is what this pair is testing.
+            for purpose in (None, Purpose.AGENT_RETRIEVAL):
                 assert (
                     may_render(compose(*combo), surface, purpose=purpose)
                     is may_render(top, surface, purpose=purpose)
@@ -887,8 +1094,10 @@ def test_bug5_one_sealed_fact_in_a_record_seals_the_record(surface):
     """
     packet = compose(Rung.L1, Rung.L1, Rung.L1, Rung.L5)
     assert packet is Rung.L5
-    for purpose in (None,) + PURPOSE_STRINGS:
+    for purpose in VALID_PURPOSES:
         assert may_render(packet, surface, purpose=purpose) is False
+    for purpose in REJECTED_PURPOSES:
+        assert verdict(packet, surface, purpose) is not True
 
 
 def test_i12_compose_returns_a_rung_and_not_a_bare_string():
@@ -1245,7 +1454,11 @@ def _rung_from(result, field: str) -> Rung:
 NOT_A_RUNG = [1, 2, 3, 4, 5, 0, -1, "1", "3", "5", "l1", "l5", "L0", "L6",
               "public", "sealed", "", "   ", None, True, False, 1.0,
               ["L1"], ("L1",), {"rung": "L1"}, object(), _AlwaysEqual(),
-              Surface.S1_LIST]
+              Surface.S1_LIST,
+              # Added 2026-08-05: `Purpose` is a third `str` enum in the same
+              # three-argument call, so there are now six ways to transpose two
+              # of them and every one of them type-checks.
+              Purpose.DRAFTING, Purpose.AGENT_RETRIEVAL]
 
 
 @pytest.mark.parametrize("bad", NOT_A_RUNG, ids=[_pid(b) for b in NOT_A_RUNG])
@@ -1256,8 +1469,17 @@ def test_i14_nothing_that_is_not_a_rung_is_ever_rendered(bad, surface):
     arriving where a rung is expected is the *least* trusted principal, and if
     it coerced to `L1` it would be the *least* restricted datum — rendered on
     every surface including egress. The two scales meet at the integer and the
-    integer is where they must not meet."""
-    assert verdict(bad, surface, "medical") is not True
+    integer is where they must not meet.
+
+    **The declared-purpose probe had to become a real purpose.** It was
+    `"medical"`. Under the enum that raises on the *purpose* before the rung is
+    ever looked at, so `is not True` would hold for a reason that has nothing
+    to do with rungs and this whole sweep — 30 bad values × every surface —
+    would pass vacuously. That is the single easiest way for this conversion to
+    hollow the corpus out, and it is why every stand-in purpose in this file was
+    replaced with a member rather than deleted.
+    """
+    assert verdict(bad, surface, Purpose.AGENT_RETRIEVAL) is not True
     assert verdict(bad, surface, None) is not True
 
 
@@ -1329,7 +1551,8 @@ def test_i14_the_same_non_rungs_are_refused_loudly_upstream(bad):
 
 
 NOT_A_SURFACE = ["S1_LIST", "s1_list", "S1", "screen", "prompt", "", None, 0, 1,
-                 True, ["S1_LIST"], object(), _AlwaysEqual(), Rung.L1]
+                 True, ["S1_LIST"], object(), _AlwaysEqual(), Rung.L1,
+                 Purpose.DRAFTING]
 
 
 @pytest.mark.parametrize("bad", NOT_A_SURFACE, ids=[_pid(b) for b in NOT_A_SURFACE])
@@ -1337,9 +1560,14 @@ def test_nothing_that_is_not_a_surface_is_ever_rendered_on(bad):
     """The safety half for the other argument. A surface that is not one of the
     four has no row in the crossing table, so nothing about it has been
     decided, and the answer to "may I render on a surface nobody scored" is
-    no."""
+    no.
+
+    `"medical"` became `Purpose.AGENT_RETRIEVAL` for the reason given above the
+    rung sweep: a rejected purpose raises first and the surface claim would
+    never be reached.
+    """
     for rung in LADDER:
-        assert verdict(rung, bad, "medical") is not True
+        assert verdict(rung, bad, Purpose.AGENT_RETRIEVAL) is not True
         assert verdict(rung, bad, None) is not True
 
 
@@ -1361,7 +1589,7 @@ def test_a_rung_spelled_as_its_own_string_agrees_with_the_enum_or_is_refused():
     tables."""
     for rung in LADDER:
         for surface in Surface:
-            for purpose in (None, "medical"):
+            for purpose in (None, Purpose.AGENT_RETRIEVAL):
                 loose = verdict(rung.value, surface, purpose)
                 if isinstance(loose, Exception):
                     continue
@@ -1489,7 +1717,7 @@ def test_aggregation_is_not_a_declassifier():
     aggregate = compose(Rung.L1, Rung.L4)       # a count over one L1 and one L4 fact
     assert aggregate is Rung.L4
     assert may_render(aggregate, S1_LIST, purpose=None) is False
-    assert may_render(aggregate, S2_PROMPT, purpose="briefing") is False
+    assert may_render(aggregate, S2_PROMPT, purpose=Purpose.AGENT_RETRIEVAL) is False
     for surface in OFF_SCREEN:
         assert may_render(aggregate, surface, purpose=None) is False
 
@@ -1548,7 +1776,8 @@ def test_worked_example_the_workers_comp_today_card():
     assert may_render(WORKERS_COMP["response_due"], S1_LIST, purpose=None) is True
     assert may_render(WORKERS_COMP["ime_findings"], S1_LIST, purpose=None) is False
     assert may_render(WORKERS_COMP["ime_findings"], S1_DETAIL, purpose=None) is True
-    assert may_render(WORKERS_COMP["ime_findings"], S2_PROMPT, purpose="briefing") is False
+    assert may_render(WORKERS_COMP["ime_findings"], S2_PROMPT,
+                      purpose=Purpose.AGENT_RETRIEVAL) is False
     for surface in S3:
         assert may_render(WORKERS_COMP["ime_findings"], surface, purpose=None) is False
 
@@ -1559,9 +1788,18 @@ def test_worked_example_the_prescription_record_reaches_nothing():
     the one row where "the operator holds everything" stops being true, and it
     stops being true deliberately."""
     for surface in Surface:
-        for purpose in (None,) + PURPOSE_STRINGS:
+        for purpose in VALID_PURPOSES:
             assert may_render(WORKERS_COMP["prescription_record"], surface,
                               purpose=purpose) is False
+        # And the free text that used to be swept here is now refused rather
+        # than merely refused-to-serve. `REDISCLOSURE` is the member that
+        # names this act, and even it does not reach an L5 record: 42 CFR
+        # Part 2 permits a re-disclosure, it does not lower the rung.
+        for purpose in REJECTED_PURPOSES:
+            assert verdict(WORKERS_COMP["prescription_record"], surface,
+                           purpose) is not True
+        assert may_render(WORKERS_COMP["prescription_record"], surface,
+                          purpose=Purpose.REDISCLOSURE) is False
 
 
 @pytest.mark.parametrize("matter,fields", [("workers-comp", WORKERS_COMP),
@@ -1574,7 +1812,9 @@ def test_worked_example_a_whole_matter_composes_to_its_worst_field(matter, field
     rendering. Fields are."""
     assert compose(*fields.values()) is Rung.L5
     for surface in Surface:
-        assert may_render(compose(*fields.values()), surface, purpose="briefing") is False
+        for purpose in VALID_PURPOSES:
+            assert may_render(compose(*fields.values()), surface,
+                              purpose=purpose) is False
 
 
 def test_worked_example_the_same_case_number_is_l1_or_l3_by_matter():
@@ -1606,13 +1846,13 @@ def test_worked_example_a_model_prompt_is_the_max_of_its_context_window():
     retrieved_neighbour = CUSTODY["guardian_ad_litem_report"]        # L4
     assert compose(*prompt, retrieved_neighbour) is Rung.L4
     assert may_render(compose(*prompt, retrieved_neighbour), S2_PROMPT,
-                      purpose="drafting") is False
+                      purpose=Purpose.DRAFTING) is False
 
     sealed_neighbour = CUSTODY["substance_use_treatment"]            # L5
     assert compose(*prompt, sealed_neighbour) is Rung.L5
     for surface in Surface:
         assert may_render(compose(*prompt, sealed_neighbour), surface,
-                          purpose="drafting") is False
+                          purpose=Purpose.DRAFTING) is False
 
 
 def test_worked_example_bug5_the_drafting_packet():
@@ -1635,8 +1875,12 @@ def test_worked_example_bug5_the_drafting_packet():
     packet = compose(*clean, atm_002, atm_001)
     assert packet is Rung.L5
     for surface in S2 | S4:
-        for purpose in (None, "drafting", "filing", "override"):
+        for purpose in (None, Purpose.DRAFTING, Purpose.FILING):
             assert may_render(packet, surface, purpose=purpose) is False
+        # `"override"` was the fourth entry and is now not a purpose at all,
+        # which is the stronger form of what it was here to prove.
+        with pytest.raises(UndeclaredPurpose):
+            may_render(packet, surface, purpose="override")
 
     # And the weaker rejection alone is still not renderable off the screen —
     # the defect was that the *stronger* one behaved like the absence of one.
@@ -1686,11 +1930,23 @@ def test_worked_example_f4_the_address_that_left_the_house():
     `L4` on egress without a declared purpose is `False`. There is no reading
     of "verify these citations" that is a declared purpose for exporting a
     party's home address.
+
+    **The enum makes that last sentence enforceable rather than rhetorical.**
+    Before 2026-08-05 `purpose="citation check"` was a declaration like any
+    other and the only thing standing between F-4 and an `L4` egress was that
+    nobody had declared one. Now there is no member for it: the call site
+    cannot say "verify these citations", because the closed set does not
+    contain that act. It has to claim `EXPORT` or `FILING` or `REDISCLOSURE`
+    to get an `L4` out, and each of those is a sentence somebody can be held
+    to in a ledger. That is the whole argument for closing the set.
     """
     relocated_address = Rung.L4
     for surface in S4:
         assert may_render(relocated_address, surface, purpose=None) is False
-    assert may_render(relocated_address, S2_PROMPT, purpose="citation check") is False
+    with pytest.raises(UndeclaredPurpose):
+        may_render(relocated_address, S2_PROMPT, purpose="citation check")
+    for purpose in VALID_PURPOSES:
+        assert may_render(relocated_address, S2_PROMPT, purpose=purpose) is False
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1707,14 +1963,39 @@ def test_the_corpus_has_not_been_hollowed_out():
     assert len(PLAUSIBLE_PURPOSES) >= 8
     assert len(ADVERSARIAL_PURPOSES) >= 30
     assert len(PURPOSE_STRINGS) >= 44
-    assert len(SWEEP_PURPOSES) >= 12
     assert len(UNCLASSIFIED_SPECS) >= 11
     assert len(MISDECLARED_SPECS) >= 12
     assert len(NOT_A_RUNG) >= 25
     assert len(NOT_A_SURFACE) >= 14
     assert len(NON_STRING_PURPOSES) >= 14
     assert len(Surface) >= 5
-    assert len(LADDER) * len(Surface) * len(SWEEP_PURPOSES) >= 300
+
+    # ── added at the 2026-08-05 conversion ───────────────────────────────────
+    # The failure this file most had to fear was the enum being used as an
+    # excuse to trim the free-text tables. Their sizes are asserted above; that
+    # they are still *swept* is asserted here.
+    assert len(Purpose) == 6, (
+        "membership is a product decision and the set is closed; a seventh "
+        "member is a new act somebody has to authorise, not a convenience"
+    )
+    assert len(VALID_PURPOSES) == 7, "the six, and None for 'nobody declared one'"
+    assert SWEEP_PURPOSES == VALID_PURPOSES
+    assert len(REJECTED_PURPOSES) >= 58
+    for family in (BLANK_PURPOSES, PLAUSIBLE_PURPOSES, ADVERSARIAL_PURPOSES,
+                   MEMBER_VALUE_STRINGS, MEMBER_NAME_STRINGS):
+        assert set(family) <= set(REJECTED_PURPOSES), (
+            "a purpose family stopped being swept — the free-text strings are "
+            "this corpus's inheritance from before the enum, and losing them "
+            "would be the single worst outcome of the conversion"
+        )
+    for sharp in ("medical\x00override", "M" * 4096, "медицинский", "🔓",
+                  "../medical", "medical'; --", "override", "L5",
+                  "do_not_use", "", "   "):
+        assert sharp in REJECTED_PURPOSES, f"{sharp[:20]!r} was deleted"
+    # The cell sweep is smaller than it was (7 purposes, not 12) and it is now
+    # *complete*: there is no accepted purpose it fails to visit.
+    assert len(LADDER) * len(Surface) * len(SWEEP_PURPOSES) >= 175
+    assert set(SWEEP_PURPOSES) == {None} | set(Purpose)
 
 
 def test_the_corpus_asserts_permission_as_well_as_refusal():

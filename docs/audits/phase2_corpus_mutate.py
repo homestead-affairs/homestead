@@ -2,6 +2,33 @@
 
 Each mutant is a single realistic defect injected into the dry-run mock. Any
 mutant the corpus does not kill is a hole in the corpus.
+
+**THIS FILE CANNOT RUN, AND IT NEVER COULD. Kept as a record, not a tool.**
+Noted 2026-08-05.
+
+`BASE` points at `docs/audits/dryrun/`, which was the Phase 2 corpus author's
+throwaway mock in a scratchpad and was never committed. Running this from a
+clean checkout raises `FileNotFoundError` on the first mutant. The 29/29 result
+it reported was real *at the time, in that tree*; the artifact checked in as the
+evidence for it is inert.
+
+That is this project's own recurring defect wearing a lab coat — a mechanism
+attesting to a claim, committed beside the claim, that nobody re-ran. It is kept
+rather than deleted (archive, don't delete) because the **mutant list** is still
+the useful part: it is what the Phase 2 corpus was shown to kill.
+
+**Its successor works.** `purpose_corpus_mutate.py`, written blind for the
+`Purpose` change, mutates at the **API boundary** — a pytest plugin rebinding
+`homestead.keep.rungs` before collection — instead of substituting exact strings
+into a mock. It therefore runs against *any* implementation of the published
+contract, including the real one:
+
+    PYTHONPATH=.:docs/audits python docs/audits/purpose_corpus_mutate.py .
+
+29 mutants, 0 survivors, against the real `rungs.py`. Its author gave the reason
+for the redesign, and that reason is exactly why this file is inert: a
+string-substitution mutant that fails to apply reports **KILLED for free**,
+which is how a scan stops firing without anyone noticing.
 """
 import pathlib
 import subprocess
