@@ -4,6 +4,32 @@
 decision function every later render must route through, and the classification
 that makes an unclassified field a build failure.
 
+> **Second pass, 2026-08-05 — `purpose` became a closed enum.** Product
+> decisions 3, 4 and 5 are implemented; see those sections. The numbers and
+> narrative below describe the *first* pass and are kept as written, because a
+> phase record that gets edited to match the present is not a record.
+>
+> **Suite after the second pass — reported both ways, because only one of them
+> is signal.** Excluding the corpus: **466 passed / 6 xfailed**, up from 455/6,
+> the eleven new tests being the enum, the two small rulings and the contract
+> pin. Including it: **906 passed / 622 failed**, and *that number means
+> nothing yet* — the corpus on this disk is the Phase 2 one, written against
+> free-text purposes, and it is being rewritten concurrently in another
+> worktree against the same published contract. It is red because it is stale,
+> which was expected and declared before either hand started.
+>
+> Classified without reading it, by exception type only: **617 of the 622 are
+> `UndeclaredPurpose`** — free-text purposes hitting the new gate, which is the
+> mechanical translation the deferral note below predicted. The remaining
+> **5 are all one function**, `test_a_rung_passed_as_a_purpose_is_only_its_own_string`,
+> failing on an assertion rather than the new error. That name is
+> §4.5 of `phase2_corpus_report.md`, which found that `purpose=Rung.L1` was
+> accepted and had no special power — behaviour the ratified contract
+> deliberately reverses, since a `Rung` in the purpose slot is now
+> `UndeclaredPurpose`. **It is flagged rather than resolved**: it is the
+> corpus's file and the reviewer's call, and it is the one corpus failure that
+> is a real contract change rather than a stale literal.
+
 **Suite: 1501 passed / 8 failed / 6 xfailed.** Every failure is in the
 independent corpus, and all eight are one disagreement in eight
 parametrizations. It is named in *The disagreement* below and it is not fixed,
@@ -33,6 +59,8 @@ changed, and both changes are declared below rather than absorbed.
 | `AmbientRow` / `ambient_rows` | The list pane's render path. A rung and a line of text, and no third field. |
 | `context_rung(items)` | I-12 pointed at a prompt: the `max` of the whole window, retrieved neighbours included. |
 | `classify_schema(schema)` | I-11's build half. Refuses, and names every offending field. |
+| `Purpose` | *(2026-08-05)* The closed set of six. `purpose=None` is still no purpose and still not an error. |
+| `UndeclaredPurpose` | *(2026-08-05)* A `TypeError` for anything in the purpose slot that is neither `None` nor a member — including a bare string that spells one. |
 
 ### The one design decision worth arguing about
 
@@ -109,9 +137,21 @@ Two notes on the transcription:
 * **A purpose the code could recognise by value.** An AST scan asserts that in
   the whole of `rungs.py` the name `purpose` is only ever *passed on*; comparing
   it, matching it or indexing it fails the suite. `_declared` is the single
-  exemption and all it looks at is whether the string has anything in it.
-* **A blank purpose.** `""`, `"   "`, `True`, `1`, a list — the absence of a
-  purpose arriving in the shape of one — lifts nothing.
+  exemption. **Still true after the enum, and it means something slightly
+  different**: the closed set bounds *which* purposes can arrive, and this
+  bounds what the code may do with one once it has. A six-member enum plus
+  `if purpose is Purpose.FILING: return True` is an escape hatch with a nicer
+  type. The scan exempts the whole of `_declared` and so cannot see a member
+  comparison hidden inside it; that hole is closed behaviourally by the sweep
+  asserting the six interchangeable.
+* **A purpose that is not a `Purpose` member** *(2026-08-05)*. Raises
+  `UndeclaredPurpose`, on every surface including the three where a purpose is
+  inert, and before the rung is read so `L5` does not swallow it. **A blank
+  purpose** — `""`, `"   "`, `True`, `1`, a list — used to be silently inert and
+  is now one of these. **A bare string that spells a member** — `"drafting"` —
+  is refused too, which is the `str`-subclass hole `Surface` fell into at
+  Phase 2. `purpose=None` is not refused: no purpose declared is the ordinary
+  call.
 * **Anything in the surface slot that is not a `Surface` member.** See below.
 
 ### Denial is absence, not a flag
@@ -149,7 +189,45 @@ reverted:
 | `AmbientRow` growing a `payload` field | `test_i35_an_ambient_row_has_nowhere_to_put_a_payload` |
 | `surfaces` put back into `UNBUILT` while the module exists | `test_pending_liveness` (R-6, second occasion) |
 
-**One injection got through, and finding it is the reason to do this.** A
+### Second pass, 2026-08-05 — the enum, decision 4 and decision 5
+
+Twenty-one more injections, same method: applied to a copy of the tree, run
+against `tests/test_invariants_surfaces.py` alone, copy discarded. **All 21
+fired.** The corpus is excluded from this table deliberately — it is being
+rewritten in another worktree, so it cannot be evidence for anything this hand
+claims, and an injection caught only by a stale file is not caught.
+
+| Injected | Fired |
+|---|---|
+| `Purpose(purpose)` coercion — a bare `"drafting"` accepted | `test_a_bare_string_is_not_a_purpose_even_when_it_spells_one`, +2 |
+| value membership — `purpose in {p.value for p in Purpose}` | same, +3 |
+| any `str` enum accepted, so a `Rung` is a purpose | `test_a_purpose_is_not_a_rung_and_a_rung_is_not_a_purpose`, +2 |
+| free text is a purpose again (Phase 2's `_declared`) | 4 tests |
+| a non-member is silently inert rather than loud | 4 tests |
+| the purpose is checked only on the surfaces where it lifts | 4 tests |
+| the purpose is checked *after* the rung, so `L5` swallows it | `test_an_invalid_purpose_raises_even_where_a_purpose_is_inert` |
+| `decide()` does not check the purpose | same |
+| `serve_all()` does not check it — the **empty iterable** goes quiet | same |
+| `serve()` checks the item before the purpose | same |
+| one member is magic — `FILING` lifts further than the rest | `test_i13_the_decision_never_reads_the_content_of_a_purpose`, +3 |
+| **a session cache** — the last declared purpose is remembered | `test_a_purpose_is_per_call_and_the_check_that_says_so_can_fail`, `test_a_declaration_authorises_one_call_and_not_the_next`, +2 |
+| `may_render` wrapped in `lru_cache` | `test_nothing_in_the_module_changes_when_a_purpose_is_declared`, +3 |
+| a seventh `Purpose` whose value collides with a `Rung` | `ImportError` at collection |
+| a seventh member added quietly | `test_the_purpose_enum_is_the_six_that_were_published` |
+| a member dropped quietly | same, +1 |
+| `UndeclaredPurpose` made a `ValueError` | `test_i13_a_declared_purpose_is_a_declared_purpose_whatever_it_says` |
+| `None` counted as a declaration | 4 tests |
+| a declared purpose lifts `L5` on egress, *past* the import guard | `test_i13_l5_has_no_override_on_any_surface`, +1 |
+| the three schema failures read identically again | `test_the_refusal_says_which_of_three_failures_it_is` |
+| the empty schema stops saying which failure it is | same |
+
+The last three rows are the regression half: the ruling was that **no answer
+moves**, so the injections that move one have to keep failing the tests that
+were already there, and the `L5`-on-egress injection is written to slip past
+`_check_crossing()` rather than trip it — an escape hatch inside `may_render`
+is not something a table check can see.
+
+**One injection got through in the first pass, and finding it is the reason to do this.** A
 `may_render` that returned `True` for the single purpose string `"court order"`
 passed the entire suite, because every purpose test iterated a list I had typed.
 An exhaustive-looking test that is exhaustive only over a hand-written list is
@@ -372,9 +450,14 @@ claiming more than it enforced.
 |---|---|---|
 | 1 | `L3` gets **no** purpose lift on S2. The table wins. | already true |
 | 2 | The indicator may **not** say `L5 present` on an ambient surface. | needs Phase 4 |
-| 3 | A purpose is a **closed enum**, not free text. | **not implemented — see the cost below** |
-| 4 | An empty schema stays an **error**. | already true |
-| 5 | A purpose is **per-call, never per-session**. | already true, now stated |
+| 3 | A purpose is a **closed enum**, not free text. | **implemented 2026-08-05** |
+| 4 | An empty schema stays an **error**, and says *which* error. | **implemented 2026-08-05** |
+| 5 | A purpose is **per-call, never per-session**. | **stated and tested 2026-08-05** |
+
+> **Updated 2026-08-05, second pass.** 3, 4 and 5 are now code. The caveat
+> above stands for 2 and it is the reason this table exists: saying a thing is
+> decided is not the same as the thing being true. 2 needs a renderer and there
+> is no renderer.
 
 ### 1 — `L3` on S2: refuse, and the reason is not "the table says so"
 
@@ -418,7 +501,7 @@ question on 2026-08-04.
 `serve_all` currently leaves no trace, which was the safe default. It is now the
 decided behaviour for ambient surfaces.
 
-### 3 — a purpose is a closed enum. **Decided, and deliberately not yet done.**
+### 3 — a purpose is a closed enum. **Decided, then done, by a second pair of hands.**
 
 **Ruling: closed enum.** The tension this was filed under is mostly not real.
 "No ceremony tax" was decided about **S1's detail pane**, where opening the pane
@@ -447,38 +530,169 @@ valuable sweep, which passes every purpose to every surface to prove that
 lesser error is a bad trade. `purpose` stays accepted on all five surfaces and
 inert on three, and the enum plus an inertness test carry the weight instead.
 
-**Why it is not implemented.** The mechanism was built and measured, then
-reverted. Making `_declared` require a `Purpose` member fails **637
-parametrisations across 42 test functions** — 275 of them in one sweep — because
-the corpus is parameterised on free-text purposes throughout. Most of that is
-fixture-level rather than hand-written assertions, and a faithful translation
-exists: split the lists into valid purposes (the enum members plus `None`) for
-the cell sweeps, and rejected purposes (the old adversarial strings) for a new
-test asserting they are not accepted at all — which is *stronger* than what
-they prove today.
+**Why it was deferred, and what changed.** *(Original note, kept.)* The
+mechanism was built and measured, then reverted. Making `_declared` require a
+`Purpose` member fails **637 parametrisations across 42 test functions** — 275
+of them in one sweep — because the corpus is parameterised on free-text
+purposes throughout. Most of that is fixture-level rather than hand-written
+assertions, and a faithful translation exists: split the lists into valid
+purposes (the enum members plus `None`) for the cell sweeps, and rejected
+purposes (the old adversarial strings) for a new test asserting they are not
+accepted at all — which is *stronger* than what they prove today.
 
-But that translation would be performed by the same hand that wrote the
-implementation, on 1,700 lines of corpus written blind precisely so that would
-not happen. The enum's safety properties would then be attested only by tests
-adjusted until they passed. **The decision is ratified; the implementation
-should go through the same two-hand method as Phases 1 and 2.**
+> But that translation would be performed by the same hand that wrote the
+> implementation, on 1,700 lines of corpus written blind precisely so that would
+> not happen. The enum's safety properties would then be attested only by tests
+> adjusted until they passed. **The decision is ratified; the implementation
+> should go through the same two-hand method as Phases 1 and 2.**
 
-**Membership is a further product question and is still open.** Six members
-drawn from the acts the documents already name is the proposal:
+**That is what happened, and it is the whole reason this landed the way it
+did.** The blocker was never the code — the code is forty lines — it was that
+one hand cannot both narrow a contract and rewrite the corpus that checks the
+narrowing. So the hands were split again: this half wrote `Purpose`,
+`UndeclaredPurpose` and its own invariants against the published contract and
+did not open `tests/test_surfaces_corpus.py`; the corpus was rewritten
+concurrently in a separate worktree against the same contract. **Neither the
+contract text nor the six members were negotiable by either hand** — that is
+what made the split survivable this time, where in Phase 2 the two hands
+disagreed about `_read_rung` and the operator had to rule.
+
+### What the enum actually changed, and what it deliberately did not
+
+**No answer moved.** The ceiling table is untouched, every cell is what it was,
+and `_check_crossing()` still validates it at import. This is a tightening of
+what counts as **declared**, not a change to the crossing. `purpose=None` still
+means no purpose and is still not an error; a purpose still only lifts, still
+lifts only on S3 and S4, and still lifts nothing at `L5`.
+
+**Three things are stricter:**
+
+* a purpose that is not a `Purpose` member raises `UndeclaredPurpose`, which is
+  a `TypeError`, following the rule ratified the same day — **loud on type,
+  closed on data.** A purpose is a *call-site* property like a surface: it can
+  never arrive out of a record, so an unreadable one is a programmer error. The
+  contrast is deliberate and kept: an unreadable **rung** still denies quietly,
+  because a rung *is* data and I-11 legislates for exactly that.
+* a **blank** purpose used to be silently inert and now raises. Inert was the
+  right answer while free text was legal — `""` bought nothing and neither did
+  `"x"` — and it is the wrong answer now, because with a closed set every
+  non-member is the same error and inertness hides a defect the type system can
+  name.
+* the check is **unconditional across all five surfaces**, including the three
+  where a purpose is inert. A check that only ran where the argument mattered
+  would let a call site build the habit of passing rubbish on S1 and S2 and
+  then carry the habit to S3 and S4. It also fires **before** the rung is read,
+  so `L5` and unreadable rungs do not swallow it — those are precisely the
+  calls where a silent `False` looks correct.
+
+**The `str`-subclass hole, which is the one that mattered.** `Purpose` is a
+`str` enum, so `Purpose.DRAFTING == "drafting"` is `True`. A membership check
+written against *values* — `purpose in {p.value for p in Purpose}`, or
+`Purpose(purpose)`, which coerces — accepts exactly the six member spellings
+and refuses every other string. That is not a smaller hole than free text; it
+is a stranger one, six magic strings where there were none, and a sampling test
+cannot see it because a random sampler never emits `"drafting"`. **`Surface`
+had this exact bug at Phase 2 and it was the corpus's most substantive
+finding.** The gate is therefore `isinstance(purpose, Purpose)` and never a
+value comparison, and both value-shaped mistakes are in the injection table
+above.
+
+The same subclassing makes `Rung` fit the purpose slot and `Purpose` fit the
+rung slot. Both are now closed, and they close *differently*, which is the
+ratified rule applied rather than a taste call: a `Rung` in the purpose slot
+raises; a `Purpose` in the rung slot reads `L5` and denies. An import-time
+guard additionally holds `Rung`, `Surface` and `Purpose` **disjoint by value**,
+so a future member spelled `"L3"` is an `ImportError` rather than a purpose
+silently read as a rung.
+
+**Membership is provisional and this implementation did not exercise
+judgement about it.** The six are exactly the six that were published:
 `DRAFTING`, `FILING`, `EXPORT`, `SUBJECT_ACCESS`, `REDISCLOSURE`,
 `AGENT_RETRIEVAL`. Two entries from the blind corpus's own plausible list are
 deliberately absent, and the reason is itself the argument for the enum:
-`"medical"` is a data **category** and `"operator opened the record"` is a
-**surface act**. Free text invited all three kinds of thing into one slot.
+`"medical"` is a data **category** — the rung carries it, `L4` *is* "identifies
+and carries a category the law follows" — and `"operator opened the record"` is
+a **surface act**, which `S1_DETAIL` carries. Free text invited all three kinds
+of thing into one slot and could not tell them apart.
+`test_the_purpose_enum_is_the_six_that_were_published` pins the set, so a
+seventh member is a decision someone has to make on purpose rather than a
+diff nobody notices — a seventh member is one more call site that can unlock
+`L4` on egress.
 
-### 4 — an empty schema stays an error
+**No member is ranked above another**, and that is a separate property from
+validating the set. The ceiling table has two columns, not seven, and this
+module has neither the trust tier nor the ledger that ranking would need — so a
+table treating `EXPORT` as weightier than `AGENT_RETRIEVAL` would be inventing
+an authority it has not got. Held by a sweep asserting the six interchangeable
+across the whole rung × surface grid, because the AST scan exempts `_declared`
+and therefore cannot see a member comparison hidden inside it.
+
+**One open question this raises and does not answer.** `AGENT_RETRIEVAL` is a
+purpose an *agent* declares on its own behalf, and S3 is the surface where a
+purpose lifts `L2` to `L4`. So the one member most likely to be hardcoded by a
+caller is also the one attached to the surface with no human in the loop. The
+enum does not fix that and cannot: what fixes it is S3's trust tier, which is
+still not represented anywhere. Filed here rather than in the code, because it
+is P-1 from the corpus report and it is still open.
+
+### What the enum made stale elsewhere — flagged, not quietly edited
+
+Phase 1's implementer flagged an overclaim rather than fixing it and was right
+to. Three things this change falsified, none of them edited:
+
+* **`docs/audits/phase2_corpus_report.md` § 4.5** — *"`Rung` is a `str`
+  subclass, so a rung is also a valid `purpose` … `purpose=Rung.L1` does
+  exactly what `purpose="L1"` does and has no special power."* True when
+  written, false now: it raises. **Not edited.** It is a dated audit record of
+  what was true on the day it was audited, and rewriting one of those to match
+  the present is how a project loses the ability to say what it used to
+  believe. The same report's **P-2** — *"Is a purpose a free string, or a
+  closed enum? Today it is free text"* — is answered by this change, which is
+  what an open question is for.
+* **`docs/audits/phase2_corpus_mutate.py`** — its mutation table anchors on
+  `declared = isinstance(purpose, str) and bool(purpose.strip())`, a line that
+  no longer exists, so several of its mutants no longer apply. It is a Phase 2
+  artifact and it is left alone; the second-pass injections above are its
+  successor for this area, not a replacement for the file.
+* **Four sweeps in `tests/test_invariants_surfaces.py`** that iterated
+  free-text purposes now iterate the six members and are therefore
+  *exhaustive over the domain* rather than over a list somebody typed — which
+  is the failure mode both Phase 0 audits named. The adversarial strings did
+  not go away; they moved to `REFUSED_PURPOSES` and are asserted to **raise**
+  rather than merely to fail to lift. Declared in that file's docstring too,
+  because "the promoted tests keep their original bodies" was a sentence it
+  made true and is now true with a stated exception.
+
+### 4 — an empty schema stays an error. **Implemented 2026-08-05.**
 
 **Ruling: keep it fail-closed.** A record type with zero classified fields is a
 broken loader far more often than a real case. One improvement is worth making:
 the error should distinguish *no fields at all* from *fields, none classified*,
 because those are different bugs and today they read the same.
 
-### 5 — a purpose is per-call, never per-session
+**Done, and it turned out to be three cases rather than two.** The refusal now
+names which failure it is, both in the first clause of the message and on
+`UnclassifiedField.reason`:
+
+| `.reason` | Means | Where to look |
+|---|---|---|
+| `no_fields` | the schema is empty | **upstream of the call** — the loader, the glob, the query that produced no fields. Nothing in the declarations can be wrong; there are none. |
+| `none_classified` | it has fields and **not one** declared a readable rung | the declaration **format** — the wrong key, the wrong wrapper, integers throughout. One fault wearing N field names, so read the reasons as one thing. |
+| `some_unclassified` | most classified, some did not | **those fields.** The format is demonstrably fine, because the rest of the schema went through it. Usually a field added to a schema and not classified with it. |
+
+Three different bugs, three different places to look, and they used to read
+identically at exactly the moment the difference is worth money. It is an
+**attribute rather than a subclass** so that every `except UnclassifiedField`
+already written keeps working, and every `UnclassifiedField` raised anywhere
+else in the module carries `reason == ""` rather than no attribute at all.
+
+Both halves are asserted — the attribute *and* the message text — because an
+attribute nobody prints distinguishes nothing to the person reading a
+traceback, and the traceback is the whole point. The property that a build
+failure names **every** offending field rather than the first is re-asserted in
+the same test, since that is the thing this change could most easily have cost.
+
+### 5 — a purpose is per-call, never per-session. **Stated and tested 2026-08-05.**
 
 **Ruling: per-call.** This is already the behaviour, but by accident of
 statelessness rather than by decision — which is exactly the gap this section
@@ -489,6 +703,27 @@ around it.
 Together with the enum it closes the failure the corpus agent predicted: that
 every call site hardcodes one purpose within a month, after which `L4` on S3/S4
 is unlocked unconditionally and the ceremony is decorative.
+
+**Now four tests, and the first of them fires before it is trusted.** A session
+cache does not arrive as `LAST_PURPOSE = None` at module scope; it arrives as a
+convenience, because a caller got tired of threading the argument through. So
+the checker is written against a *function* rather than against the module —
+the same shape as `_non_monotone`, and for the same reason, it is the only way
+to know it would notice — and it is run first against
+`_RemembersTheLastPurpose`, a deliberate leak in the shape one actually takes,
+and only then against `may_render`.
+
+| Held | How |
+|---|---|
+| a declaration does not survive the call that made it | `_session_leak`, fired against a leaky implementation first |
+| the answer is a pure function of `(rung, surface, purpose)` | the whole truth table, then 1,800 shuffled re-asks — a cache keyed on anything but the arguments shows up as an answer that depends on what was asked before it |
+| declaring writes nothing | every module-level non-callable snapshotted across every purpose × surface × rung, plus *new* names appearing, which is how a lazily-initialised cache arrives |
+| nothing is memoised | no `cache_info` / `cache_clear` / `__wrapped__` on the four entry points — `lru_cache` is per-argument and therefore invisible to the snapshot, and it is still a cache |
+| no function writes to module scope | AST: no `global`, no `nonlocal`, anywhere in `rungs.py` |
+| the failure in the shape it takes | an export is authorised and an `L4` payload leaves; the next call, and the list pane after it, get the derived form |
+
+A later phase that wants a session cache now has to delete a test that says why
+not, rather than adding a field nobody notices.
 
 ### Not on the original list, and probably the largest of them
 

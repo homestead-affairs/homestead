@@ -31,6 +31,28 @@ Four rules live here rather than in prose:
   Both are properties of the ceiling table below rather than cases in a
   conditional, and both are checked when this module is imported.
 
+* **Loud on type, closed on data** (ratified 2026-08-05). The *surface* and the
+  *purpose* are call-site properties: the code that renders knows which surface
+  it is and why it is asking, and neither can arrive out of a record. So both
+  raise on anything unreadable — `UnknownSurface`, `UndeclaredPurpose`. The
+  *rung* is a data property, so an unreadable one reads `L5` and denies quietly
+  (I-11). The asymmetry is the whole rule and not an oversight.
+
+## A purpose is a closed enum, and per-call
+
+`Purpose` has six members and `purpose=None` means none declared, which is not
+an error. Anything else raises. A purpose used to be any non-blank string, which
+meant `"x"` bought the same lift as `"medical"` — and I-13 calls a declared
+purpose a *control*, so that made it a label. The ceiling table did not change
+and no answer moved: this is a tightening of what counts as **declared**, not a
+change to the crossing.
+
+Nothing here remembers a purpose between calls, and that is now a stated
+invariant rather than an accident of statelessness. One declaration lifts one
+call. A session cache would turn the six members into one hardcoded string per
+call site inside a month, after which `L4` on S3/S4 is unlocked unconditionally
+and the whole thing is decorative.
+
 ## The crossing, and why it is ten numbers rather than twenty-five
 
 `_CEILING` gives each surface **two** rungs: the highest whose *payload* may be
@@ -84,12 +106,14 @@ from .surfaces import FACTS, Surface
 __all__ = [
     "Rung",
     "Surface",
+    "Purpose",
     "Disposition",
     "compose",
     "context_rung",
     "classify_schema",
     "UnclassifiedField",
     "UnknownSurface",
+    "UndeclaredPurpose",
     "may_render",
     "decide",
     "Classified",
@@ -110,6 +134,87 @@ class Rung(str, Enum):
 
 
 _ORDER = {Rung.L1: 1, Rung.L2: 2, Rung.L3: 3, Rung.L4: 4, Rung.L5: 5}
+
+
+class Purpose(str, Enum):
+    """The closed set of reasons a call site may declare. Ratified 2026-08-05.
+
+    A purpose used to be any non-blank string, and that made it a label rather
+    than a control: `"x"` bought the same lift as `"medical"`. I-13 calls a
+    declared purpose a control, and *a control nothing can check is a label* —
+    which is the sentence that renamed `SealedLog`. R-7 is the same shape and
+    the same answer: `VisibleLog.record`'s first argument was a free string,
+    that is where the note content leaked, and it became a closed enum.
+
+    **The ceiling table does not change and no answer moves.** This is a
+    tightening of what counts as *declared*, not a change to the crossing. A
+    purpose still only ever lifts, still lifts only on S3 and S4, and still
+    lifts nothing at `L5`.
+
+    **The ceremony objection does not apply.** "No ceremony tax" was decided
+    about S1's detail pane, where opening the pane *is* the declaration and
+    `purpose` lifts nothing at all. The only surfaces where a purpose changes an
+    answer are S3 (an MCP tool invocation) and S4 (an export) — neither caller
+    is a person typing into a box under stress. It is also what makes S4's spec
+    row implementable: *"explicit act + purpose + ledgered"* cannot be honoured
+    with free text, because you can write a free string to a ledger but you
+    cannot audit it.
+
+    **These six are acts, not categories and not widgets**, and that distinction
+    is itself the argument for closing the set. `"medical"` is a data
+    *category* — it belongs to the rung, which already carries it at `L4`.
+    `"operator opened the record"` is a *surface act* — it belongs to
+    `S1_DETAIL`, which already carries it. Free text invited all three kinds of
+    thing into one slot and could not tell them apart. **Membership is
+    provisional**; see PHASE2-SURFACES.md § 3.
+
+    A `str` enum for the same reason `Rung` and `Surface` are (I-14): the value
+    that ends up in a ledger line, a manifest or an error message should read as
+    itself. That is *all* it is for. `Purpose.DRAFTING == "drafting"` is `True`,
+    and the gate refuses the bare string anyway — being readable in a log is not
+    a licence to be accepted in a permission call. `Surface` had exactly this
+    bug at Phase 2 and the corpus found it.
+    """
+
+    DRAFTING = "drafting"                # preparing a document the operator will file
+    FILING = "filing"                    # submitting it to a court or agency
+    EXPORT = "export"                    # the operator taking their own record out
+    SUBJECT_ACCESS = "subject_access"    # a statutory subject-access request
+    REDISCLOSURE = "redisclosure"        # 42 CFR Part 2-style permitted re-disclosure
+    AGENT_RETRIEVAL = "agent_retrieval"  # an agent answering a question the operator asked
+
+
+def _check_the_str_enums_cannot_be_confused() -> None:
+    """`Rung`, `Surface` and `Purpose` are all `str` enums. Keep them disjoint.
+
+    Every gate here is an `isinstance` against the right class, so a collision
+    cannot *currently* change an answer. This runs anyway, at import, because
+    the property those `isinstance` checks rely on is worth holding structurally
+    rather than by the good luck of nobody yet having named a purpose `"L3"`.
+
+    The concrete hazard it forecloses: `_read_rung` reaches `Rung(value)` for
+    any `str`, and a `Purpose` **is** a `str`. Today `Rung("drafting")` raises
+    and the purpose reads as unclassified, which denies. A purpose whose value
+    collided with a rung's would be silently *read as that rung* — a call-site
+    argument becoming a data classification, which is I-14's catastrophe with
+    the scales swapped.
+    """
+    values: dict[str, str] = {}
+    for enum in (Rung, Surface, Purpose):
+        for member in enum:
+            owner = f"{enum.__name__}.{member.name}"
+            clash = values.get(member.value)
+            if clash is not None:
+                raise RuntimeError(
+                    f"{owner} and {clash} share the value {member.value!r}. "
+                    "Rung, Surface and Purpose are all str enums and all three "
+                    "are read out of the same kind of argument slot; a shared "
+                    "value means one of them can be silently read as another."
+                )
+            values[member.value] = owner
+
+
+_check_the_str_enums_cannot_be_confused()
 
 
 class Disposition(str, Enum):
@@ -135,7 +240,26 @@ class UnclassifiedField(ValueError):
     **build failure** (I-11). It is deliberately not a return value: a
     classifier that can answer "I don't know" is a classifier whose answer gets
     defaulted to something, and the default that gets chosen is never `L5`.
+
+    `.reason` names *which* failure this is, so the three can be told apart
+    without matching on the message text (decision 4, ratified 2026-08-05):
+
+    * `"no_fields"` — the schema has no fields at all. Almost always a loader
+      that returned nothing, or a definition that picked nothing up.
+    * `"none_classified"` — it has fields and **not one** of them declared a
+      rung it could read. Almost always the declaration *format* is wrong: the
+      wrong key, the wrong wrapper, integers throughout.
+    * `"some_unclassified"` — most fields classified, some did not. Almost
+      always a field added to a schema and not classified with it.
+
+    Those are three different bugs with three different fixes and they used to
+    read alike. It is an attribute rather than a subclass so that every
+    `except UnclassifiedField` already written keeps working unchanged.
     """
+
+    def __init__(self, *args: Any, reason: str = "") -> None:
+        super().__init__(*args)
+        self.reason = reason
 
 
 class UnknownSurface(TypeError):
@@ -159,6 +283,34 @@ class UnknownSurface(TypeError):
     A mistyped surface that quietly returned `False` would draw an empty pane
     with no cause, and an empty pane with no cause gets "fixed" by deleting the
     check. It is a `TypeError` because that is what it is.
+    """
+
+
+class UndeclaredPurpose(TypeError):
+    """A purpose that is not a `Purpose` member.
+
+    `None` is not one of these: **no purpose declared is not an error**, it is
+    the ordinary case and the one the plain ceiling exists for. What raises is a
+    purpose slot holding something that is neither `None` nor a member.
+
+    **Loud on type, closed on data** — ratified 2026-08-05, the same day as the
+    enum, and this class is that rule applied. A purpose is a *call-site*
+    property, exactly like a surface: the code that declares it is the code that
+    knows why it is asking, and a purpose can never arrive out of a record. So
+    an unreadable one is a programmer error and says so.
+
+    **Keep the contrast.** An unreadable *rung* still denies quietly, because a
+    rung **is** data — it comes out of a record, a schema declares it as the
+    string `"L3"` (I-14), and it can legitimately be missing, so absence there
+    reads `L5` and is not served (I-11). A list pane drawing fifty rows should
+    not die on the one unclassified row; a call site that invented its own
+    purpose should.
+
+    A bare string raises **even when it spells a member**. `Purpose` is a `str`
+    enum, so `Purpose.DRAFTING == "drafting"` is `True`, and a check that let
+    that equality answer for it would accept the enum's own spellings while
+    refusing every other string — which is precisely the bug the corpus found in
+    `Surface` at Phase 2, and the most substantive thing it found.
     """
 
 
@@ -231,14 +383,51 @@ def _read_surface(value: Any) -> Surface:
 
 
 def _declared(purpose: Any) -> bool:
-    """Whether a purpose was actually declared.
+    """Whether a purpose was declared — and the only place a purpose is checked.
 
-    `None`, `""`, `"   "` and anything that is not text are all *no purpose*.
-    A purpose is an explicit act by a person; a blank string is the absence of
-    one arriving in the shape of one, and it must not lift a ceiling. Nothing
-    here validates that the purpose is a *good* one — see the module docstring.
+    Three outcomes and no fourth:
+
+    * `None` → `False`. **No purpose declared, and that is not an error.** It is
+      the ordinary call and the plain ceiling is what it gets.
+    * a `Purpose` member → `True`.
+    * anything else → `UndeclaredPurpose`. Loud on type.
+
+    `""`, `"   "`, `"medical"`, `1`, `True`, a `Rung`, and `"drafting"` are all
+    the same case now: not a member, therefore not a purpose. The blank string
+    used to be the interesting one — the absence of a purpose arriving in the
+    shape of one — and it is no longer a special case, because the closed set
+    makes every non-member the same error.
+
+    **`isinstance` against the enum, never a value comparison.** `Purpose` is a
+    `str` enum, so `Purpose.DRAFTING == "drafting"` is `True` and a membership
+    test written as `purpose in {p.value for p in Purpose}` — or as
+    `Purpose(purpose)`, which coerces — would accept the bare spellings of the
+    six members while refusing every other string. That is not a smaller hole
+    than free text, it is a *stranger* one: six magic strings instead of none.
+    `Surface` had exactly this shape at Phase 2.
+
+    Nothing here reads *which* member it is, and nothing downstream does either.
+    The decision turns on whether a purpose was declared; the ceiling table has
+    two columns, not seven. No member is more of a declaration than another —
+    validating the set is not the same as ranking it, and ranking is what a
+    trust tier and a ledger are for, neither of which this module has.
     """
-    return isinstance(purpose, str) and not isinstance(purpose, bool) and bool(purpose.strip())
+    if purpose is None:
+        return False
+    if isinstance(purpose, Purpose):
+        return True
+    raise UndeclaredPurpose(
+        f"{purpose!r} is not a Purpose. Declare one of "
+        f"{[p.value for p in Purpose]} — as the member, not its spelling — or "
+        "declare none at all by passing None, which is not an error and is what "
+        "the plain ceiling is for. A purpose is a call-site property like a "
+        "surface: it cannot arrive from a record, so an unreadable one is a "
+        "programmer error and is loud. (A rung is data, and an unreadable one "
+        "still denies quietly — I-11.) A bare string is refused even when it "
+        "spells a member: Purpose is a str enum so that its value reads as "
+        "itself in a ledger line, not so a permission check will accept the "
+        "spelling in the argument that lifts a ceiling."
+    )
 
 
 # ── the crossing ─────────────────────────────────────────────────────────────
@@ -337,20 +526,32 @@ def may_render(rung: Any, surface: Any, *, purpose: Any = None) -> bool:
     the difference between "serve the instruction instead" and "serve nothing"
     is a difference `_fact_blocked` did not have and needed.
 
-    `purpose` is a declared reason, and it can only ever *lift* a ceiling. A
-    blank or non-text purpose is no purpose. On S1's detail pane it is neither
-    required nor refused: the act of opening the pane is the declaration, and an
-    extra string buys nothing.
+    `purpose` is a declared reason from the closed set `Purpose`, and it can
+    only ever *lift* a ceiling. `None` is no purpose declared and is not an
+    error; anything that is not a member raises `UndeclaredPurpose`. On S1's
+    detail pane a purpose is inert — the act of opening the pane is the
+    declaration — but it is still *checked*: the type check is unconditional,
+    because a check that only ran where the argument mattered would let a
+    call site build the habit of passing rubbish on three surfaces and then
+    carry it to the two where it lifts.
+
+    **Per-call, never per-session.** This function holds nothing between calls.
+    A purpose declared here is spent here; the next call starts undeclared.
 
     An unreadable rung — `None`, `"unknown"`, `3` — reads `L5` and returns
-    `False`. An unreadable surface raises; see `UnknownSurface`.
+    `False`. An unreadable surface or purpose raises; see `UnknownSurface` and
+    `UndeclaredPurpose`. The two call-site arguments are checked **before** the
+    rung is read, so a programmer error is reported even when the data would
+    have been refused anyway — a `False` that happens to be right is not the
+    same answer as a `False` that is right for the reason given.
     """
     target = _read_surface(surface)
+    declared = _declared(purpose)
     read = _read_rung(rung)
     if read is None:
         return False
     plain, with_purpose = _CEILING[target]
-    ceiling = with_purpose if _declared(purpose) else plain
+    ceiling = with_purpose if declared else plain
     return _ORDER[read] <= _ORDER[ceiling]
 
 
@@ -361,8 +562,14 @@ def decide(rung: Any, surface: Any, *, purpose: Any = None) -> Disposition:
     reached by `L5` and by an unreadable rung, and by nothing else — every
     other refusal is a `DERIVE`, because a household that cannot see the
     instruction cannot act on the deadline.
+
+    The purpose is checked here as well as in `may_render`, and it has to be:
+    an `L5` or an unreadable rung returns `DENY` without ever reaching
+    `may_render`, so a check that lived only there would let a malformed
+    purpose through on exactly the rungs that matter most.
     """
     target = _read_surface(surface)
+    _declared(purpose)
     read = _read_rung(rung)
     if read is None or read is Rung.L5:
         return Disposition.DENY
@@ -439,7 +646,11 @@ def serve(item: Classified, surface: Any, *, purpose: Any = None) -> Served:
     tells them what. Rendering "1 item withheld" is itself a rendering, and at
     `L5` the existence of a refusal is exactly what must not be revealed — see
     `serve_all`, which drops denials without leaving a count behind.
+
+    The purpose is checked before the item is, so a malformed purpose is
+    reported even when the item would have been refused for its own reasons.
     """
+    _declared(purpose)
     if not isinstance(item, Classified):
         raise TypeError(
             f"serve() takes a Classified, not {type(item).__name__} — an "
@@ -469,8 +680,15 @@ def serve_all(
     The composed rung of the result is bounded by the surface's ceiling, which
     is I-12 pointed at S2: a prompt assembled this way cannot exceed what the
     prompt may hold, however many neighbours retrieval pulled in.
+
+    The surface and the purpose are checked once, up front, rather than once
+    per item — so an empty iterable still refuses a malformed purpose. A gate
+    that validates only when it has something to validate against is a gate
+    that goes quiet on the empty case, and the empty case is the one nobody
+    tests.
     """
     target = _read_surface(surface)
+    _declared(purpose)
     out = [serve(item, target, purpose=purpose) for item in items]
     return [s for s in out if s.disposition is not Disposition.DENY]
 
@@ -576,6 +794,18 @@ def classify_schema(schema: Mapping[str, Any]) -> dict[str, Rung]:
       more often a definition that failed to pick anything up than it is a
       record with nothing in it.
 
+    **The refusal says which of three failures it is** — decision 4, ratified
+    2026-08-05 — both in the first clause of the message and on the exception's
+    `.reason`: `"no_fields"`, `"none_classified"`, `"some_unclassified"`. An
+    empty schema is a loader that returned nothing; a schema where *nothing*
+    classified is a declaration format this function cannot read, which is one
+    fault wearing N field names; a schema where most classified and some did
+    not is a field that was added and not classified with it. Three different
+    bugs, three different places to look, and they used to read identically.
+    The empty-schema case in particular used to be indistinguishable from a
+    format failure at exactly the moment the difference matters — one is
+    upstream of this call and one is in the declarations in front of you.
+
     **What it does not check.** That the rung is *right*. A case number is `L1`
     in a bankruptcy and `L3` in a family matter — the spec's step 5 says record
     the matter type and the jurisdiction alongside the rung, and neither is
@@ -590,10 +820,14 @@ def classify_schema(schema: Mapping[str, Any]) -> dict[str, Rung]:
         )
     if not schema:
         raise UnclassifiedField(
-            "an empty schema classifies nothing, and classifying nothing is not "
-            "the same as having nothing to classify. Absence fails closed "
-            "(I-11): a definition that picked up no fields must stop the build, "
-            "not return an empty answer that composes to L5 somewhere later."
+            "no fields at all: this schema is empty. An empty schema classifies "
+            "nothing, and classifying nothing is not the same as having nothing "
+            "to classify. Absence fails closed (I-11): a definition that picked "
+            "up no fields must stop the build, not return an empty answer that "
+            "composes to L5 somewhere later. Look upstream of this call — at "
+            "whatever was supposed to produce the fields — rather than at the "
+            "declarations, because there are none to be wrong.",
+            reason="no_fields",
         )
 
     classified: dict[str, Rung] = {}
@@ -609,14 +843,38 @@ def classify_schema(schema: Mapping[str, Any]) -> dict[str, Rung]:
             classified[name] = rung
 
     if problems:
+        # Decision 4, ratified 2026-08-05. "No fields at all" and "fields, none
+        # classified" are different bugs — an empty loader versus a declaration
+        # format nothing here can read — and they used to read identically. The
+        # third case, most of them classified and some not, is a third bug
+        # again: a field added to a schema and not classified with it.
+        if not classified:
+            head = (
+                f"fields, none classified: all {len(problems)} of them failed. "
+                "Not one declaration in this schema was readable, which points "
+                "at the declaration *format* rather than at any one field — the "
+                "wrong key, the wrong wrapper, or integers throughout — so read "
+                "the reasons below as one fault and not as a list. "
+            )
+            reason = "none_classified"
+        else:
+            head = (
+                f"{len(problems)} of {len(problems) + len(classified)} fields "
+                f"are unclassified; {len(classified)} classified cleanly, so "
+                "the declaration format is fine and these fields are the "
+                "fault. "
+            )
+            reason = "some_unclassified"
         raise UnclassifiedField(
-            "every field carries a rung, set at schema-definition time — an "
+            head
+            + "Every field carries a rung, set at schema-definition time — an "
             "unclassified field is a build failure (I-11), not a default. "
             + "; ".join(problems)
             + ". Classify with docs/homestead-rungs.md 'Classifying a new "
             "field': public in this matter's forum → L1; names or resolves to "
             "a person → L3; and a category the law follows → L4; would "
             "rendering reveal a refusal, expose privileged strategy, disclose "
-            "key material or breach a sealing order → L5."
+            "key material or breach a sealing order → L5.",
+            reason=reason,
         )
     return classified

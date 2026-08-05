@@ -146,6 +146,19 @@ failure mode — but an empty schema is also just an empty schema.
 
 ### 4.5 · `Rung` is a `str` subclass, so a rung is also a valid `purpose`
 
+> **Superseded 2026-08-05 — this finding was acted on and the behaviour it
+> describes is gone.** `purpose` is now a closed `Purpose` enum, so a `Rung` in
+> the purpose slot raises `UndeclaredPurpose` rather than being accepted
+> without special power. The paragraph below is kept because it is *why* the
+> transposition was closed, and because the sentence "`isinstance(purpose, str)`
+> cannot see the transposition" is the exact reason the new gate is
+> `isinstance(purpose, Purpose)` and not a value check.
+>
+> This section is also the one corpus assertion whose change was a **real
+> contract change rather than a stale literal**. The implementation half found
+> it, could not read the corpus, and flagged it by name rather than touching
+> it; the corpus half converted it independently. Both were right.
+
 `may_render(r, s, purpose=Rung.L1)` type-checks, and `isinstance(purpose, str)`
 cannot see the transposition. The corpus asserts only that it gets **no
 special power**: `purpose=Rung.L1` does exactly what `purpose="L1"` does and
