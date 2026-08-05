@@ -98,15 +98,22 @@ Against a threshold it is not a rule anyone has to remember:
 | `S1_LIST` | `L3` | `L3` | `L4` is *derived*, and I-35 says purpose does not lift it |
 | `S1_DETAIL` | `L4` | `L4` | opening the pane **is** the declaration (decided 2026-08-04, by widget not dialog) |
 | `S2_PROMPT` | `L2` | `L2` | `L3` derived; `L4` derived **no exception**; nothing lifts |
-| `S3_AGENT` | `L2` | `L4` | `L3` derived; `L4` derived unless purpose |
+| `S3_AGENT` | `L2` | `L2` | `L3` and `L4` derived; **a purpose lifts neither** (closed 2026-08-05; was `L4` with purpose) |
 | `S4_EGRESS` | `L2` | `L4` | `L3` explicit act; `L4` explicit act + purpose |
 
 Two notes on the transcription:
 
-* **S3 and S4 have identical ceilings.** That is not a copy-paste. What differs
-  between them in the spec is the *trust tier* and the *ledger entry*, and this
-  module enforces neither, so the honest ceiling is the same and the difference
-  is a gap rather than a value.
+* **S3 and S4 no longer have identical ceilings**, and that is the one change to
+  this table since Phase 2. They were identical, and that was not a copy-paste:
+  what differs between them in the spec is the *trust tier* and the *ledger
+  entry*, this module enforces neither, so the honest ceiling was the same and
+  the difference was a gap rather than a value. **On 2026-08-05 the gap was
+  resolved downward rather than left standing.** A lift conditioned on a trust
+  tier this module cannot read is a lift conditioned on nothing, and S3 is the
+  surface with no human in the loop — so S3's column closed and S4's stayed,
+  which makes the asymmetry the spec's own rather than an authority claimed
+  here. `L3` and `L4` on S3 are *derived*, not denied. § 3 has the reasoning;
+  `DECISION-agent-retrieval.md` has the options and costs.
 * **`L3` on S2/S3 gets no purpose lift here**, which follows the crossing table.
   The `L3` prose says *"on S2/S3/S4 it is NULL … unless an explicit act says
   otherwise."* Those two sentences do not agree, and the doc says the table is
@@ -518,6 +525,15 @@ S4_EGRESS  (L2, L4)   purpose lifts
 A purpose only changes an answer on **S3 and S4**, and neither caller is a
 person typing into a box — one is an MCP tool invocation, the other an export.
 A call site names its purpose from a closed set at no cost to anybody in crisis.
+
+> **Superseded in part, 2026-08-05 — not edited.** S3's column has since closed
+> (`S3_AGENT (L2, L2) purpose inert`), so a purpose now lifts on S4 alone. The
+> ruling above is left as it was argued, because the argument is still the
+> reason the *set* is closed, and because closing the set is what made the S3
+> column's emptiness visible: once no member outranked another, the column was a
+> boolean any of six constants set. The ceremony reasoning is unaffected — an
+> export caller is still not a person typing into a box. See § 3 and
+> `DECISION-agent-retrieval.md`.
 It is also what makes S4's spec row implementable: *"explicit act + purpose +
 ledgered"* cannot be honoured with a free string, because you can write one to a
 ledger but you cannot audit it.
@@ -564,6 +580,14 @@ and `_check_crossing()` still validates it at import. This is a tightening of
 what counts as **declared**, not a change to the crossing. `purpose=None` still
 means no purpose and is still not an error; a purpose still only lifts, still
 lifts only on S3 and S4, and still lifts nothing at `L5`.
+
+> **True of the enum, and it stayed true — but the crossing moved later the same
+> day.** S3's column closed on 2026-08-05, so a purpose now lifts on S4 alone.
+> That was a separate decision with a separate argument, and this paragraph is
+> the record of what the *enum* did: it moved no answer, and the fact that it
+> could not was the evidence that the column had to be closed on its own terms.
+> Kept unedited so the two changes stay distinguishable. § 3, and
+> `DECISION-agent-retrieval.md`.
 
 **Three things are stricter:**
 
@@ -629,27 +653,55 @@ an authority it has not got. Held by a sweep asserting the six interchangeable
 across the whole rung × surface grid, because the AST scan exempts `_declared`
 and therefore cannot see a member comparison hidden inside it.
 
-**One open question this raises and does not answer. Half of it has since been
-answered, and it was the cheap half.** The member is a purpose an *agent*
-declares on its own behalf, and S3 is the surface where a purpose lifts `L2` to
-`L4`. So the one member most likely to be hardcoded by a caller is also the one
-attached to the surface with no human in the loop.
+**One open question this raised and did not answer. It was closed on
+2026-08-05, and the closure is the only change to the crossing since Phase 2.**
+The member is a purpose an *agent* declares on its own behalf, and S3 was the
+surface where a purpose lifted `L2` to `L4`. So the one member most likely to be
+hardcoded by a caller was also the one attached to the surface with no human in
+the loop.
 
 Its name made that worse: **`AGENT_RETRIEVAL` named the surface rather than the
 act**, which is the `"operator opened the record"` mistake two paragraphs up,
 sitting inside the set that paragraph was defending. Declaring it on `S3_AGENT`
-declared where you were already standing. Renamed to `ANSWERING` on 2026-08-05
-so that the member names what is being done.
+declared where you were already standing. Renamed to `ANSWERING` so that the
+member names what is being done.
 
-**The rename settles the naming and settles nothing else.** No member is ranked
-(paragraph above), so every member lifts S3 exactly as far — renaming one
-changes a ledger line and changes no answer, and a call site determined to
-hardcode a constant will hardcode `ANSWERING`. What is actually load-bearing is
-that S3's purpose column buys two rungs against an auditability guarantee that
-is Phase 3+ and unbuilt. The enum does not fix that and cannot: what fixes it is
-S3's trust tier, which is still not represented anywhere. Filed here rather than
-in the code, because it is P-1 from the corpus report and it is still open.
-Options and costs are in `DECISION-agent-retrieval.md`.
+**The rename settled the naming and nothing else, and establishing that is what
+closed the column.** No member is ranked (paragraph above), so every member
+lifted S3 exactly as far — renaming one changes a ledger line and moves no
+answer, and a call site determined to hardcode a constant would have hardcoded
+`ANSWERING`. A rename that cannot move an answer cannot be the remedy for an
+answer that was wrong.
+
+**So S3's ceiling is now `(L2, L2)` and a purpose lifts on S4 alone.** What was
+load-bearing was never the member's name: it was that S3's column bought two
+rungs against an auditability guarantee that is Phase 3+ and unbuilt, on the one
+surface with nobody in the loop. The trust tier that would have justified the
+lift is still not represented anywhere — and a lift conditioned on a tier this
+module cannot read is a lift conditioned on nothing, which is why the column was
+closed rather than gated.
+
+**It is a withholding, not a denial.** `decide()` returns `DENY` only for `L5`
+and an unreadable rung, so `L3` and `L4` on S3 come back `DERIVE` — the standing-in
+sentence, not silence. An agent that may not see the record can still be told a
+medical-records response is due on the 15th. That is what made the closure
+affordable, and it is asserted in
+`test_s3_derives_rather_than_denies_what_it_no_longer_renders`.
+
+**S4 keeps its column, and the asymmetry is now stated rather than
+transcribed.** S3 and S4 previously carried identical ceilings, described in
+`rungs.py` as "the honest transcription rather than a copy-paste" because what
+separates them — trust tier and ledger entry — is enforced by neither. Closing
+S3 alone does not invent a distinction: S4's caller is an operator performing an
+explicit act on their own record, which is exactly what the spec row means by
+*"explicit act + purpose + ledgered"*. S3's caller is a tool invocation. The
+asymmetry is the spec's; this module still enforces neither half of it.
+
+**Reopening is the same one cell**, once S3 carries a trust tier (P-1, still
+open) and S4's ledger exists to copy. Wrong in the closed direction costs derived
+text where a payload would have served; wrong in the open direction leaves `L4`
+reachable on an unattended surface behind a hardcoded constant. Options, costs
+and the refuted first remedy are in `DECISION-agent-retrieval.md`.
 
 ### What the enum made stale elsewhere — flagged, not quietly edited
 
@@ -717,8 +769,12 @@ later phase adding a session cache has to argue with it rather than route
 around it.
 
 Together with the enum it closes the failure the corpus agent predicted: that
-every call site hardcodes one purpose within a month, after which `L4` on S3/S4
-is unlocked unconditionally and the ceremony is decorative.
+every call site hardcodes one purpose within a month, after which `L4` on S4
+is unlocked unconditionally and the ceremony is decorative. (Written when S3
+carried the same exposure. Its column closed on 2026-08-05, so a cache can no
+longer buy anything there — which also means `_session_leak` can no longer
+*see* one on S3, since there is no answer left for it to move. The
+observability and the exposure went together; the helper says so.)
 
 **Now four tests, and the first of them fires before it is trusted.** A session
 cache does not arrive as `LAST_PURPOSE = None` at module scope; it arrives as a
@@ -750,6 +806,15 @@ acts: a local subprocess reading a record, versus data leaving the machine
 permanently. **Today `may_render` cannot tell them apart**, and everything built
 on it inherits that. It is invisible precisely because the transcription is
 faithful.
+
+> **Closed 2026-08-05, in the direction this finding was pointing.** S3's
+> ceiling is now `(L2, L2)` and S4's is unchanged, so `may_render` does tell
+> them apart — the finding was right that a faithful transcription can hide a
+> real difference, and the fix was to stop transcribing a lift that nothing
+> could justify rather than to invent a tier this module has not got. What
+> remains open is the other half: the module still enforces neither the trust
+> tier nor the ledger, so S4's column is now the *only* place a purpose lifts and
+> the *only* place that gap still bites. P-1 stands.
 
 ---
 

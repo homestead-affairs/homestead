@@ -693,7 +693,10 @@ def test_a_bare_string_is_not_a_purpose_even_when_it_spells_one():
     """
     for member in Purpose:
         assert member == member.value, "the premise: the equality really is True"
-        assert may_render(Rung.L4, Surface.S3_AGENT, purpose=member) is True
+        # S4, not S3: S3's purpose column closed on 2026-08-05, so a member
+        # lifts nothing there and this half of the premise needs a surface
+        # where a real member still visibly differs from its own spelling.
+        assert may_render(Rung.L4, Surface.S4_EGRESS, purpose=member) is True
 
         for spelling in (member.value, member.name, str(member),
                          member.value.upper(), f" {member.value} "):
@@ -971,15 +974,24 @@ def test_i15_a_note_body_is_derived_on_a_prompt_and_never_rendered():
     assert serve(note, Surface.S1_LIST).disposition is Disposition.DERIVE
 
     # The detail pane serves it — the act of opening is the declaration — and
-    # S3/S4 serve it only on a declared purpose. Both are the model working, not
+    # S4 serves it only on a declared purpose. Both are the model working, not
     # a leak, and stating them here keeps this test from claiming more than
     # I-15 does: it is about a *prompt* and a *log*, not about every surface.
     assert serve(note, Surface.S1_DETAIL).disposition is Disposition.RENDER
-    for surface in (Surface.S3_AGENT, Surface.S4_EGRESS):
-        assert serve(note, surface).disposition is Disposition.DERIVE
-        assert serve(
-            note, surface, purpose=Purpose.SUBJECT_ACCESS
-        ).disposition is Disposition.RENDER
+    assert serve(note, Surface.S4_EGRESS).disposition is Disposition.DERIVE
+    assert serve(
+        note, Surface.S4_EGRESS, purpose=Purpose.SUBJECT_ACCESS
+    ).disposition is Disposition.RENDER
+
+    # S3 no longer has that second case: its purpose column closed on
+    # 2026-08-05, so the note body derives on the agent surface whatever is
+    # declared. I-15 is about the prompt, so this is not I-15 widening — it is
+    # the one surface that used to need the caveat no longer needing it.
+    for purpose in PURPOSES:
+        assert serve(note, Surface.S3_AGENT, purpose=purpose).disposition is (
+            Disposition.DERIVE
+        )
+    assert serve(note, Surface.S3_AGENT).disposition is Disposition.DERIVE
 
 
 def test_i15_the_visible_log_and_the_prompt_agree_about_what_a_note_is():
@@ -1119,8 +1131,12 @@ def test_the_absence_of_a_purpose_wearing_its_clothes_is_now_refused():
             with pytest.raises(UndeclaredPurpose):
                 may_render(Rung.L4, surface, purpose=blank)
 
-    assert may_render(Rung.L4, Surface.S3_AGENT, purpose=Purpose.ANSWERING) is True
     assert may_render(Rung.L4, Surface.S4_EGRESS, purpose=Purpose.FILING) is True
+
+    # S3 raises on the blank exactly as S4 does — the loudness is a property of
+    # the argument, not of whether the surface has anything to give for it —
+    # but a member no longer lifts there, since S3's column closed 2026-08-05.
+    assert may_render(Rung.L4, Surface.S3_AGENT, purpose=Purpose.ANSWERING) is False
 
 
 def test_the_detail_pane_needs_no_purpose_and_is_not_confused_by_one():
@@ -1142,15 +1158,24 @@ def test_the_detail_pane_needs_no_purpose_and_is_not_confused_by_one():
         assert may_render(Rung.L5, Surface.S1_DETAIL, purpose=member) is False
 
 
-def test_purpose_is_accepted_on_all_five_surfaces_and_inert_on_three():
+def test_purpose_is_accepted_on_all_five_surfaces_and_inert_on_four():
     """Contract point 4, pinned so the withdrawn proposal cannot land by drift.
 
     Inert means the two ceiling columns are equal, so no member changes any
     answer — not that the argument is unchecked. The type check is
     unconditional, and the test below says why that matters.
+
+    **S3 moved from lifting to inert on 2026-08-05** (`test_..._inert_on_three`
+    until then), by the ratified decision recorded in
+    docs/DECISION-agent-retrieval.md. The withdrawn proposal this test exists to
+    block was a different one — dropping the *parameter* from the inert
+    surfaces — and closing a column does not revive it: S3 still accepts a
+    purpose, still type-checks it, and still raises on a non-member. It has
+    stopped paying one.
     """
-    inert = (Surface.S1_LIST, Surface.S1_DETAIL, Surface.S2_PROMPT)
-    lifting = (Surface.S3_AGENT, Surface.S4_EGRESS)
+    inert = (Surface.S1_LIST, Surface.S1_DETAIL, Surface.S2_PROMPT,
+             Surface.S3_AGENT)
+    lifting = (Surface.S4_EGRESS,)
     assert set(inert) | set(lifting) == set(Surface)
 
     for surface in Surface:
@@ -1235,21 +1260,51 @@ def _session_leak(permits) -> list[str]:
 
     Takes the function rather than reading the module, for the same reason
     `_non_monotone` does: it is the only way to know the check would notice.
+
+    Two separate properties, and since 2026-08-05 they no longer hold over the
+    same surfaces. **The answer must not move** — that is the leak itself, and
+    it is checked everywhere. **A member must lift** — that is the guard against
+    a `_declared` that refuses everything, and it can only be checked where a
+    column is open, which is now S4 alone.
+
+    S3's closure costs this check its ability to *see* a purpose cache on the
+    agent surface: with both columns equal there is no answer a cache could
+    move. That is acceptable only because the same closure removes what a cache
+    there would have bought — the observability and the exposure went together,
+    and if S3's column is ever reopened this helper regains both. It is written
+    down because a check that silently stopped covering a surface is exactly the
+    Phase 0 finding this file exists downstream of.
     """
     findings: list[str] = []
-    for surface in (Surface.S3_AGENT, Surface.S4_EGRESS):
+
+    #: Taken before anything is declared, so it is the true undeclared answer
+    #: rather than one a cache has already moved. Sampling `before` inside the
+    #: loop cannot work against a stateful callable: by the second surface the
+    #: cache has been primed, `before` comes back already lifted, and the check
+    #: reports no movement because it is comparing a poisoned reading against
+    #: itself. That is how this helper stopped firing when its surface loop
+    #: widened, and it is a fair miniature of the bug it hunts.
+    baseline = {s: permits(Rung.L4, s, purpose=None) for s in Surface}
+
+    for surface in Surface:
+        plain, with_purpose = rungs_mod._CEILING[surface]
         for member in Purpose:
-            before = permits(Rung.L4, surface, purpose=None)
             lifted = permits(Rung.L4, surface, purpose=member)
-            after = permits(Rung.L4, surface, purpose=None)
-            if not lifted:
+            if plain is not with_purpose and not lifted:
                 findings.append(f"{surface.value}: {member.name} did not lift")
-            if after != before:
-                findings.append(
-                    f"{surface.value}: the undeclared answer moved from {before} "
-                    f"to {after} once {member.name} had been declared once — a "
-                    "purpose survived the call that declared it"
-                )
+
+            # Every surface, not just this one. A cache does not know which
+            # surface primed it, so a declaration made on the list pane is
+            # exactly how `L4` leaves by egress an hour later.
+            for other in Surface:
+                now = permits(Rung.L4, other, purpose=None)
+                if now != baseline[other]:
+                    findings.append(
+                        f"{other.value}: the undeclared answer moved from "
+                        f"{baseline[other]} to {now} once {member.name} had been "
+                        f"declared on {surface.value} — a purpose survived the "
+                        "call that declared it"
+                    )
     return findings
 
 
