@@ -18,8 +18,33 @@ import pytest
 
 # Every module a pending test reaches for, and the phase that builds it.
 UNBUILT = {
-    "homestead.keep.dates": "Phase 1",
-    "homestead.keep.surfaces": "Phase 2",
+    # homestead.keep.dates was Phase 1 and is built. Its three tests moved to
+    # tests/test_invariants_dates.py, unmarked — which is what this file is
+    # for: test_pending_liveness failed the moment the module existed and would
+    # not go green again until they were promoted out.
+    #
+    # homestead.keep.surfaces was Phase 2 and is built. Its three tests, plus
+    # the I-11 test that was mis-attributed to `registry`, moved to
+    # tests/test_invariants_surfaces.py, unmarked. Same mechanism, second
+    # occasion.
+    #
+    # **The mis-attribution was not a typo and is worth leaving written down.**
+    # `test_i11_unclassified_field_is_a_build_failure` imported
+    # `classify_schema` from `homestead.keep.rungs`, which has existed since
+    # Phase 0, and was marked `@pending("homestead.keep.registry", ...)`
+    # because `rungs` could not be named here: a module in this dict is
+    # asserted *not to exist*, and `rungs` did. So a Phase 2 addition to an
+    # already-built module had no honest home, and it borrowed a Phase 3 one.
+    #
+    # That is a real limit of R-6 rather than a slip. This guard is
+    # **module-granular** — `importlib.util.find_spec` answers for a module, not
+    # for a symbol inside it — so a pending test whose real dependency is a
+    # *function* that does not exist yet cannot be tracked by it at all. Two
+    # consequences, both live: the reason string can be wrong in a way nothing
+    # detects, and such a test goes XPASS-strict when its symbol lands, which is
+    # a failure but not one that names the module. Phase 3 adds `registry`,
+    # `record` and functions to modules that already exist; if it needs
+    # symbol-granular pending marks, this dict is the thing to widen.
     "homestead.keep.registry": "Phase 3",
     "homestead.keep.record": "Phase 3",
     "homestead.keep.egress": "Phase 4",
@@ -57,85 +82,6 @@ def test_pending_liveness():
         "promoted out of this file, and this list updated — do not leave them "
         "xfailing."
     )
-
-
-# ── Phase 1 · dates ──────────────────────────────────────────────────────────
-
-@pending("homestead.keep.dates", "i1 i2 strict parse or refuse")
-def test_i1_i2_strict_parse_or_refuse():
-    """BUG-1: `_days_until` sliced to 10 chars before trying the long-form
-    formats it declared, so every `"July 1, 2026"` returned None — and the
-    failure was data-dependent, because `"May 5 2026"` is exactly 10."""
-    from homestead.keep.dates import parse_deadline
-
-    assert parse_deadline("2026-08-10").iso == "2026-08-10"
-    assert parse_deadline("July 1, 2026").iso == "2026-07-01"
-    assert parse_deadline("May 5, 2026").iso == "2026-05-05"
-    for junk in ("2026", "June", "30", "next week", "", "not a date"):
-        with pytest.raises(ValueError):
-            parse_deadline(junk)
-
-
-@pending("homestead.keep.dates", "i3 overdue never disagrees with days until")
-def test_i3_overdue_never_disagrees_with_days_until():
-    """BUG-3: `overdue` string-compared the raw value while `days_until`
-    parsed it, so one item carried days_until=-91 and overdue=False at once."""
-    from homestead.keep.dates import Deadline
-
-    d = Deadline.from_text("May 5, 2026", today="2026-08-04")
-    assert d.days_until == -91
-    assert d.overdue is True
-
-
-@pending("homestead.keep.dates", "i5 no free text dates reach storage")
-def test_i5_no_free_text_dates_reach_storage():
-    """BUG-4: snooze took free text and `is_snoozed` compared it to today as a
-    string, so `"next week"` hid an item until 2099 and `"08/11/2026"` did
-    nothing at all — and there was no un-snooze anywhere in the codebase."""
-    from homestead.keep.dates import parse_deadline
-
-    with pytest.raises(ValueError):
-        parse_deadline("next week")
-
-
-# ── Phase 2 · rungs ──────────────────────────────────────────────────────────
-
-@pending("homestead.keep.registry", "classify_schema is Phase 2")
-def test_i11_unclassified_field_is_a_build_failure():
-    from homestead.keep.rungs import classify_schema
-
-    with pytest.raises(Exception):
-        classify_schema({"body": None})  # no rung declared
-
-
-@pending("homestead.keep.surfaces", "i13 l5 has no override on any surface")
-def test_i13_l5_has_no_override_on_any_surface():
-    """BUG-5: `_fact_blocked` tested only `needs_source`, so `do_not_use` —
-    the *stronger* rejection — still flowed into the drafting packet and the
-    model prompt, while the screen said 'Excluded from drafting'."""
-    from homestead.keep.rungs import Rung, may_render
-    from homestead.keep.surfaces import Surface
-
-    for surface in Surface:
-        assert may_render(Rung.L5, surface, purpose="anything") is False
-
-
-@pending("homestead.keep.surfaces", "i35 the list pane cannot render an l4 payload")
-def test_i35_the_list_pane_cannot_render_an_l4_payload():
-    from homestead.keep.rungs import Rung, may_render
-    from homestead.keep.surfaces import Surface
-
-    assert may_render(Rung.L4, Surface.S1_LIST, purpose=None) is False
-    assert may_render(Rung.L4, Surface.S1_LIST, purpose="medical") is False
-    assert may_render(Rung.L4, Surface.S1_DETAIL, purpose=None) is True
-
-
-@pending("homestead.keep.surfaces", "i13 l4 never reaches a model prompt")
-def test_i13_l4_never_reaches_a_model_prompt():
-    from homestead.keep.rungs import Rung, may_render
-    from homestead.keep.surfaces import Surface
-
-    assert may_render(Rung.L4, Surface.S2_PROMPT, purpose="medical") is False
 
 
 # ── Phase 3 · the registry ───────────────────────────────────────────────────

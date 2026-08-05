@@ -7,6 +7,8 @@ absent rather than managed.
 from __future__ import annotations
 
 import ast
+import importlib.metadata as md
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -83,8 +85,17 @@ def test_i14_rung_max_composition():
     assert compose(Rung.L1, Rung.L5, Rung.L3) is Rung.L5
 
 
-def test_i27_declared_dependencies_are_true():
-    """The package imports with nothing installed but the standard library."""
+def test_i27_the_core_needs_nothing_but_the_standard_library():
+    """`paths`, `logs` and `rungs` import with nothing installed but stdlib.
+
+    This said "the package" until Phase 1, when `dates` took a dependency on
+    `holidays` and made that sentence false. Narrowed rather than deleted: the
+    three modules every other module builds on staying stdlib-only is a real
+    property worth holding, and it is the one this subprocess actually checks.
+    The general claim — *everything imported is declared* — is now
+    `test_i27_every_third_party_import_is_declared` below, which is where it
+    belonged all along.
+    """
     r = subprocess.run(
         [sys.executable, "-c", "import homestead.keep.paths, homestead.keep.logs,"
                                " homestead.keep.rungs; print('ok')"],
@@ -92,6 +103,49 @@ def test_i27_declared_dependencies_are_true():
     )
     assert r.returncode == 0, r.stderr
     assert "ok" in r.stdout
+
+
+def test_i27_every_third_party_import_is_declared():
+    """Nothing is imported that `pyproject.toml` does not name.
+
+    The gap this closes: `holidays` pulls in `python-dateutil`, which pulls in
+    `six`, so both are importable in a working checkout without being declared
+    anywhere. A module that reached for `six` would run fine here and fail on
+    someone else's machine the day `holidays` dropped it — an ambient
+    dependency, which is exactly the shape I-27 exists to forbid.
+
+    Import names are mapped to distribution names through the installed
+    metadata rather than assumed equal, because they routinely differ
+    (`dateutil` ships in `python-dateutil`).
+    """
+    declared_block = re.search(
+        r"^dependencies\s*=\s*\[(.*?)\]",
+        (ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+        re.MULTILINE | re.DOTALL,
+    )
+    assert declared_block, "pyproject.toml must have a dependencies list"
+    declared = {
+        m.lower().replace("_", "-")
+        for m in re.findall(r'"([A-Za-z0-9._-]+)', declared_block.group(1))
+    }
+
+    dist_of = md.packages_distributions()
+    offenders: list[str] = []
+    for mod in _modules():
+        tree = ast.parse(mod.read_text(encoding="utf-8"))
+        for name in _toplevel_imports(tree):
+            if name == "homestead" or name in sys.stdlib_module_names:
+                continue
+            dists = {d.lower().replace("_", "-") for d in dist_of.get(name, [])}
+            if not dists & declared:
+                offenders.append(
+                    f"{mod.relative_to(ROOT)} imports {name!r}"
+                    f" (ships in {sorted(dists) or 'nothing installed'})"
+                )
+    assert not offenders, (
+        "every third-party import must be a declared dependency, not one that "
+        f"happens to be installed. Found: {offenders}"
+    )
 
 
 def test_i28_no_test_basename_is_shadowed():
