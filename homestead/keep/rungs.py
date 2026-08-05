@@ -205,13 +205,37 @@ class Purpose(str, Enum):
     and the gate refuses the bare string anyway — being readable in a log is not
     a licence to be accepted in a permission call. `Surface` had exactly this
     bug at Phase 2 and the corpus found it.
+
+    **Two glosses are narrower than they were, and one gap is left open on
+    purpose** (2026-08-05; docs/DECISION-redisclosure.md,
+    docs/DECISION-compelled-disclosure.md).
+
+    `REDISCLOSURE` read *"42 CFR Part 2-style permitted re-disclosure"*, and that
+    was taken for the member's **scope** when it was meant as an exemplar. It is
+    not scoped to Part 2: the corpus already declares it over a relocated home
+    address. Part 2 is the clearest instance of the act, not the boundary of it.
+    (The objection that raised this — a Part 2 record is `L5`, `L5` has no
+    override, so the member is dead — does not hold. The member is live at `L3`
+    and `L4` on S4; four of the six have a canonical `L5` datum they cannot
+    reach, which is I-13 working rather than a defect in a member.)
+
+    `FILING` read *"submitting it to a court or agency"*, which is true of a
+    voluntary filing **and of a compelled production**, and named only the
+    destination. A subpoena response and a mandated report are inside those words
+    as written. The gloss now says *voluntarily* — but **the set still has no
+    member for a compelled disclosure**, so a production under process is
+    declared as `FILING` today and a ledger cannot tell the two apart afterwards.
+    That is a known, open gap and not an oversight; whether to close it is a
+    product question about whether these households field discovery. Note that
+    the set already individuates by posture elsewhere — `SUBJECT_ACCESS` is an
+    `EXPORT` with a statute behind it, and gets its own member for that alone.
     """
 
     DRAFTING = "drafting"                # preparing a document the operator will file
-    FILING = "filing"                    # submitting it to a court or agency
+    FILING = "filing"                    # submitting it, voluntarily, to a court or agency
     EXPORT = "export"                    # the operator taking their own record out
     SUBJECT_ACCESS = "subject_access"    # a statutory subject-access request
-    REDISCLOSURE = "redisclosure"        # 42 CFR Part 2-style permitted re-disclosure
+    REDISCLOSURE = "redisclosure"        # passing on a record received under a permission
     ANSWERING = "answering"              # an agent answering a question the operator asked
 
 

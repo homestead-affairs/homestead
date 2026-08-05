@@ -645,6 +645,16 @@ seventh member is a decision someone has to make on purpose rather than a
 diff nobody notices — a seventh member is one more call site that can unlock
 `L4` on egress.
 
+> **Corrected 2026-08-05, and left standing.** The last clause is false as
+> measured: no member is ranked, so a caller wanting `L4` on egress declares
+> `DRAFTING` today and a seventh member adds no exposure at all. Closing the set
+> bounds the **vocabulary**, not the capability. The pin is still right, for the
+> clause before it — a membership change is a product decision, and the ledger
+> vocabulary is what the set is for, so an unratified word in it is exactly as
+> unreviewed as a lift would have been. Kept unedited because it records the
+> reason the pin was written, which is not the same as the reason it should
+> stay. `DECISION-compelled-disclosure.md` § *The mechanical facts, measured*.
+
 **No member is ranked above another**, and that is a separate property from
 validating the set. The ceiling table has two columns, not seven, and this
 module has neither the trust tier nor the ledger that ranking would need — so a
@@ -815,6 +825,35 @@ faithful.
 > remains open is the other half: the module still enforces neither the trust
 > tier nor the ledger, so S4's column is now the *only* place a purpose lifts and
 > the *only* place that gap still bites. P-1 stands.
+
+### Filed 2026-08-05 — the spec disagrees with itself about 42 CFR Part 2
+
+Not a defect in this module and nothing here proposes changing a rung. Filed
+because it was found while answering a different question and the next person to
+hit it should not have to re-derive it.
+
+`homestead-rungs.md` — which `rungs.py` names as *the only place the mapping is
+stated* — places substance-use records **both** ways:
+
+- `L4` **by rung definition.** The `L4` section names *"minors' data,
+  **substance-use records (42 CFR Part 2)**, immigration status, and privileged
+  communications"* as categories the law follows.
+- `L5` **by illustrative table.** Two Part 2 rows sit in the class→rung table,
+  which is itself prefaced *"Illustrative, not exhaustive; the procedure below
+  governs."* `L5`'s own `Includes:` list does not mention Part 2, and Part 2 is a
+  disclosure-consent regime rather than a sealing order.
+
+So the governing text says `L4` and the non-governing text says `L5`. The corpus
+transcribes the `L5` row deliberately and it should stay — over-classifying fails
+closed, which is this project's direction of error. What is not safe is the
+**generalisation**: *every Part 2 datum is `L5`* is the step that produced the
+"`REDISCLOSURE` can never act" objection, and the spec's own step 5 refutes it —
+the same field is `L1` in a bankruptcy and `L3` in a family matter. **A regime
+does not classify; a datum in a matter does.**
+
+`homestead-rungs.md` lives in `safe-app-store`, so the fix is not this repo's to
+land. Reasoning and citations: `DECISION-redisclosure.md` § *What the finding is
+actually about*.
 
 ---
 

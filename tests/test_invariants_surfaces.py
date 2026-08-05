@@ -654,6 +654,24 @@ def test_the_purpose_enum_is_the_six_that_were_published():
     compiling, which is at least loud, but it is still a product change wearing
     a refactor's clothes.
 
+    **Correction, 2026-08-05 — the pin is right and that stated reason is not,
+    and it is left above rather than rewritten.** "One more call site that can
+    unlock `L4` on egress" implies a seventh member adds exposure. Measured, it
+    adds none: no member is ranked, so a call site wanting `L4` on `S4_EGRESS`
+    declares `DRAFTING` today and gets the identical lift from the identical
+    line. A seventh member is not one more call site that can unlock `L4`; it is
+    the same call site with a different word in it. **The set being closed bounds
+    the vocabulary, not the capability** — which is this repo's own sentence
+    (*`may_render` gains no safety from membership; the value is auditability*)
+    arriving one level up, in the docstring of the test that enforces the bound.
+
+    So why keep the pin? For the second sentence above, which was always the
+    load-bearing one: a membership change is a **product decision**, and one that
+    lands as a quiet diff is a decision nobody made. The ledger vocabulary is
+    what the set is *for*, and a word added to it without ratification is exactly
+    as unreviewed as a lift would have been. See docs/DECISION-compelled-disclosure.md
+    § *The mechanical facts, measured*.
+
     Two entries from the corpus's own plausible list are deliberately **not**
     here, and the reason is the argument for the enum. `"medical"` is a data
     *category* — it belongs to the rung, and `L4` already carries it.
