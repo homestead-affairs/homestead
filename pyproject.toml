@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "homestead"
+version = "0.0.1"
+description = "The seat of Homestead · Affairs — the shared record, deadline and evidence core (homestead.keep)."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+# I-27: declared dependencies are TRUE. Phase 0 has none, and the suite must
+# pass from a cold checkout with nothing but pytest installed.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+# Nestor is an OPTIONAL EXTRA and never a required dependency.
+# The seam degrades to feature-absent when it is not installed.
+entity = []          # pinned nestor lands here at Phase 6+
+
+[project.scripts]
+homestead-law = "homestead.app.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["homestead*"]
+
+[tool.pytest.ini_options]
+# I-28: bare `pytest -q` must work. Nothing shadows the live suite.
+testpaths = ["tests"]
+norecursedirs = ["_archived", "build", "dist", ".git", "packaging"]

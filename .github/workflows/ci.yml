@@ -1,0 +1,43 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  invariants:
+    # I-27/I-28: a cold checkout, nothing but pytest, bare `pytest -q`.
+    # No out-of-band install step. If this job needs one, the declared
+    # dependencies are false and that is the finding.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pytest
+      - run: pip install -e .
+      - run: pytest -q
+
+  artifact:
+    # The Phase 0 deliverable is a *double-clickable artifact*, so CI builds it
+    # and runs it. Without this job the first spec shipped a binary that died on
+    # startup and every test stayed green — which is exactly the failure the
+    # "packaging at Phase 0" decision was made to prevent.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pyinstaller .
+      - run: pyinstaller --clean --noconfirm packaging/homestead.spec
+      - name: smoke-run the built artifact
+        shell: bash
+        run: |
+          BIN=dist/Homestead
+          [ -f "$BIN.exe" ] && BIN="$BIN.exe"
+          "$BIN" --smoke
