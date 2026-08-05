@@ -1,7 +1,20 @@
 # `REDISCLOSURE` — decision brief
 
-Status: **Proposed. Nothing done.** No file in this repo was changed to write
-this; every measurement below was taken in a scratch copy and discarded.
+Status: **Ratified and done, 2026-08-05 — B and C both.** The member's comment
+now reads *"passing on a record received under a permission"*, with Part 2 named
+in the enum docstring as the clearest instance rather than the boundary. The
+classification question is filed in `PHASE2-SURFACES.md` § *Filed 2026-08-05 —
+the spec disagrees with itself about 42 CFR Part 2*, where a reader hitting it
+will look, rather than only here. Suite unchanged at the time of the change, as
+measured: no test reads a member's comment.
+
+**Nothing was dropped, no rung moved, and no classification changed** — A and D
+were both recommended against and neither was taken. `homestead-rungs.md` lives
+in `safe-app-store`, so the upstream half of C is not this repo's to land and
+has not been.
+
+*Original status, kept:* Proposed. Nothing done. Every measurement was taken in
+a scratch copy and discarded.
 
 **Proposed here, to be ratified by another hand** — `verified_by ≠ author`, as
 with `DECISION-agent-retrieval.md`. This brief recommends; the operator decides.

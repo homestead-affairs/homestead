@@ -59,7 +59,7 @@ changed, and both changes are declared below rather than absorbed.
 | `AmbientRow` / `ambient_rows` | The list pane's render path. A rung and a line of text, and no third field. |
 | `context_rung(items)` | I-12 pointed at a prompt: the `max` of the whole window, retrieved neighbours included. |
 | `classify_schema(schema)` | I-11's build half. Refuses, and names every offending field. |
-| `Purpose` | *(2026-08-05)* The closed set of six. `purpose=None` is still no purpose and still not an error. |
+| `Purpose` | *(2026-08-05)* The closed set — six as ratified, seven once `COMPELLED_DISCLOSURE` was authorised the same day. `purpose=None` is still no purpose and still not an error. |
 | `UndeclaredPurpose` | *(2026-08-05)* A `TypeError` for anything in the purpose slot that is neither `None` nor a member — including a bare string that spells one. |
 
 ### The one design decision worth arguing about
@@ -146,11 +146,11 @@ Two notes on the transcription:
   it, matching it or indexing it fails the suite. `_declared` is the single
   exemption. **Still true after the enum, and it means something slightly
   different**: the closed set bounds *which* purposes can arrive, and this
-  bounds what the code may do with one once it has. A six-member enum plus
+  bounds what the code may do with one once it has. A closed enum plus
   `if purpose is Purpose.FILING: return True` is an escape hatch with a nicer
   type. The scan exempts the whole of `_declared` and so cannot see a member
   comparison hidden inside it; that hole is closed behaviourally by the sweep
-  asserting the six interchangeable.
+  asserting every member interchangeable with every other.
 * **A purpose that is not a `Purpose` member** *(2026-08-05)*. Raises
   `UndeclaredPurpose`, on every surface including the three where a purpose is
   inert, and before the rung is read so `L5` does not swallow it. **A blank
@@ -220,7 +220,7 @@ claims, and an injection caught only by a stale file is not caught.
 | **a session cache** — the last declared purpose is remembered | `test_a_purpose_is_per_call_and_the_check_that_says_so_can_fail`, `test_a_declaration_authorises_one_call_and_not_the_next`, +2 |
 | `may_render` wrapped in `lru_cache` | `test_nothing_in_the_module_changes_when_a_purpose_is_declared`, +3 |
 | a seventh `Purpose` whose value collides with a `Rung` | `ImportError` at collection |
-| a seventh member added quietly | `test_the_purpose_enum_is_the_six_that_were_published` |
+| a member added quietly | `test_the_purpose_enum_is_the_set_that_was_ratified` (it fired: `COMPELLED_DISCLOSURE` failed four guards in three files on the way in) |
 | a member dropped quietly | same, +1 |
 | `UndeclaredPurpose` made a `ValueError` | `test_i13_a_declared_purpose_is_a_declared_purpose_whatever_it_says` |
 | `None` counted as a declaration | 4 tests |
@@ -612,9 +612,9 @@ lifts only on S3 and S4, and still lifts nothing at `L5`.
 **The `str`-subclass hole, which is the one that mattered.** `Purpose` is a
 `str` enum, so `Purpose.DRAFTING == "drafting"` is `True`. A membership check
 written against *values* — `purpose in {p.value for p in Purpose}`, or
-`Purpose(purpose)`, which coerces — accepts exactly the six member spellings
+`Purpose(purpose)`, which coerces — accepts exactly the member spellings
 and refuses every other string. That is not a smaller hole than free text; it
-is a stranger one, six magic strings where there were none, and a sampling test
+is a stranger one, one magic string per member where there were none, and a sampling test
 cannot see it because a random sampler never emits `"drafting"`. **`Surface`
 had this exact bug at Phase 2 and it was the corpus's most substantive
 finding.** The gate is therefore `isinstance(purpose, Purpose)` and never a
@@ -634,7 +634,10 @@ judgement about it.** The six are exactly the six that were published:
 `DRAFTING`, `FILING`, `EXPORT`, `SUBJECT_ACCESS`, `REDISCLOSURE`, and the one
 published as `AGENT_RETRIEVAL` and **renamed to `ANSWERING` on 2026-08-05** —
 same member in the same position, new spelling, for the reason in the
-open-question paragraph below. Two entries from the blind corpus's own plausible list are
+open-question paragraph below. (A seventh, `COMPELLED_DISCLOSURE`, was ratified
+later the same day and sits after `FILING`; see the note at the end of this
+section. It is *not* one of the six that were published, which is why it is
+named here as an addition rather than folded into the list.) Two entries from the blind corpus's own plausible list are
 deliberately absent, and the reason is itself the argument for the enum:
 `"medical"` is a data **category** — the rung carries it, `L4` *is* "identifies
 and carries a category the law follows" — and `"operator opened the record"` is
@@ -654,12 +657,26 @@ diff nobody notices — a seventh member is one more call site that can unlock
 > unreviewed as a lift would have been. Kept unedited because it records the
 > reason the pin was written, which is not the same as the reason it should
 > stay. `DECISION-compelled-disclosure.md` § *The mechanical facts, measured*.
+>
+> **And then a seventh member was ratified, the same day.**
+> `COMPELLED_DISCLOSURE` — because `FILING`'s gloss, *"submitting it to a court
+> or agency"*, was equally true of a voluntary filing and a production under
+> subpoena, and a ledger that records the second as the first misrepresents the
+> operator in the one setting where the record gets read. The set already
+> individuated by posture: `SUBJECT_ACCESS` is an `EXPORT` with a statute behind
+> it and earns a member for that alone. **The pin did its job on the way
+> through** — the addition failed four guards across three files, two of them
+> table-size guards nobody wrote as membership pins, which is what "a decision
+> someone has to make on purpose" is supposed to feel like. The tests named for
+> the count were renamed off it; a title asserting a number is a title that goes
+> false every time the thing it guards legitimately changes.
+> `DECISION-compelled-disclosure.md`.
 
 **No member is ranked above another**, and that is a separate property from
 validating the set. The ceiling table has two columns, not seven, and this
 module has neither the trust tier nor the ledger that ranking would need — so a
 table treating `EXPORT` as weightier than `ANSWERING` would be inventing
-an authority it has not got. Held by a sweep asserting the six interchangeable
+an authority it has not got. Held by a sweep asserting every member interchangeable
 across the whole rung × surface grid, because the AST scan exempts `_declared`
 and therefore cannot see a member comparison hidden inside it.
 
@@ -733,7 +750,7 @@ to. Three things this change falsified, none of them edited:
   artifact and it is left alone; the second-pass injections above are its
   successor for this area, not a replacement for the file.
 * **Four sweeps in `tests/test_invariants_surfaces.py`** that iterated
-  free-text purposes now iterate the six members and are therefore
+  free-text purposes now iterate the members and are therefore
   *exhaustive over the domain* rather than over a list somebody typed — which
   is the failure mode both Phase 0 audits named. The adversarial strings did
   not go away; they moved to `REFUSED_PURPOSES` and are asserted to **raise**

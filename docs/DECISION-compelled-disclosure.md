@@ -1,9 +1,31 @@
 # A compelled disclosure — decision brief
 
-Status: **Proposed. Nothing done.** No existing file in this repo was changed to
-write this. Every measurement below was taken in scratch copies of the tree and
-the copies were kept, not merged; the working tree was `git status`-clean of my
-edits before and after.
+Status: **Ratified and done, 2026-08-05 — B and C both.** `FILING`'s gloss now
+says *voluntarily*, and `COMPELLED_DISCLOSURE = "compelled_disclosure"` sits
+after it in the enum. Suite **1704 passed / 6 xfailed**, from 1621/6 — the +83
+is the sweeps picking the member up with no test rewritten, exactly as measured
+below.
+
+The costed plan held: four guards failed across three files (the two pins plus
+two table-size guards nobody wrote as membership pins), seven assertion sites,
+zero migrations. The silent cost was real and was paid —
+`test_all_six_members_are_interchangeable_at_the_decision_function` went on
+passing with a seventh member and a newly false title, and is renamed. So are the
+other two purpose tests named for the count: a title asserting a number goes
+false every time the thing it guards legitimately changes, which is the defect
+this suite renamed `test_the_ceiling_table_did_not_move` for.
+
+**The ratifying argument was not the one below.** This brief recommended C on the
+`SUBJECT_ACCESS` precedent — structural symmetry, the set already individuating
+by legal posture. What carried it was a consequence argument this brief did not
+make: for an operator in a custody or bankruptcy matter, *voluntary* is a legally
+loaded word, and a ledger recording a compelled production as a voluntary filing
+misrepresents them in the one setting where the record is read. The precedent
+argument is still sound and is left standing below.
+
+*Original status, kept:* Proposed. Nothing done. Every measurement was taken in
+scratch copies of the tree; the working tree was `git status`-clean before and
+after.
 
 **Proposed here, to be ratified by another hand** — `verified_by ≠ author`, as
 with `DECISION-agent-retrieval.md`. This brief recommends; the operator decides.

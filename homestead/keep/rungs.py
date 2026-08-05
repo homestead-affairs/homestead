@@ -40,9 +40,9 @@ Four rules live here rather than in prose:
 
 ## A purpose is a closed enum, and per-call
 
-`Purpose` has six members and `purpose=None` means none declared, which is not
-an error. Anything else raises. A purpose used to be any non-blank string, which
-meant `"x"` bought the same lift as `"medical"` — and I-13 calls a declared
+`Purpose` is a closed set of members and `purpose=None` means none declared,
+which is not an error. Anything else raises. A purpose used to be any non-blank
+string, which meant `"x"` bought the same lift as `"medical"` — and I-13 calls a declared
 purpose a *control*, so that made it a label. Closing the set changed no answer:
 it was a tightening of what counts as **declared**, not a change to the
 crossing.
@@ -57,7 +57,7 @@ derived form above that. See the S3 row of `_CEILING`.
 
 Nothing here remembers a purpose between calls, and that is now a stated
 invariant rather than an accident of statelessness. One declaration lifts one
-call. A session cache would turn the six members into one hardcoded string per
+call. A session cache would turn the set into one hardcoded string per
 call site inside a month, after which `L4` on S4 is unlocked unconditionally
 and the whole thing is decorative — which is the same failure the S3 column was
 closed for, arriving by a different road.
@@ -233,6 +233,7 @@ class Purpose(str, Enum):
 
     DRAFTING = "drafting"                # preparing a document the operator will file
     FILING = "filing"                    # submitting it, voluntarily, to a court or agency
+    COMPELLED_DISCLOSURE = "compelled_disclosure"   # producing it because process required it
     EXPORT = "export"                    # the operator taking their own record out
     SUBJECT_ACCESS = "subject_access"    # a statutory subject-access request
     REDISCLOSURE = "redisclosure"        # passing on a record received under a permission
