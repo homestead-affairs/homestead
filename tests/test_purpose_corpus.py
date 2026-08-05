@@ -161,11 +161,11 @@ def test_the_six_members_are_exactly_the_six_that_were_ratified():
     """
     assert [p.name for p in Purpose] == [
         "DRAFTING", "FILING", "EXPORT",
-        "SUBJECT_ACCESS", "REDISCLOSURE", "AGENT_RETRIEVAL",
+        "SUBJECT_ACCESS", "REDISCLOSURE", "ANSWERING",
     ]
     assert [p.value for p in Purpose] == [
         "drafting", "filing", "export",
-        "subject_access", "redisclosure", "agent_retrieval",
+        "subject_access", "redisclosure", "answering",
     ]
     assert len({p.value for p in Purpose}) == 6, (
         "two members sharing a value are one member with two names, and any "
@@ -369,7 +369,7 @@ def test_an_enum_of_the_same_shape_from_somewhere_else_is_not_a_purpose():
         EXPORT = "export"
         SUBJECT_ACCESS = "subject_access"
         REDISCLOSURE = "redisclosure"
-        AGENT_RETRIEVAL = "agent_retrieval"
+        ANSWERING = "answering"
 
     for member in Purpose:
         for surface in Surface:

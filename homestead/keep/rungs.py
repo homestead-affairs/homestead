@@ -168,6 +168,19 @@ class Purpose(str, Enum):
     thing into one slot and could not tell them apart. **Membership is
     provisional**; see PHASE2-SURFACES.md § 3.
 
+    **`ANSWERING` was `AGENT_RETRIEVAL` until 2026-08-05**, and the rename is
+    that same distinction turned on the set's own member. "Agent retrieval" is
+    what `S3_AGENT` *is*, so declaring it there declared the surface you were
+    already standing on — the `"operator opened the record"` mistake, admitted
+    by the one name nobody re-read. `ANSWERING` names the act instead.
+
+    **The rename is an honesty fix and not a remedy, and it should not be read
+    as one.** Nothing here ranks members, so *every* member lifts S3 exactly as
+    far; renaming one changes what a ledger line says and changes no answer.
+    What the old name was a symptom of — two rungs of lift on the surface with
+    no human in the loop, against a ledger that does not exist yet — is
+    untouched. See docs/DECISION-agent-retrieval.md.
+
     A `str` enum for the same reason `Rung` and `Surface` are (I-14): the value
     that ends up in a ledger line, a manifest or an error message should read as
     itself. That is *all* it is for. `Purpose.DRAFTING == "drafting"` is `True`,
@@ -181,7 +194,7 @@ class Purpose(str, Enum):
     EXPORT = "export"                    # the operator taking their own record out
     SUBJECT_ACCESS = "subject_access"    # a statutory subject-access request
     REDISCLOSURE = "redisclosure"        # 42 CFR Part 2-style permitted re-disclosure
-    AGENT_RETRIEVAL = "agent_retrieval"  # an agent answering a question the operator asked
+    ANSWERING = "answering"              # an agent answering a question the operator asked
 
 
 def _check_the_str_enums_cannot_be_confused() -> None:

@@ -136,7 +136,7 @@ def test_i13_l5_has_no_override_on_any_surface():
     from homestead.keep.surfaces import Surface
 
     for surface in Surface:
-        assert may_render(Rung.L5, surface, purpose=Purpose.AGENT_RETRIEVAL) is False
+        assert may_render(Rung.L5, surface, purpose=Purpose.ANSWERING) is False
 
 
 def test_i35_the_list_pane_cannot_render_an_l4_payload():
@@ -667,7 +667,7 @@ def test_the_purpose_enum_is_the_six_that_were_published():
         "EXPORT": "export",
         "SUBJECT_ACCESS": "subject_access",
         "REDISCLOSURE": "redisclosure",
-        "AGENT_RETRIEVAL": "agent_retrieval",
+        "ANSWERING": "answering",
     }
     assert issubclass(Purpose, str), "so a ledger line reads as itself (I-14)"
     for name in ("Purpose", "UndeclaredPurpose"):
@@ -844,7 +844,7 @@ def test_no_purpose_member_is_more_of_a_declaration_than_another():
     Ranking purposes is not this module's job and it does not have what the job
     needs. The spec separates S3 from S4 by *trust tier* and by *ledger entry*,
     and this module enforces neither — so a table that treated `EXPORT` as
-    weightier than `AGENT_RETRIEVAL` would be inventing an authority it has not
+    weightier than `ANSWERING` would be inventing an authority it has not
     got. Two columns, not seven.
     """
     reference = Purpose.DRAFTING
@@ -1119,7 +1119,7 @@ def test_the_absence_of_a_purpose_wearing_its_clothes_is_now_refused():
             with pytest.raises(UndeclaredPurpose):
                 may_render(Rung.L4, surface, purpose=blank)
 
-    assert may_render(Rung.L4, Surface.S3_AGENT, purpose=Purpose.AGENT_RETRIEVAL) is True
+    assert may_render(Rung.L4, Surface.S3_AGENT, purpose=Purpose.ANSWERING) is True
     assert may_render(Rung.L4, Surface.S4_EGRESS, purpose=Purpose.FILING) is True
 
 

@@ -607,8 +607,10 @@ silently read as a rung.
 
 **Membership is provisional and this implementation did not exercise
 judgement about it.** The six are exactly the six that were published:
-`DRAFTING`, `FILING`, `EXPORT`, `SUBJECT_ACCESS`, `REDISCLOSURE`,
-`AGENT_RETRIEVAL`. Two entries from the blind corpus's own plausible list are
+`DRAFTING`, `FILING`, `EXPORT`, `SUBJECT_ACCESS`, `REDISCLOSURE`, and the one
+published as `AGENT_RETRIEVAL` and **renamed to `ANSWERING` on 2026-08-05** —
+same member in the same position, new spelling, for the reason in the
+open-question paragraph below. Two entries from the blind corpus's own plausible list are
 deliberately absent, and the reason is itself the argument for the enum:
 `"medical"` is a data **category** — the rung carries it, `L4` *is* "identifies
 and carries a category the law follows" — and `"operator opened the record"` is
@@ -622,18 +624,32 @@ diff nobody notices — a seventh member is one more call site that can unlock
 **No member is ranked above another**, and that is a separate property from
 validating the set. The ceiling table has two columns, not seven, and this
 module has neither the trust tier nor the ledger that ranking would need — so a
-table treating `EXPORT` as weightier than `AGENT_RETRIEVAL` would be inventing
+table treating `EXPORT` as weightier than `ANSWERING` would be inventing
 an authority it has not got. Held by a sweep asserting the six interchangeable
 across the whole rung × surface grid, because the AST scan exempts `_declared`
 and therefore cannot see a member comparison hidden inside it.
 
-**One open question this raises and does not answer.** `AGENT_RETRIEVAL` is a
-purpose an *agent* declares on its own behalf, and S3 is the surface where a
-purpose lifts `L2` to `L4`. So the one member most likely to be hardcoded by a
-caller is also the one attached to the surface with no human in the loop. The
-enum does not fix that and cannot: what fixes it is S3's trust tier, which is
-still not represented anywhere. Filed here rather than in the code, because it
-is P-1 from the corpus report and it is still open.
+**One open question this raises and does not answer. Half of it has since been
+answered, and it was the cheap half.** The member is a purpose an *agent*
+declares on its own behalf, and S3 is the surface where a purpose lifts `L2` to
+`L4`. So the one member most likely to be hardcoded by a caller is also the one
+attached to the surface with no human in the loop.
+
+Its name made that worse: **`AGENT_RETRIEVAL` named the surface rather than the
+act**, which is the `"operator opened the record"` mistake two paragraphs up,
+sitting inside the set that paragraph was defending. Declaring it on `S3_AGENT`
+declared where you were already standing. Renamed to `ANSWERING` on 2026-08-05
+so that the member names what is being done.
+
+**The rename settles the naming and settles nothing else.** No member is ranked
+(paragraph above), so every member lifts S3 exactly as far — renaming one
+changes a ledger line and changes no answer, and a call site determined to
+hardcode a constant will hardcode `ANSWERING`. What is actually load-bearing is
+that S3's purpose column buys two rungs against an auditability guarantee that
+is Phase 3+ and unbuilt. The enum does not fix that and cannot: what fixes it is
+S3's trust tier, which is still not represented anywhere. Filed here rather than
+in the code, because it is P-1 from the corpus report and it is still open.
+Options and costs are in `DECISION-agent-retrieval.md`.
 
 ### What the enum made stale elsewhere — flagged, not quietly edited
 

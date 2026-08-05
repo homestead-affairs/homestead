@@ -1,7 +1,11 @@
 # `AGENT_RETRIEVAL` — decision brief
 
-Status: **open.** Proposed here, not ratified. Nothing in this brief is
-implemented; the enum is unchanged on `main`.
+Status: **B done, C filed, D open.** The member was renamed
+`AGENT_RETRIEVAL` → `ANSWERING` (value `"agent_retrieval"` → `"answering"`) on
+2026-08-05. Suite **1609 passed / 6 xfailed**, unchanged from `main` — which is
+the expected result and is itself the argument in § *The mechanical fact*: a
+rename that altered no answer could not have been a remedy. **D is not
+implemented and is the decision still owed.**
 
 Raised as the first open item on PR #5, in these terms: `AGENT_RETRIEVAL` is a
 *surface act*, which is the exact reasoning that correctly kept `"operator
@@ -67,12 +71,20 @@ Removes no capability (above). Leaves agent retrieval with no truthful member,
 so every legitimate agent call declares an act it is not performing. Trades an
 uninformative ledger line for a false one. **Not recommended.**
 
-**B — Rename to the act: `ANSWERING` or `BRIEFING`.**
+**B — Rename to the act: `ANSWERING` or `BRIEFING`. — DONE, `ANSWERING`.**
 Keeps a truthful member for the real case. Narrows the tautology without
 closing it — S3 *is* the answering surface, so "answering" is still close to
 naming where you stand. No capability change, no ceiling-table change, one
 member spelling and its pinned-set test. Cheap and honest, and it does not
 pretend to be the fix.
+
+Landed across `rungs.py`, both pinned-set tests, the three corpus files and
+`PHASE2-SURFACES.md`. Two things were **not** rewritten to match: the published
+set is recorded as `AGENT_RETRIEVAL`-renamed rather than restated as though
+`ANSWERING` had always been there, and the § 3 open-question paragraph keeps its
+original argument with the rename appended. A dated document edited to agree
+with the present loses the ability to say what the project used to believe —
+the same rule that kept `phase2_corpus_report.md` § 4.5 standing.
 
 **C — Keep it; file the real fix at the trust tier.**
 This is already the repo's own position: PHASE2-SURFACES.md § "One open question
@@ -102,7 +114,8 @@ month D is deferred, it gets paid for in call sites.
 
 ## What is gated on which answer
 
-- B alone: member rename, its pinned-set test, three doc mentions. Small.
+- ~~B alone: member rename, its pinned-set test, three doc mentions. Small.~~
+  Done. It was small, and it was small for the reason that makes it not a fix.
 - D: ceiling table, the byte-identical claim, and the S3 rows of the corpus.
   Not startable without a ratification, and not startable by the hand that
   proposed it.

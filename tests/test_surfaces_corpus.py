@@ -1073,9 +1073,9 @@ def test_i12_a_composed_rung_meets_may_render_as_its_max(surface):
         for combo in itertools.product(LADDER, repeat=size):
             top = LADDER[max(LADDER.index(r) for r in combo)]
             # was `(None, "medical")`; "medical" is a data category, not a
-            # purpose, and never was one — AGENT_RETRIEVAL is the member that
-            # actually lifts a ceiling, which is what this pair is testing.
-            for purpose in (None, Purpose.AGENT_RETRIEVAL):
+            # purpose, and never was one. Any member would serve — none is
+            # ranked — since the pair under test is declared vs undeclared.
+            for purpose in (None, Purpose.ANSWERING):
                 assert (
                     may_render(compose(*combo), surface, purpose=purpose)
                     is may_render(top, surface, purpose=purpose)
@@ -1458,7 +1458,7 @@ NOT_A_RUNG = [1, 2, 3, 4, 5, 0, -1, "1", "3", "5", "l1", "l5", "L0", "L6",
               # Added 2026-08-05: `Purpose` is a third `str` enum in the same
               # three-argument call, so there are now six ways to transpose two
               # of them and every one of them type-checks.
-              Purpose.DRAFTING, Purpose.AGENT_RETRIEVAL]
+              Purpose.DRAFTING, Purpose.ANSWERING]
 
 
 @pytest.mark.parametrize("bad", NOT_A_RUNG, ids=[_pid(b) for b in NOT_A_RUNG])
@@ -1479,7 +1479,7 @@ def test_i14_nothing_that_is_not_a_rung_is_ever_rendered(bad, surface):
     hollow the corpus out, and it is why every stand-in purpose in this file was
     replaced with a member rather than deleted.
     """
-    assert verdict(bad, surface, Purpose.AGENT_RETRIEVAL) is not True
+    assert verdict(bad, surface, Purpose.ANSWERING) is not True
     assert verdict(bad, surface, None) is not True
 
 
@@ -1562,12 +1562,12 @@ def test_nothing_that_is_not_a_surface_is_ever_rendered_on(bad):
     decided, and the answer to "may I render on a surface nobody scored" is
     no.
 
-    `"medical"` became `Purpose.AGENT_RETRIEVAL` for the reason given above the
+    `"medical"` became `Purpose.ANSWERING` for the reason given above the
     rung sweep: a rejected purpose raises first and the surface claim would
     never be reached.
     """
     for rung in LADDER:
-        assert verdict(rung, bad, Purpose.AGENT_RETRIEVAL) is not True
+        assert verdict(rung, bad, Purpose.ANSWERING) is not True
         assert verdict(rung, bad, None) is not True
 
 
@@ -1589,7 +1589,7 @@ def test_a_rung_spelled_as_its_own_string_agrees_with_the_enum_or_is_refused():
     tables."""
     for rung in LADDER:
         for surface in Surface:
-            for purpose in (None, Purpose.AGENT_RETRIEVAL):
+            for purpose in (None, Purpose.ANSWERING):
                 loose = verdict(rung.value, surface, purpose)
                 if isinstance(loose, Exception):
                     continue
@@ -1717,7 +1717,7 @@ def test_aggregation_is_not_a_declassifier():
     aggregate = compose(Rung.L1, Rung.L4)       # a count over one L1 and one L4 fact
     assert aggregate is Rung.L4
     assert may_render(aggregate, S1_LIST, purpose=None) is False
-    assert may_render(aggregate, S2_PROMPT, purpose=Purpose.AGENT_RETRIEVAL) is False
+    assert may_render(aggregate, S2_PROMPT, purpose=Purpose.ANSWERING) is False
     for surface in OFF_SCREEN:
         assert may_render(aggregate, surface, purpose=None) is False
 
@@ -1777,7 +1777,7 @@ def test_worked_example_the_workers_comp_today_card():
     assert may_render(WORKERS_COMP["ime_findings"], S1_LIST, purpose=None) is False
     assert may_render(WORKERS_COMP["ime_findings"], S1_DETAIL, purpose=None) is True
     assert may_render(WORKERS_COMP["ime_findings"], S2_PROMPT,
-                      purpose=Purpose.AGENT_RETRIEVAL) is False
+                      purpose=Purpose.ANSWERING) is False
     for surface in S3:
         assert may_render(WORKERS_COMP["ime_findings"], surface, purpose=None) is False
 
