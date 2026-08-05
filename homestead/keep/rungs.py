@@ -43,15 +43,24 @@ Four rules live here rather than in prose:
 `Purpose` has six members and `purpose=None` means none declared, which is not
 an error. Anything else raises. A purpose used to be any non-blank string, which
 meant `"x"` bought the same lift as `"medical"` — and I-13 calls a declared
-purpose a *control*, so that made it a label. The ceiling table did not change
-and no answer moved: this is a tightening of what counts as **declared**, not a
-change to the crossing.
+purpose a *control*, so that made it a label. Closing the set changed no answer:
+it was a tightening of what counts as **declared**, not a change to the
+crossing.
+
+**A purpose lifts on S4 and nowhere else.** S3's column was closed on
+2026-08-05 — the only change to the crossing since Phase 2 — because closing
+the set had made plain what the set was doing there: no member outranks
+another, so "declare a purpose" was a boolean any of six constants set, buying
+two rungs on the surface with no human in the loop, against a ledger entry that
+is Phase 3+ and unbuilt. S3 keeps its `L1` and `L2` payloads and takes the
+derived form above that. See the S3 row of `_CEILING`.
 
 Nothing here remembers a purpose between calls, and that is now a stated
 invariant rather than an accident of statelessness. One declaration lifts one
 call. A session cache would turn the six members into one hardcoded string per
-call site inside a month, after which `L4` on S3/S4 is unlocked unconditionally
-and the whole thing is decorative.
+call site inside a month, after which `L4` on S4 is unlocked unconditionally
+and the whole thing is decorative — which is the same failure the S3 column was
+closed for, arriving by a different road.
 
 ## The crossing, and why it is ten numbers rather than twenty-five
 
@@ -76,7 +85,9 @@ because no ceiling is `L5` — not because five rows say `never`.
 
 * **It does not know who is asking.** The crossing table in the spec also
   carries WillowGate trust tiers (S3 needs `≥ Veteran` for `L4`). Nothing here
-  reads a tier, and `may_render() is True` is not an authorization.
+  reads a tier, and `may_render() is True` is not an authorization. That gap is
+  why S3's purpose column is closed rather than gated: a lift conditioned on a
+  tier this module cannot read is a lift conditioned on nothing.
 * **It does not ledger.** `L3` and `L4` on S4 require an explicit act *recorded*
   in the ledger. This module returns a decision; it writes nothing and refuses
   nothing on the grounds that a write did not happen.
@@ -146,19 +157,25 @@ class Purpose(str, Enum):
     the same answer: `VisibleLog.record`'s first argument was a free string,
     that is where the note content leaked, and it became a closed enum.
 
-    **The ceiling table does not change and no answer moves.** This is a
-    tightening of what counts as *declared*, not a change to the crossing. A
-    purpose still only ever lifts, still lifts only on S3 and S4, and still
-    lifts nothing at `L5`.
+    **Closing the set changed no answer.** That was a tightening of what counts
+    as *declared*, not a change to the crossing. **Closing S3's column, on
+    2026-08-05, did change answers** — deliberately, and it is the only change
+    to the crossing since Phase 2. A purpose now lifts on **S4 alone**, still
+    only ever lifts, and still lifts nothing at `L5`.
+
+    The two are worth keeping distinct, because the first is what made the
+    second legible. Once every member was interchangeable and none could be
+    ranked, "declare a purpose" on S3 was a boolean any of six constants set,
+    against a ledger that does not exist — and the surface it unlocked is the
+    one with no human in the loop. See the S3 row of `_CEILING`.
 
     **The ceremony objection does not apply.** "No ceremony tax" was decided
     about S1's detail pane, where opening the pane *is* the declaration and
-    `purpose` lifts nothing at all. The only surfaces where a purpose changes an
-    answer are S3 (an MCP tool invocation) and S4 (an export) — neither caller
-    is a person typing into a box under stress. It is also what makes S4's spec
-    row implementable: *"explicit act + purpose + ledgered"* cannot be honoured
-    with free text, because you can write a free string to a ledger but you
-    cannot audit it.
+    `purpose` lifts nothing at all. The one surface where a purpose changes an
+    answer is S4, an export, and that caller is not a person typing into a box
+    under stress. It is also what makes S4's spec row implementable: *"explicit
+    act + purpose + ledgered"* cannot be honoured with free text, because you
+    can write a free string to a ledger but you cannot audit it.
 
     **These six are acts, not categories and not widgets**, and that distinction
     is itself the argument for closing the set. `"medical"` is a data
@@ -167,6 +184,20 @@ class Purpose(str, Enum):
     `S1_DETAIL`, which already carries it. Free text invited all three kinds of
     thing into one slot and could not tell them apart. **Membership is
     provisional**; see PHASE2-SURFACES.md § 3.
+
+    **`ANSWERING` was `AGENT_RETRIEVAL` until 2026-08-05**, and the rename is
+    that same distinction turned on the set's own member. "Agent retrieval" is
+    what `S3_AGENT` *is*, so declaring it there declared the surface you were
+    already standing on — the `"operator opened the record"` mistake, admitted
+    by the one name nobody re-read. `ANSWERING` names the act instead.
+
+    **The rename was an honesty fix and not a remedy, and establishing that is
+    what closed the column.** Nothing here ranks members, so every member lifted
+    S3 exactly as far; renaming one changed a ledger line and moved no answer.
+    A rename that cannot move an answer cannot be the fix for an answer that was
+    wrong — so what the old name was a symptom of got closed on its own terms
+    the same day. S3's ceiling is now `(L2, L2)`.
+    See docs/DECISION-agent-retrieval.md.
 
     A `str` enum for the same reason `Rung` and `Surface` are (I-14): the value
     that ends up in a ledger line, a manifest or an error message should read as
@@ -181,7 +212,7 @@ class Purpose(str, Enum):
     EXPORT = "export"                    # the operator taking their own record out
     SUBJECT_ACCESS = "subject_access"    # a statutory subject-access request
     REDISCLOSURE = "redisclosure"        # 42 CFR Part 2-style permitted re-disclosure
-    AGENT_RETRIEVAL = "agent_retrieval"  # an agent answering a question the operator asked
+    ANSWERING = "answering"              # an agent answering a question the operator asked
 
 
 def _check_the_str_enums_cannot_be_confused() -> None:
@@ -444,16 +475,33 @@ def _declared(purpose: Any) -> bool:
 #:   S2 prompt  — L3 derived, L4 derived *with no exception*. Purpose lifts
 #:                nothing here at all: "if a local model needs the diagnosis to
 #:                do its job, that is a signal the job is wrong."
-#:   S3 agent   — L3 derived, L4 derived unless a purpose is declared.
-#:   S4 egress  — same ceilings as S3. What differs between them is the trust
-#:                tier and the ledger entry, and this module enforces neither;
-#:                identical ceilings are the honest transcription rather than a
-#:                copy-paste.
+#:   S3 agent   — L3 derived, L4 derived, **and a purpose lifts neither**.
+#:                Closed 2026-08-05; it was `(L2, L4)` from Phase 2 until then.
+#:                The column bought two rungs on the one surface with no human
+#:                in the loop, in exchange for a boolean that any of six
+#:                constants sets — and the thing that was meant to make that
+#:                boolean mean something, the ledger entry, is Phase 3+ and does
+#:                not exist. An unlock is not deferred by naming its key well;
+#:                `AGENT_RETRIEVAL` was renamed to `ANSWERING` earlier the same
+#:                day and moved no answer, which is what established that the
+#:                name was never the load-bearing part. S3 keeps `L1` and `L2`
+#:                payloads and is handed the derived form for `L3` and `L4` —
+#:                `decide()` returns DERIVE, not DENY, so nothing here blinds an
+#:                agent. Reopening it is this one cell, once S3 carries a trust
+#:                tier (P-1) and S4's ledger exists to copy.
+#:   S4 egress  — L3 derived, L4 derived unless a purpose is declared. **No
+#:                longer the same ceilings as S3**, and the difference is now
+#:                stated rather than transcribed: S4's caller is an operator
+#:                performing an explicit act on their own record, which is what
+#:                the spec row means by "explicit act + purpose + ledgered". S3's
+#:                caller is a tool invocation. This module still enforces neither
+#:                the tier nor the ledger, so this asymmetry is the spec's, not
+#:                an authority claimed here.
 _CEILING: dict[Surface, tuple[Rung, Rung]] = {
     Surface.S1_LIST:   (Rung.L3, Rung.L3),
     Surface.S1_DETAIL: (Rung.L4, Rung.L4),
     Surface.S2_PROMPT: (Rung.L2, Rung.L2),
-    Surface.S3_AGENT:  (Rung.L2, Rung.L4),
+    Surface.S3_AGENT:  (Rung.L2, Rung.L2),
     Surface.S4_EGRESS: (Rung.L2, Rung.L4),
 }
 

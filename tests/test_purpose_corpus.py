@@ -26,8 +26,8 @@ corpus that cannot fail.
 S1_LIST    (L3, L3)   inert
 S1_DETAIL  (L4, L4)   inert — opening the pane is the declaration
 S2_PROMPT  (L2, L2)   inert — the hard stop
-S3_AGENT   (L2, L4)   lifts
-S4_EGRESS  (L2, L4)   lifts
+S3_AGENT   (L2, L2)   inert — column closed 2026-08-05; was (L2, L4)
+S4_EGRESS  (L2, L4)   lifts — the only surface where a purpose changes an answer
 ```
 
 * `may_render(rung, surface, *, purpose=None)` — signature unchanged.
@@ -95,10 +95,19 @@ S2_PROMPT = Surface.S2_PROMPT
 S3 = frozenset(s for s in Surface if s.name.startswith("S3_"))
 S4 = frozenset(s for s in Surface if s.name.startswith("S4_"))
 
-#: The two surfaces on which a purpose changes an answer, and the three on
-#: which it cannot. Derived from the published ceiling table, transcribed once.
-LIFTING_SURFACES = S3 | S4
-INERT_SURFACES = frozenset({S1_LIST, S1_DETAIL, S2_PROMPT})
+#: The surface on which a purpose changes an answer, and the four on which it
+#: cannot. Derived from the published ceiling table, transcribed once.
+#:
+#: **S3 moved from lifting to inert on 2026-08-05**, by ratified decision, and
+#: it is the only cell of the crossing that has moved since Phase 2. Closing the
+#: purpose set had made plain what the column was doing there: no member
+#: outranks another, so "declare a purpose" was a boolean any of six constants
+#: set, buying `L3` and `L4` payloads on the one surface with no human in the
+#: loop, against a ledger entry that is Phase 3+ and does not exist. S4 keeps
+#: its column because its caller is an operator performing an explicit act on
+#: their own record. See docs/DECISION-agent-retrieval.md.
+LIFTING_SURFACES = S4
+INERT_SURFACES = frozenset({S1_LIST, S1_DETAIL, S2_PROMPT}) | S3
 
 #: The published ceiling table, transcribed independently of the module. Every
 #: cell is `(highest rung renderable with nothing declared, highest with a
@@ -109,7 +118,7 @@ CEILINGS = {
     "S1_LIST": (Rung.L3, Rung.L3),
     "S1_DETAIL": (Rung.L4, Rung.L4),
     "S2_PROMPT": (Rung.L2, Rung.L2),
-    "S3_": (Rung.L2, Rung.L4),
+    "S3_": (Rung.L2, Rung.L2),   # was (L2, L4) until 2026-08-05; see above
     "S4_": (Rung.L2, Rung.L4),
 }
 
@@ -161,11 +170,11 @@ def test_the_six_members_are_exactly_the_six_that_were_ratified():
     """
     assert [p.name for p in Purpose] == [
         "DRAFTING", "FILING", "EXPORT",
-        "SUBJECT_ACCESS", "REDISCLOSURE", "AGENT_RETRIEVAL",
+        "SUBJECT_ACCESS", "REDISCLOSURE", "ANSWERING",
     ]
     assert [p.value for p in Purpose] == [
         "drafting", "filing", "export",
-        "subject_access", "redisclosure", "agent_retrieval",
+        "subject_access", "redisclosure", "answering",
     ]
     assert len({p.value for p in Purpose}) == 6, (
         "two members sharing a value are one member with two names, and any "
@@ -369,7 +378,7 @@ def test_an_enum_of_the_same_shape_from_somewhere_else_is_not_a_purpose():
         EXPORT = "export"
         SUBJECT_ACCESS = "subject_access"
         REDISCLOSURE = "redisclosure"
-        AGENT_RETRIEVAL = "agent_retrieval"
+        ANSWERING = "answering"
 
     for member in Purpose:
         for surface in Surface:
@@ -489,25 +498,91 @@ def test_a_purpose_changes_no_answer_on_an_inert_surface(surface, purpose):
 @pytest.mark.parametrize("purpose", MEMBERS, ids=[p.name for p in MEMBERS])
 @pytest.mark.parametrize("surface", sorted(LIFTING_SURFACES, key=lambda s: s.name),
                          ids=lambda s: s.name)
-def test_every_member_lifts_the_ceiling_on_s3_and_s4(surface, purpose):
+def test_every_member_lifts_the_ceiling_on_s4(surface, purpose):
     """**The test that stops the enum being decorative in the other
     direction.**
 
     A `_declared` that refuses everything — members included — passes every
     rejection test in this file and in the converted corpus, and quietly makes
-    `L4` unservable on S3 and S4 for the rest of the project's life. Nobody
-    would notice for months, because the symptom is a pane that renders less
-    than it should, and §2's evidence would all still be green.
+    `L4` unservable on the lifting surface for the rest of the project's life.
+    Nobody would notice for months, because the symptom is a pane that renders
+    less than it should, and §2's evidence would all still be green.
 
     So: no member is more of a declaration than another, and every one of them
     is one. `"x"` bought the same lift as `"medical"` before; the fix is that
     `"x"` buys nothing, **not** that `EXPORT` buys less than `FILING`.
+
+    **This covered S3 as well until 2026-08-05.** It now covers S4 alone, and
+    the S3 half did not lapse — it inverted into
+    `test_no_member_lifts_anything_on_s3`, immediately below, because a closed
+    column that nothing asserts is a column the next author reopens by
+    accident.
     """
     assert may_render(Rung.L4, surface, purpose=purpose) is True
     assert may_render(Rung.L3, surface, purpose=purpose) is True
     assert may_render(Rung.L4, surface, purpose=None) is False
     assert may_render(Rung.L3, surface, purpose=None) is False
     assert may_render(Rung.L5, surface, purpose=purpose) is False
+
+
+@pytest.mark.parametrize("purpose", MEMBERS, ids=[p.name for p in MEMBERS])
+@pytest.mark.parametrize("surface", sorted(S3, key=lambda s: s.name),
+                         ids=lambda s: s.name)
+def test_no_member_lifts_anything_on_s3(surface, purpose):
+    """The closed column, asserted rather than merely configured.
+
+    Ratified 2026-08-05: S3's ceiling is `(L2, L2)`, so a declared purpose buys
+    **nothing** on the agent surface — not `L3`, not `L4`, and never `L5`. The
+    reason is in `LIFTING_SURFACES` above; what matters here is that the
+    decision has a test with a name, so reopening the column is an argument
+    somebody has to win rather than a cell somebody edits.
+
+    Every member, not one: the column being closed has to be a property of the
+    *set*, or a seventh member added later arrives with the old lift attached.
+
+    **This is not a denial.** `decide()` returns `DERIVE` for `L3` and `L4` on
+    S3, so an agent is handed the standing-in sentence rather than nothing —
+    asserted in `test_s3_derives_rather_than_denies_what_it_no_longer_renders`.
+    A closed column that read as `DENY` would be a different and much larger
+    decision than the one that was made.
+    """
+    assert may_render(Rung.L3, surface, purpose=purpose) is False
+    assert may_render(Rung.L4, surface, purpose=purpose) is False
+    assert may_render(Rung.L5, surface, purpose=purpose) is False
+    assert may_render(Rung.L2, surface, purpose=purpose) is True
+    assert may_render(Rung.L1, surface, purpose=purpose) is True
+
+    for rung in LADDER:
+        assert may_render(rung, surface, purpose=purpose) is may_render(
+            rung, surface, purpose=None
+        ), (
+            f"{purpose.name} changed the answer for {rung.name} on "
+            f"{surface.name}; S3's column is closed, so declaring a purpose "
+            "there must be indistinguishable from declaring none"
+        )
+
+
+@pytest.mark.parametrize("purpose", MEMBERS, ids=[p.name for p in MEMBERS])
+@pytest.mark.parametrize("surface", sorted(S3, key=lambda s: s.name),
+                         ids=lambda s: s.name)
+def test_s3_derives_rather_than_denies_what_it_no_longer_renders(surface, purpose):
+    """Closing the column withheld payloads; it did not blind the agent.
+
+    `decide()` returns `DENY` for `L5` and for an unreadable rung and for
+    nothing else, so `L3` and `L4` on S3 come back as `DERIVE` — the true
+    sentence that stands in for the datum, which is everything the caller needs
+    in order to act. That distinction is BUG-5's other half and it is the reason
+    the closure was affordable: an agent that cannot see the record can still be
+    told a medical-records response is due on the 15th.
+
+    Held for both `purpose=None` and every member, because the whole claim of a
+    closed column is that those two cases are the same case.
+    """
+    for rung in (Rung.L3, Rung.L4):
+        assert decide(rung, surface, purpose=purpose) is Disposition.DERIVE
+        assert decide(rung, surface, purpose=None) is Disposition.DERIVE
+    assert decide(Rung.L5, surface, purpose=purpose) is Disposition.DENY
+    assert decide(Rung.L2, surface, purpose=purpose) is Disposition.RENDER
 
 
 def test_all_six_members_are_interchangeable_at_the_decision_function():
@@ -534,14 +609,23 @@ def test_all_six_members_are_interchangeable_at_the_decision_function():
 @pytest.mark.parametrize("purpose", VALID_PURPOSES, ids=[_pid(p) for p in VALID_PURPOSES])
 @pytest.mark.parametrize("surface", list(Surface), ids=[s.name for s in Surface])
 @pytest.mark.parametrize("rung", LADDER, ids=[r.name for r in LADDER])
-def test_the_ceiling_table_did_not_move(rung, surface, purpose):
+def test_the_ceiling_table_matches_an_independent_transcription(rung, surface, purpose):
     """Every cell of the published table, against an independent transcription.
 
-    The ruling says the table does not change for a validly declared purpose,
-    and this is that sentence made checkable rather than believed. `CEILINGS` at
-    the top of this file is the corpus's own reading of the contract; if it and
-    the module disagree, one of the two transcriptions is wrong and the
-    disagreement is the finding — which is what this method is for.
+    `CEILINGS` at the top of this file is the corpus's own reading of the
+    contract; if it and the module disagree, one of the two transcriptions is
+    wrong and the disagreement is the finding — which is what this method is
+    for.
+
+    **This was `test_the_ceiling_table_did_not_move` until 2026-08-05**, when
+    the table moved. The old name was the right name for the claim it was
+    written to hold: that closing the *purpose set* changed no answer, which it
+    did not. Closing S3's *column* changed answers on purpose, so keeping the
+    name would have left a test whose title denied the change it was
+    asserting — a claim outrunning its mechanism, which is the defect this
+    project keeps finding in itself. Renamed rather than deleted: the
+    cell-by-cell check is what caught the disagreement, and it is worth more
+    now that there is a change for it to catch.
     """
     got = may_render(rung, surface, purpose=purpose)
     assert got is expected(rung, surface, purpose), (
@@ -892,8 +976,8 @@ def test_this_corpus_has_not_been_hollowed_out():
     assert len(VALID_PURPOSES) == 7
     assert len(LADDER) == 5
     assert len(Surface) == 5
-    assert len(INERT_SURFACES) == 3
-    assert len(LIFTING_SURFACES) == 2
+    assert len(INERT_SURFACES) == 4   # was 3 until S3's column closed, 2026-08-05
+    assert len(LIFTING_SURFACES) == 1  # S4 alone; see LIFTING_SURFACES above
     assert INERT_SURFACES | LIFTING_SURFACES == frozenset(Surface), (
         "every surface is either inert or lifting; a sixth surface with no "
         "row in CEILINGS is a render path this file never scored"
