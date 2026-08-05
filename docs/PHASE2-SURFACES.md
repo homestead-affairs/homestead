@@ -355,10 +355,154 @@ claiming more than it enforced.
 
 ---
 
-## Product decisions — named so a human makes them
+## Product decisions — **ratified 2026-08-05**
 
-None of these is an engineering question, and each is currently settled by
-default rather than by decision.
+> These were written as "settled by default rather than by decision." They are
+> now decided, by the operator, with reasons. The original text is kept below
+> each ruling, because the argument is the part worth having later — a decision
+> whose reasoning is deleted gets re-litigated by the next person holding the
+> file.
+>
+> **Only one of these is implemented.** The rest are rulings that need code,
+> and the code is scheduled rather than done. Saying a thing is decided is not
+> the same as the thing being true, which is the failure mode this whole
+> project is organised around.
+
+| # | Ruling | State |
+|---|---|---|
+| 1 | `L3` gets **no** purpose lift on S2. The table wins. | already true |
+| 2 | The indicator may **not** say `L5 present` on an ambient surface. | needs Phase 4 |
+| 3 | A purpose is a **closed enum**, not free text. | **not implemented — see the cost below** |
+| 4 | An empty schema stays an **error**. | already true |
+| 5 | A purpose is **per-call, never per-session**. | already true, now stated |
+
+### 1 — `L3` on S2: refuse, and the reason is not "the table says so"
+
+**Ruling: keep refusing.** But the reason matters more than the ruling, because
+"the table says so" will not survive contact with a user who wants to ask their
+own local model about their own child by name.
+
+What an operator actually loses is narrower than it looks. **Drafting is not
+affected** — `L3` on **S4** already permits an explicit ledgered act, so a
+motion can carry a real name. What they lose is *asking the model about a named
+person*, and for that the derived form is nearly always sufficient: a model does
+not need `"A.R."` to reason about a Tuesday/Thursday schedule.
+
+The honest mechanism is **pseudonymise → reason → re-attach downstream**. If
+that path exists, `L3` never needs to reach S2 and the cost rounds to zero. If
+it does not exist, the cost is real and is being paid silently.
+
+**So this ruling carries a build item**: re-attachment after model output,
+Phase 4 or 5. Until that lands, the refusal is enforced but the sentence
+justifying it is not yet true.
+
+### 2 — the indicator may not say `L5 present`, and that generalises
+
+**Ruling: no on an ambient surface; permitted on one the operator deliberately
+opened.** `"derived · L4 present"` stays legal on the cover — that an `L4`
+exists is not itself protected at `L5`.
+
+The principle underneath is worth more than the ruling, and belongs with the
+invariants rather than in a list of open questions:
+
+> **A refusal is information at the rung of the thing refused.**
+
+That is I-35 generalised. I-35 says an ambient surface cannot carry an `L4`
+*payload*; this says it cannot carry the *fact of an `L5`* either. On a shared
+machine, "something is sealed here" tells the person behind the chair that a
+record is being kept from them — F-1's reader — and `L5`'s own definition is
+that it is never rendered. In a pane the operator deliberately opened, the same
+disclosure is fine, by exactly the by-widget logic that settled the `L4`
+question on 2026-08-04.
+
+`serve_all` currently leaves no trace, which was the safe default. It is now the
+decided behaviour for ambient surfaces.
+
+### 3 — a purpose is a closed enum. **Decided, and deliberately not yet done.**
+
+**Ruling: closed enum.** The tension this was filed under is mostly not real.
+"No ceremony tax" was decided about **S1's detail pane**, where opening the pane
+*is* the declaration and `purpose` lifts nothing. Read the ceiling table:
+
+```
+S1_LIST    (L3, L3)   purpose inert
+S1_DETAIL  (L4, L4)   purpose inert
+S2_PROMPT  (L2, L2)   purpose inert
+S3_AGENT   (L2, L4)   purpose lifts
+S4_EGRESS  (L2, L4)   purpose lifts
+```
+
+A purpose only changes an answer on **S3 and S4**, and neither caller is a
+person typing into a box — one is an MCP tool invocation, the other an export.
+A call site names its purpose from a closed set at no cost to anybody in crisis.
+It is also what makes S4's spec row implementable: *"explicit act + purpose +
+ledgered"* cannot be honoured with a free string, because you can write one to a
+ledger but you cannot audit it.
+
+**A suggestion made while ruling on this was wrong, and is withdrawn.** The
+proposal that `S1_DETAIL` should take no `purpose` parameter at all — so an
+inert argument cannot be passed hopefully — would break the corpus's most
+valuable sweep, which passes every purpose to every surface to prove that
+*nothing* unlocks `L5` anywhere. Destroying a live safety test to prevent a
+lesser error is a bad trade. `purpose` stays accepted on all five surfaces and
+inert on three, and the enum plus an inertness test carry the weight instead.
+
+**Why it is not implemented.** The mechanism was built and measured, then
+reverted. Making `_declared` require a `Purpose` member fails **637
+parametrisations across 42 test functions** — 275 of them in one sweep — because
+the corpus is parameterised on free-text purposes throughout. Most of that is
+fixture-level rather than hand-written assertions, and a faithful translation
+exists: split the lists into valid purposes (the enum members plus `None`) for
+the cell sweeps, and rejected purposes (the old adversarial strings) for a new
+test asserting they are not accepted at all — which is *stronger* than what
+they prove today.
+
+But that translation would be performed by the same hand that wrote the
+implementation, on 1,700 lines of corpus written blind precisely so that would
+not happen. The enum's safety properties would then be attested only by tests
+adjusted until they passed. **The decision is ratified; the implementation
+should go through the same two-hand method as Phases 1 and 2.**
+
+**Membership is a further product question and is still open.** Six members
+drawn from the acts the documents already name is the proposal:
+`DRAFTING`, `FILING`, `EXPORT`, `SUBJECT_ACCESS`, `REDISCLOSURE`,
+`AGENT_RETRIEVAL`. Two entries from the blind corpus's own plausible list are
+deliberately absent, and the reason is itself the argument for the enum:
+`"medical"` is a data **category** and `"operator opened the record"` is a
+**surface act**. Free text invited all three kinds of thing into one slot.
+
+### 4 — an empty schema stays an error
+
+**Ruling: keep it fail-closed.** A record type with zero classified fields is a
+broken loader far more often than a real case. One improvement is worth making:
+the error should distinguish *no fields at all* from *fields, none classified*,
+because those are different bugs and today they read the same.
+
+### 5 — a purpose is per-call, never per-session
+
+**Ruling: per-call.** This is already the behaviour, but by accident of
+statelessness rather than by decision — which is exactly the gap this section
+exists to close. It should become a stated invariant with a test, so that a
+later phase adding a session cache has to argue with it rather than route
+around it.
+
+Together with the enum it closes the failure the corpus agent predicted: that
+every call site hardcodes one purpose within a month, after which `L4` on S3/S4
+is unlocked unconditionally and the ceremony is decorative.
+
+### Not on the original list, and probably the largest of them
+
+**S3 and S4 have identical ceilings** — `(L2, L4)` both. The transcription is
+accurate and the doc is honest that what separates them is the trust tier and
+the ledger, neither of which this module enforces. But they are very different
+acts: a local subprocess reading a record, versus data leaving the machine
+permanently. **Today `may_render` cannot tell them apart**, and everything built
+on it inherits that. It is invisible precisely because the transcription is
+faithful.
+
+---
+
+## The original text of these decisions, kept
 
 1. **Does `L3` get a purpose lift on S2 and S3?** The crossing table says no
    (`derived`, flat). The `L3` prose says *"unless an explicit act says
