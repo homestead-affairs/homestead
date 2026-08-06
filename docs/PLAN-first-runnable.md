@@ -89,6 +89,13 @@ empty room, and Phase 3's amended exit says the room must have something in it.
 *Done when:* the pack imports, `classify_schema` accepts it, and deleting one
 field's rung fails the build with that field named.
 
+**Prior art for the half `classify_schema` cannot do — see below.** It checks
+that a rung was *declared*, not that it was declared *well*, and there is a
+sixty-nine-line PII matcher in `willow-2.0` already aimed at the same categories
+this ladder cares about. Advisory only, and it belongs to this bite rather than
+to a later one, because the moment a pack exists is the moment a wrong rung in it
+becomes possible.
+
 ### 3 · The chokepoint — one door, and it is hard to walk past
 
 I-16 wants one authorization point covering every surface. `serve()` and
@@ -129,6 +136,76 @@ regret.
 *Done when:* an export writes one `IntegrityLog` entry naming the purpose
 declared, `verify(expected_head)` catches a hand-edited entry, and the visible
 log shows the act with no record content in it.
+
+---
+
+## Prior art, searched — and one lead worth taking
+
+Rule 11 of the store's `CLAUDE.md`: search before writing, and record what the
+search found so the next seat does not pay for it twice. This is that record,
+including the negative result, which is the more useful half.
+
+### The journal app in `willow-1.9` / `willow-2.0` — not reusable, and the reason is load-bearing
+
+`willow-2.0` has a personal journal: a `journal_entries` Postgres table
+(`migrations/20260524_journal_entries.sql`), `agents/hanuman/bin/journal_watcher.py`
+polling it for a `::saga` tag, and `journal_responder.py` sending the entry to a
+model and storing replies in JSONB. `willow-1.9` has no journal.
+
+Architecturally incompatible on the obvious axis — Postgres, a daemon, and a poll
+loop, against an app whose plan says *"no TUI, no HTTP, no listening socket"* and
+a store whose whole premise is no ports and no servers.
+
+But the disqualifying part is the responder, not the database. **It sends private
+entry content to a model.** That is the precise shape `S2_PROMPT` exists to
+refuse: capped at `L2`, nothing lifts it, on the stated reasoning that *if a local
+model needs the diagnosis to do its job, that is a signal the job is wrong*. F-3
+and F-4 were private note content reaching a prompt by a route nobody designed.
+Porting the responder would re-import the bug this entire ladder was built after.
+
+Recorded rather than left as a hunch, so nobody re-derives "could we lift the
+journal?" and reaches the same no more slowly.
+
+### `willow-2.0/apps/nest/pipeline/scrub.py` — **worth taking, as an advisory**
+
+Sixty-nine lines of pattern-based PII detection: SSN, EIN, phone, credit card,
+account number, DOB, email, routing number, case number. Its own docstring already
+takes the right stance — *"Flags matches in the store record — does NOT modify the
+original file. Scrub is informational: it tells you what's there so you can decide
+what to do with it."*
+
+Its categories line up with this ladder's, which is not a coincidence — it is the
+same problem approached from the file end. `ssn` is `L5` in this corpus. A case
+number is `L3` in a family matter and explicitly **not** `L1`. A DOB is `L4`,
+identifying a minor. Account and routing numbers sit in `L4` territory.
+
+**Where it fits: as a check on a declared rung, never as a classifier.** The spec
+puts classification on a human who knows the matter type and jurisdiction, and
+`classify_schema`'s docstring says plainly that it will *"accept `L1` for a sealed
+family case number without a murmur."* That is the named gap. A matcher cannot
+close it — it cannot know the matter — but it can say *this field is declared `L1`
+and its content is shaped like an SSN*, which is exactly the class of error the
+gap admits.
+
+Three conditions, without which it should not be taken:
+
+1. **It may only prompt to raise a rung, never to lower one.** `compose` is `max`
+   for the same reason; a tool that can argue a datum down is a declassifier, and
+   there is deliberately no function that declassifies.
+2. **Advisory, never a gate.** A regex that blocks a save has quietly relocated a
+   human judgement into a pattern list.
+3. **Its false negatives are the dangerous direction**, so nothing it produces may
+   render as "clean" — absence of a match is not evidence of absence, and I-11's
+   whole posture is that absence fails closed.
+
+### Weaker, checked and set aside
+
+`apps/nest/router.py` splits `propose` from `route_file`, which mirrors
+propose-don't-ratify — but that convention is already load-bearing here and needs
+no import. The `archive`/`compost` pipeline is superseded: `safe-app-store` already
+specifies tombstones carrying a forwarding pointer, which is further along than
+what is in `nest`. And `store_bridge.py` is a SOIL wrapper, so bite 1 still gets
+written against `paths.matter_dir` rather than lifted.
 
 ---
 
