@@ -10,10 +10,12 @@ name: Release
 # Uses PyPI Trusted Publishing (OIDC) — no API token is stored in the repo,
 # matching willow-mcp and jeles. ONE-TIME SETUP, required before the first
 # publish and NOT done yet (this project has never released):
-#   1. On PyPI: create a *pending* publisher for a project named `homestead`
-#      (Account → Publishing → add a pending publisher, since the project does
-#      not exist yet): owner `rudi193-cmd`, repo `homestead`, workflow
-#      `release.yml`, environment `pypi`.
+#   1. On PyPI: create a *pending* publisher for a project named
+#      `homestead-affairs` (Account → Publishing → add a pending publisher, since
+#      the project does not exist yet): owner `rudi193-cmd`, repo `homestead`,
+#      workflow `release.yml`, environment `pypi`. The distribution is
+#      `homestead-affairs`, not `homestead` — that bare name is an unrelated
+#      abandoned 2022 package (see [project].name in pyproject.toml).
 #   2. Create a GitHub environment named `pypi` (Settings → Environments).
 # Until both exist this workflow builds and then fails at the publish step —
 # nothing is uploaded, and nothing is uploaded by accident either.
@@ -89,7 +91,8 @@ jobs:
         # dirty build carries a `.devN+g<sha>` suffix and mismatches loudly.
         run: |
           tag="${TAG#v}"
-          built="$(ls dist/*.tar.gz | sed -E 's|.*/homestead-(.+)\.tar\.gz|\1|')"
+          # The sdist normalises to underscores (PEP 625): homestead_affairs-<v>.tar.gz.
+          built="$(ls dist/*.tar.gz | sed -E 's|.*/homestead_affairs-(.+)\.tar\.gz|\1|')"
           echo "tag=${tag}  built=${built}"
           if [ "$tag" != "$built" ]; then
             echo "::error::tag v${tag} builds version ${built} — refusing to publish"

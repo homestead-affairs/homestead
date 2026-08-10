@@ -5,6 +5,12 @@ shape as `willow-mcp`, `kartikeya`, and `jeles`. The version is derived from the
 git tag (`hatch-vcs`, pyproject `dynamic = ["version"]`); nothing in the source
 stores a version number, so there is no second copy to drift.
 
+**Distribution name: `homestead-affairs`, import name: `homestead`.** The bare
+`homestead` on PyPI is an unrelated, abandoned 2022 package, so the engine ships
+as `homestead-affairs` (`pip install homestead-affairs`) while the code is still
+`import homestead` — the scikit-learn/sklearn split. `homestead-law` (and later
+`-ledger`) depend on `homestead-affairs`.
+
 ## How a release happens (once set up)
 
 You do not tag by hand.
@@ -37,7 +43,7 @@ by accident either.
 1. **PyPI trusted publisher** (before the first publish, as a *pending*
    publisher, since the project does not exist on PyPI yet):
    PyPI → your account → *Publishing* → *Add a pending publisher*
-   - PyPI Project Name: `homestead`
+   - PyPI Project Name: `homestead-affairs`
    - Owner: `rudi193-cmd`   ·   Repository: `homestead`
    - Workflow name: `release.yml`   ·   Environment name: `pypi`
 
@@ -61,6 +67,8 @@ by accident either.
 
 ## Downstream
 
-Once `homestead` is on PyPI, `homestead-law` (and later `homestead-ledger`) can
-pin it from PyPI — `homestead>=X.Y,<1.0` — instead of the cross-repo engine
-checkout its CI does today. That repoint is a follow-on, not part of this setup.
+Once `homestead-affairs` is on PyPI, `homestead-law` (and later
+`homestead-ledger`) can pin it from PyPI — `homestead-affairs>=X.Y,<1.0` —
+instead of the cross-repo engine checkout its CI does today. Their pyproject
+`dependencies` currently name `homestead`; that becomes `homestead-affairs` at
+the same time. That repoint is a follow-on, not part of this setup.

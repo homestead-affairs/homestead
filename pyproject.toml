@@ -3,7 +3,13 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "homestead"
+# Distribution name, NOT the import name. `import homestead` is unchanged (see
+# [tool.hatch.build.targets.wheel] below) — this is only what you `pip install`.
+# The bare `homestead` on PyPI is an unrelated, abandoned 2022 package, so the
+# engine publishes as `homestead-affairs` (the face's name). Same split as
+# scikit-learn/sklearn: the wheel is named for the distribution, the code for the
+# import. homestead-law depends on THIS name.
+name = "homestead-affairs"
 # The git tag is the single source of truth — see [tool.hatch.version]. The
 # version is deliberately NOT a literal here. `homestead/__init__.py` used to
 # carry `__version__ = "0.0.1"`; a number nothing derives is a number that goes
