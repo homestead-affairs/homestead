@@ -30,11 +30,20 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
+
+#: Serializes directory creation in the file adapter. Not for the file write —
+#: that is O_EXCL and race-safe on its own — but for `paths.ensure`, whose
+#: `resolve()`-based containment check is fooled on Windows when one thread is
+#: creating a deep path while another resolves it (the `\\?\` extended-length
+#: prefix appears mid-creation, and the containment check spuriously fails). One
+#: ensure at a time keeps the tree in a consistent state for the check.
+_DIR_LOCK = threading.Lock()
 
 from . import paths
 from .rungs import (
@@ -195,9 +204,10 @@ class FileAdapter(StorageAdapter):
 
     def insert(self, table: str, ref: Ref, blob: str) -> bool:
         target = self._path(table, ref)
-        paths.ensure(target.parent)
+        with _DIR_LOCK:
+            paths.ensure(target.parent)
         try:
-            with open(target, "x", encoding="utf-8") as fh:
+            with open(target, "x", encoding="utf-8") as fh:   # O_EXCL — atomic (I-9)
                 fh.write(blob)
         except FileExistsError:
             return False
@@ -205,7 +215,8 @@ class FileAdapter(StorageAdapter):
 
     def write(self, table: str, ref: Ref, blob: str) -> None:
         target = self._path(table, ref)
-        paths.ensure(target.parent)
+        with _DIR_LOCK:
+            paths.ensure(target.parent)
         target.write_text(blob, encoding="utf-8")
 
 
