@@ -75,10 +75,44 @@ test: it may only argue a rung **up**, never down; it is advisory and gates
 nothing (`put` never consults it); and its silence is never a clean bill. Its
 patterns are anchored and tested against the benign strings they must not fire on
 (I-18, F-3's discipline: an address, a ZIP+4, a hearing date), and it never
-echoes what it matched (I-15).
+echoes what it matched (I-15). It is now **surfaced**: opening a record in the
+detail pane draws any advisory as a muted line beneath it (`app/advisories` over
+`Sidecar.advise`, drawn by `app/view`), so a wrong-declared rung is caught where
+the operator is already looking — advisory still, never a block, never the datum,
+and silence draws nothing.
 
-There is no matter registry yet. Nothing here is installable by anyone who is not
-building it.
+**Network egress is refused by default** (`keep/egress`, I-17): nothing on this
+self-contained face dials on its own, and `send` raises unless the caller
+performs an explicit per-call act — it is shown *exactly* what will be sent (the
+confirmation and the transport are handed the same `Wire`, so the bytes approved
+are the bytes that leave — BUG-5's answer at the wire) and says yes. The default
+transport lazy-imports `urllib` inside itself, so the core imports no network
+(I-26/I-30).
+
+The **cover now survives re-identification** (`app/cover`, I-31): the resting
+screen may show a count only where the number reveals nothing about which matter
+it came from — a count of one, and a household of one matter, each withhold every
+count (k ≥ 2 on both the count and the matters), and a dropped count is an absent
+key, never a rendered zero. The rule is proposed for ratification in
+`docs/DECISION-cover-re-identification.md` (`verified_by ≠ author`).
+
+The **matter registry** now stands (`keep/registry`, I-23): one enumeration —
+`all_matters()` over `REGISTRY` — that ties each matter name to its pack and reads
+that pack's fields live rather than copying them, so navigation, the queue and the
+briefing iterate it instead of keeping lists of their own. Only custody is
+registered (bankruptcy and workers' comp are Phase 5); a pack that exists but is
+unregistered fails the build, and a matter name hand-kept as an enumeration
+anywhere but the registry is a build failure too — BUG-6 was three such lists
+drifting until workers' comp fell out of the urgent queue.
+
+And the **citation extractor** is closed (`keep/patterns`, I-18): a legal
+citation is `volume reporter page`, and the reporter is one of a **closed set** of
+published abbreviations, not any capitalized word — so `1420 Maple 87501` cannot
+wear a citation's shape and be POSTed as one (F-3), and `347 F.3d 1120`, which the
+loose regex missed, is caught. An unknown reporter misses a cite; it never matches
+an address — the safe direction. With it, **every invariant this project's pending
+file ever held red is built and green** (`UNBUILT` is empty). Nothing here is
+installable by anyone who is not building it.
 
 ## The method
 

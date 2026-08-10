@@ -54,15 +54,35 @@ UNBUILT = {
     # tests/test_invariants_record.py, unmarked, the third occasion of this same
     # promotion (dates, surfaces, then record). test_pending_liveness failed the
     # moment the module existed and would not go green again until it was moved.
-    "homestead.keep.registry": "Phase 3",
-    "homestead.keep.egress": "Phase 4",
-    "homestead.keep.patterns": "Phase 4",
+    #
+    # homestead.keep.registry was Phase 3 and is built. Its I-23 test — the
+    # registry is the only enumeration — moved to
+    # tests/test_invariants_registry.py, unmarked, another occasion of this same
+    # promotion (dates, surfaces, record, then registry).
+    #
+    # homestead.keep.egress was built after the runnable-path batch: I-17, no
+    # network egress by default, refused unless a per-call act is shown exactly
+    # what will be sent. Its test moved to tests/test_invariants_egress.py,
+    # unmarked.
+    # homestead.keep.patterns was the last one: I-18, the citation extractor's
+    # closed reporter set, so an address cannot wear a citation's shape (F-3).
+    # Its test moved to tests/test_invariants_patterns.py, unmarked. With it,
+    # UNBUILT is empty — every invariant this file ever held has been built and
+    # its test promoted out. The dict stays (empty) and so does the machinery,
+    # because the next phase's first pending test is one line, and the history
+    # above is the record of how the ones before it landed.
+    #
     # homestead.app.window was built as bite 4 of docs/PLAN-first-runnable.md
     # (the two S1 surfaces). Its I-21 test — a fresh window rests on the cover —
-    # moved to tests/test_invariants_window.py, unmarked. homestead.app.cover
-    # (the I-31 re-identification counts) stays pending: bite 4 keeps the cover
-    # count-less, as Phase 0 already had it right.
-    "homestead.app.cover": "Phase 4",
+    # moved to tests/test_invariants_window.py, unmarked.
+    #
+    # homestead.app.cover (the I-31 re-identification counts) was then built:
+    # the cover may show a count only where the number reveals nothing about
+    # which matter it came from. Its I-31 test moved to
+    # tests/test_invariants_cover.py, unmarked — the fourth occasion of this
+    # promotion (dates, surfaces, record, then cover). test_pending_liveness
+    # failed the moment the module existed and would not go green again until it
+    # was moved and struck from this dict.
 }
 
 
@@ -98,15 +118,8 @@ def test_pending_liveness():
 
 # ── Phase 3 · the registry ───────────────────────────────────────────────────
 
-@pending("homestead.keep.registry", "i23 the registry is the only enumeration")
-def test_i23_the_registry_is_the_only_enumeration():
-    """BUG-6: workers' comp — one of three advertised matter types — was
-    structurally absent from the urgent queue, because three types were
-    enumerated by hand in three places."""
-    from homestead.keep.registry import REGISTRY, all_matters
-
-    assert set(all_matters()) == set(REGISTRY)
-
+# I-23 (`homestead.keep.registry`) was promoted to
+# tests/test_invariants_registry.py when the registry was built.
 
 # I-36 (`homestead.keep.record`) was promoted to tests/test_invariants_record.py
 # when the store was built as bite 1 of docs/PLAN-first-runnable.md.
@@ -118,30 +131,14 @@ def test_i23_the_registry_is_the_only_enumeration():
 # when the two S1 surfaces were built as bite 4 of docs/PLAN-first-runnable.md.
 
 
-@pending("homestead.app.cover", "i31 the cover survives re identification")
-def test_i31_the_cover_survives_re_identification():
-    """'1 overdue' over a household where one matter has deadlines identifies
-    that matter. The L2 check is not theoretical at three matters."""
-    from homestead.app.cover import cover_counts
-
-    counts = cover_counts(matters=["custody"], overdue=1)
-    assert "overdue" not in counts
+# I-31 (`homestead.app.cover`) was promoted to tests/test_invariants_cover.py
+# when the cover's re-identification counts were built.
 
 
-@pending("homestead.keep.egress", "i17 no egress without an explicit per call act")
-def test_i17_no_egress_without_an_explicit_per_call_act():
-    from homestead.keep.egress import send
-
-    with pytest.raises(PermissionError):
-        send("https://example.invalid/", payload={"x": 1})
+# I-17 (`homestead.keep.egress`) was promoted to tests/test_invariants_egress.py
+# when network egress was built after the runnable-path batch.
 
 
-@pending("homestead.keep.patterns", "i18 extraction patterns reject pii")
-def test_i18_extraction_patterns_reject_pii():
-    """F-3: the citation regex matched `1420 Maple 87501` and missed
-    `347 F.3d 1120`, and the path POSTed what it matched."""
-    from homestead.keep.patterns import CITATION
-
-    assert CITATION.findall("347 F.3d 1120")
-    assert not CITATION.findall("1420 Maple 87501")
-    assert not CITATION.findall("88 Ridgeline 90210")
+# I-18 (`homestead.keep.patterns`) was promoted to
+# tests/test_invariants_patterns.py — the last pending invariant to land, leaving
+# UNBUILT empty. Every claim this file once made red is now built and green.

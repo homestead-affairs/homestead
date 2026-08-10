@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from homestead.app import demo
+from homestead.app import advisories, demo
 from homestead.app.window import Window
 from homestead.keep.record import Sidecar
 from homestead.keep.rungs import Disposition
@@ -92,6 +92,15 @@ def run() -> int:
             else "This record is sealed and is not shown here."
         )
         ttk.Label(content, text=body, wraplength=520, justify="left").pack(anchor="w")
+        # A non-blocking advisory: if the stored content is shaped for a higher
+        # rung than it was declared at (an SSN in an L4 note), say so where the
+        # operator is already looking. A muted note, never a dialog and never a
+        # block — the record is open regardless. Silence draws nothing (no "clean"
+        # line): an empty result is *no pattern matched*, not a safety claim.
+        for line in advisories.advisory_lines(store, ref):
+            ttk.Label(
+                content, text=line, foreground="grey", wraplength=520, justify="left"
+            ).pack(anchor="w", pady=(8, 0))
         ttk.Button(content, text="Back", command=show_list).pack(anchor="w", pady=(24, 0))
 
     show_cover()
