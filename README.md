@@ -41,8 +41,12 @@ authorization **chokepoint** is wired ahead of the surfaces that will use it
 **list** that shows `L1`–`L3` payloads, the *derived* form for `L4`, and drops
 `L5` without a trace, and a **detail** pane that shows the `L4` payload and still
 refuses `L5` — the surface calculating nothing itself (I-29), only asking
-`ambient_rows`/`serve`. The tkinter view that draws a `Window`, and loading a
-matter's records from the store into it, are the remaining wiring.
+`ambient_rows`/`serve`. Bite 4 is now wired end to end: the store enumerates a
+matter's records (`Sidecar.records`, each with its key as a reference), a
+`Window` composes them into the list and opens one by reference into the detail,
+and a thin tkinter view (`app/view`) draws it — with `python -m homestead.app
+--demo` printing the whole pipeline headless. A row carries a *reference*, never a
+payload, so the list is interactive without a datum living on the surface.
 
 **Bites 1–3 were then audited adversarially and remediated**
 (`docs/audits/bites-1-3-remediation.md`). The audit earned its keep: the

@@ -3,43 +3,53 @@
 The first thing in the package that *renders*. `Window` is the surface, and it is
 deliberately display-agnostic: it holds the state (cover / list / detail) and the
 rows or the served datum for the current state, and a view (tkinter, in
-`__main__`) draws them. That split is I-29 — *the surface layer holds no domain
-logic* — taken literally: `Window` composes through `ambient_rows` and `serve`
-and calculates nothing, so there is no rung arithmetic in it to drift from the
-gate. law-gazelle's 1,296-line `app.py` is what the other choice looks like.
+`view.py`) draws them. That split is I-29 — *the surface layer holds no domain
+logic* — taken literally: `Window` composes through `serve` and calculates
+nothing, so there is no rung arithmetic in it to drift from the gate.
+law-gazelle's 1,296-line `app.py` is what the other choice looks like.
 
 Two invariants meet here:
 
 * **I-21 — no auto-render on start.** A fresh `Window` rests on the cover and
   shows no record. The queue is not drawn before a human asks; an app that
   renders on mount has shipped F-5 once.
-* **I-35 / the crossing — the list cannot carry what the detail can.** The list
-  is `S1_LIST`, ceiling `L3`: it shows `L1`–`L3` payloads, the *derived* form for
+* **the crossing — the list cannot carry what the detail can.** The list is
+  `S1_LIST`, ceiling `L3`: it shows `L1`-`L3` payloads, the *derived* form for
   `L4`, and nothing at all for `L5`. The detail is `S1_DETAIL`, ceiling `L4`, and
-  opening it is the purpose declaration (by widget, 2026-08-04) — so it may show
-  the `L4` payload. Neither ever shows an `L5`.
+  opening it is the purpose declaration — so it may show the `L4` payload.
+  Neither ever shows an `L5`.
 
-`Window` reaches no `.payload` — it is a surface, and the chokepoint
-(`test_invariants_chokepoint.py`) makes that a build failure. What it holds are
-`AmbientRow.text` and `Served.value`, already scored.
+A `Row` carries a **reference** (the record's key), never a payload — so the list
+is interactive (a click opens an item by ref) without a datum ever living on the
+surface. `Window` reaches no `.payload`; the chokepoint
+(`test_invariants_chokepoint.py`) makes that a build failure.
 """
 from __future__ import annotations
 
-import pytest
-
-from homestead.app.window import Window
-from homestead.keep.rungs import AmbientRow, Disposition, Served, Surface
-from homestead.keep.rungs import Classified, Rung
+from homestead.app.window import Row, Window
+from homestead.keep.rungs import Classified, Disposition, Rung, Served
 
 
-# A custody matter with a field on every relevant rung. The derived forms are the
-# human's re-identification judgement (the pack does not author them); L1 and L5
-# need none. The payloads are the strings that must not leak upward.
+# A custody matter with a field on every relevant rung, each paired with its
+# reference (matter, item_type, item_id). The derived forms are the human's
+# re-identification judgement (the pack does not author them); L1 and L5 need
+# none. The payloads are the strings that must not leak upward.
 COURTHOUSE = Classified(Rung.L1, "Dept 4, Superior Court of California")
 CASE_NUMBER = Classified(Rung.L3, "FL-2026-00123", derived="A case number is on file")
 CHILD_NAME = Classified(Rung.L4, "A.R.", derived="A minor child is named in this matter")
 SSN = Classified(Rung.L5, "xxx-xx-1234")
-MATTER = [COURTHOUSE, CASE_NUMBER, CHILD_NAME, SSN]
+
+COURTHOUSE_REF = ("custody", "courthouse", "main")
+CASE_REF = ("custody", "case_number", "fl-2026-00123")
+CHILD_REF = ("custody", "child_name", "ar")
+SSN_REF = ("custody", "ssn", "primary")
+
+MATTER = [
+    (COURTHOUSE_REF, COURTHOUSE),
+    (CASE_REF, CASE_NUMBER),
+    (CHILD_REF, CHILD_NAME),
+    (SSN_REF, SSN),
+]
 
 L4_PAYLOAD = CHILD_NAME.payload   # "A.R." — must never appear in the list
 L5_PAYLOAD = SSN.payload          # must never appear anywhere
@@ -71,7 +81,7 @@ def test_the_list_renders_low_rungs_and_derives_the_l4():
     rows = w.open_list(MATTER)
 
     assert w.state == "list"
-    assert all(isinstance(r, AmbientRow) for r in rows)
+    assert all(isinstance(r, Row) for r in rows)
     texts = [r.text for r in rows]
 
     assert "Dept 4, Superior Court of California" in texts   # L1 payload
@@ -82,23 +92,35 @@ def test_the_list_renders_low_rungs_and_derives_the_l4():
 
 
 def test_the_list_drops_the_l5_without_a_trace():
-    """serve_all drops denials rather than marking them (product decision 2):
-    four records in, three rows out, and no placeholder, count, or gap that
+    """serve drops denials rather than marking them (product decision 2): four
+    records in, three rows out, and no placeholder, count, or gap that
     reconstructs the sealed one. The existence of a refusal is itself L5."""
     rows = Window().open_list(MATTER)
     assert len(rows) == 3
     assert all(L5_PAYLOAD not in r.text for r in rows)
-    # nothing on the list is even at rung L5
     assert all(r.rung is not Rung.L5 for r in rows)
+    assert SSN_REF not in {r.ref for r in rows}
+
+
+def test_a_row_carries_a_reference_not_a_payload():
+    """A row is a reference, a rung, and served text — so the list is openable
+    without a payload on it. The L4 row shows the derived form and carries the
+    ref that opens the real thing; the payload is nowhere in the row."""
+    rows = {r.ref: r for r in Window().open_list(MATTER)}
+    child_row = rows[CHILD_REF]
+    assert child_row.rung is Rung.L4
+    assert child_row.text == "A minor child is named in this matter"
+    assert child_row.text != L4_PAYLOAD
 
 
 # ── the detail · S1_DETAIL, ceiling L4 ───────────────────────────────────────
 
 def test_the_detail_shows_the_l4_payload():
-    """The plan's 'done when', on the detail side: the pane the operator opened
+    """The plan's 'done when', on the detail side: opening an item by its ref
     shows the L4 payload itself. Opening it is the purpose declaration."""
     w = Window()
-    served = w.open_detail(CHILD_NAME)
+    w.open_list(MATTER)
+    served = w.open_detail(CHILD_REF)
 
     assert w.state == "detail"
     assert isinstance(served, Served)
@@ -110,18 +132,21 @@ def test_the_detail_still_refuses_the_l5():
     """L5 has no override anywhere — not even in the pane the operator opened
     (I-13). The detail denies it: nothing rendered, and value is None because the
     payload is not in the object, not because it was blanked."""
-    served = Window().open_detail(SSN)
+    w = Window()
+    w.open_list(MATTER)
+    served = w.open_detail(SSN_REF)
     assert served.disposition is Disposition.DENY
     assert served.value is None
     assert served.value != L5_PAYLOAD
 
 
 def test_closing_returns_to_the_cover():
-    """The reveal does not persist. Closing the detail drops back to the cover
-    and lets go of what it was showing — the precondition for I-32's timeout,
-    which a later bite adds on top of this."""
+    """The reveal does not persist. Closing drops back to the cover and lets go
+    of the working set — the precondition for I-32's timeout, which a later bite
+    adds on top of this."""
     w = Window()
-    w.open_detail(CHILD_NAME)
+    w.open_list(MATTER)
+    w.open_detail(CHILD_REF)
     w.close()
     assert w.state == "cover"
     assert w.rows == []
@@ -142,8 +167,6 @@ def test_the_window_holds_no_rung_arithmetic():
            / "homestead" / "app" / "window.py").read_text("utf-8")
     tree = ast.parse(src)
 
-    # No comparison whose operands are rungs, and no reach for the private
-    # ceiling table or the order map — the two things only the gate may know.
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
             assert node.attr not in {"_CEILING", "_ORDER", "_NEEDS_DERIVED"}, (
@@ -153,5 +176,5 @@ def test_the_window_holds_no_rung_arithmetic():
         if isinstance(node, ast.Name):
             assert node.id not in {"_CEILING", "_ORDER", "may_render", "decide"}, (
                 "window.py names a decision primitive directly; a surface routes "
-                "through serve()/ambient_rows(), which is the one door"
+                "through serve(), which is the one door"
             )

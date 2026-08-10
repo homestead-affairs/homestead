@@ -1,14 +1,20 @@
-"""S1 — the window. Phase 0: it opens, and it shows nothing.
+"""S1 — the window's entry point.
 
 **I-21: no auto-render on start.** The record is not drawn before a human asks.
-The resting state is a cover, and at Phase 0 the cover is all there is — which
-is the correct order to build it in. An app that renders the queue on mount and
-grows a cover later has already shipped the failure once.
+The resting state is a cover; `view.run` opens on it and draws the list only when
+the operator opens a matter.
 
-**I-29: the surface holds no domain logic.** Everything here composes and
-renders. When this file starts calculating, something has leaked out of
-`homestead.keep`, and law-gazelle's 1,296-line `app.py` is what that looks like
-at the end.
+**I-29: the surface holds no domain logic.** The entry point routes to `view`,
+which composes through `Window` and calculates nothing. When a surface file starts
+calculating, something has leaked out of `homestead.keep`, and law-gazelle's
+1,296-line `app.py` is what that looks like at the end.
+
+Three ways in:
+  * `--smoke` — start, prove every import survived packaging, exit without a
+    display. What CI runs against the built artifact.
+  * `--demo` — seed a synthetic custody matter into a throwaway store and print
+    the list and a detail, composed through the gate. The pipeline, headless.
+  * default — open the tkinter view on the cover.
 """
 from __future__ import annotations
 
@@ -17,34 +23,36 @@ import sys
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+
     if "--smoke" in argv:
-        # Start, prove the interpreter and every import survived packaging, and
-        # exit without a display. This is what CI runs against the built
-        # artifact — the check that would have caught the excludes that made the
-        # first binary die on startup.
-        from homestead.keep import logs, paths, rungs  # noqa: F401
+        # Prove the interpreter and every import survived packaging, including
+        # the surface layer, and exit without a display — the check that would
+        # have caught the excludes that made the first binary die on startup.
+        from homestead.app import demo, view, window  # noqa: F401
+        from homestead.keep import logs, paths, record, rungs  # noqa: F401
         print("homestead: smoke ok")
         return 0
 
+    if "--demo" in argv:
+        # A throwaway household root, so the demo writes synthetic data nowhere
+        # real. Compose the surfaces through the gate and print what a view would
+        # draw — the store → serve → surface pipeline, without a display.
+        import os
+        import tempfile
+
+        from homestead.app import demo
+        from homestead.keep.record import Sidecar
+
+        with tempfile.TemporaryDirectory(prefix="homestead-demo-") as tmp:
+            os.environ["HOMESTEAD_HOME"] = tmp
+            print(demo.compose_demo(Sidecar()))
+        return 0
+
     # Imported inside main so the module stays importable on a headless box —
-    # the test suite reads this file, it does not open a display.
-    import tkinter as tk
-    from tkinter import ttk
+    # the test suite reads these files, it does not open a display.
+    from homestead.app import view
 
-    root = tk.Tk()
-    root.title("Homestead")
-    root.minsize(560, 360)
-
-    cover = ttk.Frame(root, padding=48)
-    cover.pack(fill="both", expand=True)
-    ttk.Label(cover, text="Homestead", font=("TkDefaultFont", 22)).pack(anchor="w")
-    ttk.Label(cover, text="The affairs you handle yourself.").pack(anchor="w", pady=(4, 24))
-    # Phase 0 shows no counts. Counts are L2 only after the re-identification
-    # check (I-31), and there is nothing yet to check.
-    ttk.Label(cover, text="Nothing is open.", foreground="grey").pack(anchor="w")
-
-    root.mainloop()
-    return 0
+    return view.run()
 
 
 if __name__ == "__main__":

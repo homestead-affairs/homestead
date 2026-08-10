@@ -316,3 +316,52 @@ def test_i6_only_the_store_reaches_the_canonical_tree():
         "(I-6), and a writable Path to it in any other module is that guarantee "
         "reduced to a convention."
     )
+
+
+# ── enumeration — a matter's records, by reference (bite 4) ──────────────────
+
+def test_records_enumerates_a_matter_with_refs(tmp_path, monkeypatch):
+    """The list pane needs a matter's records, each with a handle to open it. The
+    handle is the key — a reference, not content (I-15)."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    store.put("custody", "courthouse", "main", Classified(Rung.L1, "Dept 4"))
+    store.put("custody", "case_number", "primary",
+              Classified(Rung.L3, "FL-1", derived="a case is on file"))
+    store.put("bankruptcy", "docket", "d1", Classified(Rung.L1, "public"))
+
+    got = dict(store.records("custody"))
+    assert set(got) == {("custody", "courthouse", "main"),
+                        ("custody", "case_number", "primary")}
+    assert got[("custody", "case_number", "primary")].payload == "FL-1"
+    # a different matter's records are not enumerated
+    assert all(ref[0] == "custody" for ref, _ in store.records("custody"))
+
+
+def test_records_reads_a_corrupt_row_as_l5_without_breaking_enumeration(tmp_path, monkeypatch):
+    """One unreadable file must not take the whole list down, and must not read
+    as anything but L5 — the same fail-closed rule as `get`, applied per row."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    store.put("custody", "case_number", "primary",
+              Classified(Rung.L3, "FL-1", derived="d"))
+    corrupt = paths.sidecar_dir() / key("custody", "notes", "n1")
+    paths.ensure(corrupt.parent)
+    corrupt.write_text("garbage{")
+
+    got = dict(store.records("custody"))
+    assert got[("custody", "notes", "n1")].rung is Rung.L5
+    assert got[("custody", "case_number", "primary")].rung is Rung.L3
+
+
+def test_records_of_an_absent_matter_is_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    assert Sidecar().records("custody") == []
+
+
+def test_records_refuses_a_traversal_matter(tmp_path, monkeypatch):
+    """Enumeration joins the matter to the tree root, so the matter is validated
+    as one safe segment first — a `..` cannot walk the walk out of its tree."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    with pytest.raises(InvalidKey):
+        Sidecar().records("../escape")

@@ -183,6 +183,30 @@ class Sidecar:
     def has(self, matter: str, item_type: str, item_id: str) -> bool:
         return self._path(matter, item_type, item_id).exists()
 
+    def records(self, matter: str) -> list[tuple[tuple[str, str, str], Classified]]:
+        """Every stored record for a matter, each with its key as a reference.
+
+        Walks this matter's sidecar tree and reads each file through the same
+        fail-closed loader as `get()`, so a corrupt row reads `L5` rather than
+        breaking enumeration. The reference is `(matter, item_type, item_id)` — a
+        reference, not content (I-15) — so a surface can list the matter and open
+        one item by ref without ever holding a payload it was not served.
+
+        `matter` is validated as a single path segment (via `key`) before it is
+        joined to the tree root, so enumeration cannot be walked out of the
+        matter's own directory.
+        """
+        key(matter, "_probe_", "_probe_")   # validate matter is one safe segment
+        base = paths.sidecar_dir() / matter
+        out: list[tuple[tuple[str, str, str], Classified]] = []
+        if not base.is_dir():
+            return out
+        for type_dir in sorted(p for p in base.iterdir() if p.is_dir()):
+            for record_file in sorted(type_dir.glob("*.json")):
+                ref = (matter, type_dir.name, record_file.stem)
+                out.append((ref, _load(record_file)))
+        return out
+
     def put(
         self,
         matter: str,
