@@ -1,0 +1,215 @@
+"""I-6, I-7, I-9, I-36 — the record, and I-11 at the storage boundary.
+
+Bite 1 of `docs/PLAN-first-runnable.md`: *the store — records survive a
+restart.* The engine (rungs, surfaces, dates, logs, paths) was built, tested,
+and connected to nothing; this is the first thing that persists a `Classified`
+and gives it back. Every test here is a check the plan named, written before the
+code that satisfies it.
+
+The seam these hold is the one the build plan calls out in I-6: **the canonical
+record is read-only, enforced by type, and writes go to a sidecar.** So there
+are two handles — a `Canonical` that can only read, and a `Sidecar` the app
+writes to — and one key derivation shared by both, because BUG-11 was two call
+sites deriving the same key differently.
+
+The rung is the load-bearing part. A store that returns a payload without its
+rung has silently declassified it, and `compose` is `max` precisely so that
+aggregation can never lower one — a storage layer that drops the rung on the
+way to disk is the same declassification by a slower road.
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+import pytest
+
+from homestead.keep import paths
+from homestead.keep.record import Canonical, InvalidKey, Replaced, Sidecar, key
+from homestead.keep.rungs import Classified, Rung
+
+
+# ── promoted from test_invariants_pending.py ─────────────────────────────────
+
+def test_i36_nothing_deletes_canonical_data():
+    """I-6/I-36, enforced by type rather than by convention. The canonical
+    handle has *no* write method — not delete, not update, not even write — so
+    the app cannot destroy evidence on a schedule (F-5), by inertia, or by
+    mistake. Auto-purging a live matter is what this forecloses."""
+    for forbidden in ("delete", "purge", "remove", "drop", "write", "update"):
+        assert not hasattr(Canonical, forbidden), (
+            f"Canonical.{forbidden} exists. I-6 says the canonical handle is "
+            "read-only by type; a write path on it is the convention this "
+            "invariant refuses to trust."
+        )
+
+
+# ── I-7 · one key derivation, and it cannot escape its tree ──────────────────
+
+def test_i7_read_and_write_derive_the_key_the_same_way():
+    """BUG-11: a literal matter name in one call site and a derived one in
+    another meant a record was filed where it could not be found. The key is
+    computed in exactly one place, from `(matter, item_type, item_id)`, and both
+    the sidecar and the canonical handle prepend their own tree root to it."""
+    rel = key("custody", "deadline", "hearing-2026-08-15")
+    assert rel == Path("custody") / "deadline" / "hearing-2026-08-15.json"
+
+
+def test_i7_a_key_component_cannot_smuggle_a_path(monkeypatch, tmp_path):
+    """A key is not a place to put a path. A component with a separator or a
+    `..` would let a write land outside its matter's tree — the same class of
+    escape `ensure()` refuses for directories."""
+    for bad in ("..", "a/b", "a\\b", ".", "", "   ", "x\x00y"):
+        with pytest.raises(InvalidKey):
+            key(bad, "deadline", "id")
+        with pytest.raises(InvalidKey):
+            key("custody", bad, "id")
+        with pytest.raises(InvalidKey):
+            key("custody", "deadline", bad)
+
+
+# ── bite 1 · records survive a restart, and the rung travels with them ───────
+
+def test_the_rung_travels_with_the_datum(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    item = Classified(
+        rung=Rung.L3,
+        payload="Custody hearing, Judge Alvarez, 9:00am",
+        derived="A hearing is scheduled in this matter",
+    )
+    store.put("custody", "deadline", "hearing", item)
+
+    back = store.get("custody", "deadline", "hearing")
+    assert back.rung is Rung.L3
+    assert back.payload == item.payload
+    assert back.derived == item.derived
+
+
+def test_a_record_survives_the_process_exiting(tmp_path):
+    """The plan's check, taken literally: written by one process, read by
+    another. Nothing here holds state in memory, and this proves it — a store
+    that only round-trips within one interpreter has persisted nothing."""
+    writer = textwrap.dedent(
+        """
+        from homestead.keep.record import Sidecar
+        from homestead.keep.rungs import Classified, Rung
+        Sidecar().put("custody", "note", "n1",
+            Classified(Rung.L3, "a name and a place", "a note exists"))
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", writer],
+        env={"HOMESTEAD_HOME": str(tmp_path), "PATH": ""},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    import os
+    os.environ["HOMESTEAD_HOME"] = str(tmp_path)
+    try:
+        back = Sidecar().get("custody", "note", "n1")
+    finally:
+        del os.environ["HOMESTEAD_HOME"]
+    assert back.rung is Rung.L3
+    assert back.payload == "a name and a place"
+
+
+# ── I-11 at the storage boundary — absence fails closed to L5, not L1 ─────────
+
+def _write_raw(tmp_path: Path, raw: dict) -> None:
+    """Hand-write a sidecar file, bypassing the store, to simulate a row that
+    was corrupted, hand-edited, or written by an older schema."""
+    target = paths.sidecar_dir() / key("custody", "deadline", "x")
+    paths.ensure(target.parent)
+    target.write_text(json.dumps(raw))
+
+
+def test_a_missing_rung_reads_l5_on_the_way_out(tmp_path, monkeypatch):
+    """I-11's whole posture, applied at storage: a stored datum whose rung is
+    gone is not `L1` and not an error the caller can default — it reads `L5` and
+    is never served. The payload rides along but `L5` is served on no surface."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    _write_raw(tmp_path, {"payload": "a name", "derived": "something"})
+    assert Sidecar().get("custody", "deadline", "x").rung is Rung.L5
+
+
+def test_an_unreadable_rung_reads_l5(tmp_path, monkeypatch):
+    """`"L9"`, an integer, a bool — every unreadable rung reads `L5`, the same
+    way `_read_rung` refuses them at the gate. An integer rung in storage is
+    I-14's cross-scale catastrophe arriving as data."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    for bad in ("L9", "unknown", 3, True, None):
+        _write_raw(tmp_path, {"rung": bad, "payload": "a name", "derived": "d"})
+        assert Sidecar().get("custody", "deadline", "x").rung is Rung.L5, bad
+
+
+def test_a_derived_form_lost_in_storage_reads_l5(tmp_path, monkeypatch):
+    """A stored `L3` whose derived form went missing cannot be rebuilt as a
+    valid `Classified` (L3 is served as a stand-in on at least one surface, so
+    it must carry one — BUG-5). Rather than raise or invent one, the read fails
+    closed to `L5`: absence at the storage boundary is served as nothing."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    _write_raw(tmp_path, {"rung": "L3", "payload": "a name"})
+    assert Sidecar().get("custody", "deadline", "x").rung is Rung.L5
+
+
+# ── I-9 · writes never silently overwrite ────────────────────────────────────
+
+def test_i9_a_write_refuses_to_clobber(tmp_path, monkeypatch):
+    """BUG-8's answer: a second write to an occupied key does not quietly
+    replace what was there. It refuses."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    first = Classified(Rung.L2, "first")
+    assert store.put("custody", "note", "n", first) is None
+
+    with pytest.raises(FileExistsError):
+        store.put("custody", "note", "n", Classified(Rung.L2, "second"))
+    # and the original is untouched
+    assert store.get("custody", "note", "n").payload == "first"
+
+
+def test_i9_an_overwrite_reports_what_it_replaced(tmp_path, monkeypatch):
+    """The other half of I-9: when a replacement is asked for explicitly, it
+    reports what it displaced rather than losing it silently."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    store.put("custody", "note", "n", Classified(Rung.L2, "first"))
+    replaced = store.put(
+        "custody", "note", "n", Classified(Rung.L2, "second"), overwrite=True
+    )
+    assert isinstance(replaced, Replaced)
+    assert replaced.previous.payload == "first"
+    assert store.get("custody", "note", "n").payload == "second"
+
+
+# ── the canonical handle reads, and shares the one key ───────────────────────
+
+def test_canonical_reads_what_the_operator_placed(tmp_path, monkeypatch):
+    """The operator's own tools grow the canonical record; the app reads it.
+    Written by hand into the record tree (never by the app), and read back
+    through the same key derivation the sidecar uses."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    target = paths.record_dir() / key("custody", "filing", "petition")
+    paths.ensure(target.parent)
+    target.write_text(json.dumps({"rung": "L4", "payload": "a diagnosis", "derived": "a filing exists"}))
+
+    got = Canonical().get("custody", "filing", "petition")
+    assert got.rung is Rung.L4
+    assert got.payload == "a diagnosis"
+
+
+def test_canonical_reads_fail_closed_too(tmp_path, monkeypatch):
+    """The storage-boundary rule is a property of the read, not of the writer,
+    so it holds for the canonical handle as well: an unreadable rung in the
+    canonical record reads `L5`."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    target = paths.record_dir() / key("custody", "filing", "petition")
+    paths.ensure(target.parent)
+    target.write_text(json.dumps({"payload": "a diagnosis"}))
+    assert Canonical().get("custody", "filing", "petition").rung is Rung.L5

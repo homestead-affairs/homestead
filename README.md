@@ -24,9 +24,13 @@ engine that does not exist.
 > are not made.
 
 **Status: Phase 0, audited and remediated.** The resolver, the two logs, the rung type, a window that
-opens and shows nothing, and the invariant suite. There is no record layer, no
-deadline arithmetic and no matter registry yet. Nothing here is installable by
-anyone who is not building it.
+opens and shows nothing, and the invariant suite. Deadline arithmetic is built
+(`keep/dates`), and so now is the **record layer** — `keep/record`, bite 1 of
+`docs/PLAN-first-runnable.md`: a read-only canonical handle and the sidecar the
+app writes to, keyed once (I-7), refusing silent overwrites (I-9), and failing
+closed to `L5` when a stored rung is missing or unreadable (I-11 at the storage
+boundary). There is no matter registry yet, and nothing calls the store from a
+surface. Nothing here is installable by anyone who is not building it.
 
 ## The method
 

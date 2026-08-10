@@ -24,8 +24,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-__all__ = ["home", "app_data", "logs_dir", "record_dir", "matter_dir",
-           "drafts_dir", "ensure"]
+__all__ = ["home", "app_data", "logs_dir", "record_dir", "sidecar_dir",
+           "matter_dir", "drafts_dir", "ensure"]
 
 _ROOT_ENV = "HOMESTEAD_HOME"
 _ROOT_NAME = ".homestead"
@@ -50,6 +50,15 @@ def logs_dir() -> Path:
 def record_dir() -> Path:
     """The canonical record. Read-only to this application (I-6, I-36)."""
     return home() / "record"
+
+
+def sidecar_dir() -> Path:
+    """Where the app writes (I-6). The canonical record is read-only, so the
+    application's own records — everything it authors or stores — go here, in a
+    parallel tree keyed the same way. Separate from `record_dir()` on purpose:
+    a write path that led into the canonical record is exactly the type-level
+    hole I-6 closes."""
+    return home() / "sidecar"
 
 
 def matter_dir(matter: str) -> Path:

@@ -42,11 +42,19 @@ UNBUILT = {
     # *function* that does not exist yet cannot be tracked by it at all. Two
     # consequences, both live: the reason string can be wrong in a way nothing
     # detects, and such a test goes XPASS-strict when its symbol lands, which is
-    # a failure but not one that names the module. Phase 3 adds `registry`,
-    # `record` and functions to modules that already exist; if it needs
-    # symbol-granular pending marks, this dict is the thing to widen.
+    # a failure but not one that names the module. Phase 3 adds `registry`
+    # and functions to modules that already exist; if it needs symbol-granular
+    # pending marks, this dict is the thing to widen.
+    #
+    # homestead.keep.record was Phase 3 here and is built early, as bite 1 of
+    # docs/PLAN-first-runnable.md ("the store — records survive a restart"). The
+    # plan re-scoped the record layer forward: it is the seam everything else
+    # renders over, so it comes before the registry rather than beside it. Its
+    # I-36 test — the canonical handle has no write method — moved to
+    # tests/test_invariants_record.py, unmarked, the third occasion of this same
+    # promotion (dates, surfaces, then record). test_pending_liveness failed the
+    # moment the module existed and would not go green again until it was moved.
     "homestead.keep.registry": "Phase 3",
-    "homestead.keep.record": "Phase 3",
     "homestead.keep.egress": "Phase 4",
     "homestead.keep.patterns": "Phase 4",
     "homestead.app.window": "Phase 4",
@@ -96,12 +104,8 @@ def test_i23_the_registry_is_the_only_enumeration():
     assert set(all_matters()) == set(REGISTRY)
 
 
-@pending("homestead.keep.record", "i36 nothing deletes canonical data")
-def test_i36_nothing_deletes_canonical_data():
-    from homestead.keep.record import Canonical
-
-    for forbidden in ("delete", "purge", "remove", "drop", "write", "update"):
-        assert not hasattr(Canonical, forbidden)
+# I-36 (`homestead.keep.record`) was promoted to tests/test_invariants_record.py
+# when the store was built as bite 1 of docs/PLAN-first-runnable.md.
 
 
 # ── Phase 4 · surfaces ───────────────────────────────────────────────────────
