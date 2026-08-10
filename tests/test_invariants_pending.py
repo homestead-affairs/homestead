@@ -64,7 +64,14 @@ UNBUILT = {
     # network egress by default, refused unless a per-call act is shown exactly
     # what will be sent. Its test moved to tests/test_invariants_egress.py,
     # unmarked.
-    "homestead.keep.patterns": "Phase 4",
+    # homestead.keep.patterns was the last one: I-18, the citation extractor's
+    # closed reporter set, so an address cannot wear a citation's shape (F-3).
+    # Its test moved to tests/test_invariants_patterns.py, unmarked. With it,
+    # UNBUILT is empty — every invariant this file ever held has been built and
+    # its test promoted out. The dict stays (empty) and so does the machinery,
+    # because the next phase's first pending test is one line, and the history
+    # above is the record of how the ones before it landed.
+    #
     # homestead.app.window was built as bite 4 of docs/PLAN-first-runnable.md
     # (the two S1 surfaces). Its I-21 test — a fresh window rests on the cover —
     # moved to tests/test_invariants_window.py, unmarked.
@@ -132,12 +139,6 @@ def test_pending_liveness():
 # when network egress was built after the runnable-path batch.
 
 
-@pending("homestead.keep.patterns", "i18 extraction patterns reject pii")
-def test_i18_extraction_patterns_reject_pii():
-    """F-3: the citation regex matched `1420 Maple 87501` and missed
-    `347 F.3d 1120`, and the path POSTed what it matched."""
-    from homestead.keep.patterns import CITATION
-
-    assert CITATION.findall("347 F.3d 1120")
-    assert not CITATION.findall("1420 Maple 87501")
-    assert not CITATION.findall("88 Ridgeline 90210")
+# I-18 (`homestead.keep.patterns`) was promoted to
+# tests/test_invariants_patterns.py — the last pending invariant to land, leaving
+# UNBUILT empty. Every claim this file once made red is now built and green.

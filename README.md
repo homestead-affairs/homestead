@@ -103,7 +103,15 @@ briefing iterate it instead of keeping lists of their own. Only custody is
 registered (bankruptcy and workers' comp are Phase 5); a pack that exists but is
 unregistered fails the build, and a matter name hand-kept as an enumeration
 anywhere but the registry is a build failure too — BUG-6 was three such lists
-drifting until workers' comp fell out of the urgent queue. Nothing here is
+drifting until workers' comp fell out of the urgent queue.
+
+And the **citation extractor** is closed (`keep/patterns`, I-18): a legal
+citation is `volume reporter page`, and the reporter is one of a **closed set** of
+published abbreviations, not any capitalized word — so `1420 Maple 87501` cannot
+wear a citation's shape and be POSTed as one (F-3), and `347 F.3d 1120`, which the
+loose regex missed, is caught. An unknown reporter misses a cite; it never matches
+an address — the safe direction. With it, **every invariant this project's pending
+file ever held red is built and green** (`UNBUILT` is empty). Nothing here is
 installable by anyone who is not building it.
 
 ## The method
