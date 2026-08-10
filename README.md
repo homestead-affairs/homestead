@@ -29,8 +29,12 @@ opens and shows nothing, and the invariant suite. Deadline arithmetic is built
 `docs/PLAN-first-runnable.md`: a read-only canonical handle and the sidecar the
 app writes to, keyed once (I-7), refusing silent overwrites (I-9), and failing
 closed to `L5` when a stored rung is missing or unreadable (I-11 at the storage
-boundary). There is no matter registry yet, and nothing calls the store from a
-surface. Nothing here is installable by anyone who is not building it.
+boundary). The first matter pack — **custody** (`packs/custody`, bite 2) — is
+authored and classified at import: a closed schema whose every field declares a
+rung, its matter and its jurisdiction, so an unclassified field fails the build
+naming itself (I-11), on a real schema rather than a synthetic one. There is no
+matter registry yet, and nothing calls the store or a pack from a surface.
+Nothing here is installable by anyone who is not building it.
 
 ## The method
 
