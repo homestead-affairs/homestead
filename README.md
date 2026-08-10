@@ -75,7 +75,11 @@ test: it may only argue a rung **up**, never down; it is advisory and gates
 nothing (`put` never consults it); and its silence is never a clean bill. Its
 patterns are anchored and tested against the benign strings they must not fire on
 (I-18, F-3's discipline: an address, a ZIP+4, a hearing date), and it never
-echoes what it matched (I-15).
+echoes what it matched (I-15). It is now **surfaced**: opening a record in the
+detail pane draws any advisory as a muted line beneath it (`app/advisories` over
+`Sidecar.advise`, drawn by `app/view`), so a wrong-declared rung is caught where
+the operator is already looking — advisory still, never a block, never the datum,
+and silence draws nothing.
 
 There is no matter registry yet. Nothing here is installable by anyone who is not
 building it.
