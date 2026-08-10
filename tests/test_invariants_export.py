@@ -48,7 +48,7 @@ def _l4_item(rungs):
 
 
 def _read(path):
-    return [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+    return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
 # ── done-when 1 — one integrity entry, naming the purpose ─────────────────────
@@ -75,7 +75,7 @@ def test_the_integrity_entry_is_a_reference_never_content(kit):
         _l4_item(rungs), "custody", "atom", "ATM-001",
         purpose=rungs.Purpose.EXPORT,
     )
-    raw = export.ledger().path.read_text()
+    raw = export.ledger().path.read_text(encoding="utf-8")
     assert BODY not in raw, "the payload must never enter the ledger (I-15)"
     assert "a parenting-time note" not in raw, "nor the derived form"
 
@@ -91,10 +91,10 @@ def test_verify_with_the_receipt_head_catches_a_hand_edited_entry(kit):
     ledger = export.ledger()
     assert ledger.verify(expected_head=receipt.head) is True
 
-    lines = ledger.path.read_text().splitlines()
+    lines = ledger.path.read_text(encoding="utf-8").splitlines()
     doctored = json.loads(lines[-1])
     doctored["purpose"] = rungs.Purpose.SUBJECT_ACCESS.value   # rewrite the reason
-    ledger.path.write_text(json.dumps(doctored, sort_keys=True) + "\n")
+    ledger.path.write_text(json.dumps(doctored, sort_keys=True) + "\n", encoding="utf-8")
 
     assert ledger.verify(expected_head=receipt.head) is False, (
         "the off-machine head from the receipt is what catches an edited ledger"
@@ -126,10 +126,10 @@ def test_the_content_leaves_in_the_artifact_and_in_neither_log(kit):
     )
     # the export is the record leaving: the content is in the artifact
     assert receipt.artifact is not None
-    assert BODY in receipt.artifact.read_text()
+    assert BODY in receipt.artifact.read_text(encoding="utf-8")
     # and it is in neither log
-    assert BODY not in export.ledger().path.read_text()
-    assert BODY not in logs.VisibleLog().path.read_text()
+    assert BODY not in export.ledger().path.read_text(encoding="utf-8")
+    assert BODY not in logs.VisibleLog().path.read_text(encoding="utf-8")
 
 
 # ── the export path is gated ──────────────────────────────────────────────────
@@ -197,8 +197,8 @@ def test_wiping_the_log_dir_does_not_take_the_anchor(kit):
         )
     ledger = export.ledger()
     assert ledger.verify() is True
-    lines = ledger.path.read_text().splitlines()
-    ledger.path.write_text("\n".join(lines[:1]) + "\n")   # truncate to one line
+    lines = ledger.path.read_text(encoding="utf-8").splitlines()
+    ledger.path.write_text("\n".join(lines[:1]) + "\n", encoding="utf-8")   # truncate to one line
     assert ledger.verify() is False, (
         "the anchor is in a separate tree, so truncation is caught, not hidden"
     )
