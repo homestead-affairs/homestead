@@ -36,8 +36,15 @@ naming itself (I-11), on a real schema rather than a synthetic one. The
 authorization **chokepoint** is wired ahead of the surfaces that will use it
 (bite 3): a payload may be reached only in the gate (`keep/rungs`) and the store
 (`keep/record`), and a reach past `serve()` on any surface is a build failure
-(I-16). There is no matter registry yet, and nothing renders a pack from a
-surface. Nothing here is installable by anyone who is not building it.
+(I-16). The two **S1 surfaces** now render through that gate (bite 4,
+`app/window`): a `Window` that rests on the cover until a human asks (I-21), a
+**list** that shows `L1`–`L3` payloads, the *derived* form for `L4`, and drops
+`L5` without a trace, and a **detail** pane that shows the `L4` payload and still
+refuses `L5` — the surface calculating nothing itself (I-29), only asking
+`ambient_rows`/`serve`. The tkinter view that draws a `Window`, and loading a
+matter's records from the store into it, are the remaining wiring. There is no
+matter registry yet. Nothing here is installable by anyone who is not building
+it.
 
 ## The method
 

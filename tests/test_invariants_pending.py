@@ -57,7 +57,11 @@ UNBUILT = {
     "homestead.keep.registry": "Phase 3",
     "homestead.keep.egress": "Phase 4",
     "homestead.keep.patterns": "Phase 4",
-    "homestead.app.window": "Phase 4",
+    # homestead.app.window was built as bite 4 of docs/PLAN-first-runnable.md
+    # (the two S1 surfaces). Its I-21 test — a fresh window rests on the cover —
+    # moved to tests/test_invariants_window.py, unmarked. homestead.app.cover
+    # (the I-31 re-identification counts) stays pending: bite 4 keeps the cover
+    # count-less, as Phase 0 already had it right.
     "homestead.app.cover": "Phase 4",
 }
 
@@ -110,11 +114,8 @@ def test_i23_the_registry_is_the_only_enumeration():
 
 # ── Phase 4 · surfaces ───────────────────────────────────────────────────────
 
-@pending("homestead.app.window", "i21 the app does not render on start")
-def test_i21_the_app_does_not_render_on_start():
-    from homestead.app.window import Window
-
-    assert Window().state == "cover"
+# I-21 (`homestead.app.window`) was promoted to tests/test_invariants_window.py
+# when the two S1 surfaces were built as bite 4 of docs/PLAN-first-runnable.md.
 
 
 @pending("homestead.app.cover", "i31 the cover survives re identification")
