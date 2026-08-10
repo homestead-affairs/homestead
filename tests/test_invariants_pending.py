@@ -59,10 +59,15 @@ UNBUILT = {
     "homestead.keep.patterns": "Phase 4",
     # homestead.app.window was built as bite 4 of docs/PLAN-first-runnable.md
     # (the two S1 surfaces). Its I-21 test — a fresh window rests on the cover —
-    # moved to tests/test_invariants_window.py, unmarked. homestead.app.cover
-    # (the I-31 re-identification counts) stays pending: bite 4 keeps the cover
-    # count-less, as Phase 0 already had it right.
-    "homestead.app.cover": "Phase 4",
+    # moved to tests/test_invariants_window.py, unmarked.
+    #
+    # homestead.app.cover (the I-31 re-identification counts) was then built:
+    # the cover may show a count only where the number reveals nothing about
+    # which matter it came from. Its I-31 test moved to
+    # tests/test_invariants_cover.py, unmarked — the fourth occasion of this
+    # promotion (dates, surfaces, record, then cover). test_pending_liveness
+    # failed the moment the module existed and would not go green again until it
+    # was moved and struck from this dict.
 }
 
 
@@ -118,14 +123,8 @@ def test_i23_the_registry_is_the_only_enumeration():
 # when the two S1 surfaces were built as bite 4 of docs/PLAN-first-runnable.md.
 
 
-@pending("homestead.app.cover", "i31 the cover survives re identification")
-def test_i31_the_cover_survives_re_identification():
-    """'1 overdue' over a household where one matter has deadlines identifies
-    that matter. The L2 check is not theoretical at three matters."""
-    from homestead.app.cover import cover_counts
-
-    counts = cover_counts(matters=["custody"], overdue=1)
-    assert "overdue" not in counts
+# I-31 (`homestead.app.cover`) was promoted to tests/test_invariants_cover.py
+# when the cover's re-identification counts were built.
 
 
 @pending("homestead.keep.egress", "i17 no egress without an explicit per call act")
