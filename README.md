@@ -89,6 +89,13 @@ are the bytes that leave — BUG-5's answer at the wire) and says yes. The defau
 transport lazy-imports `urllib` inside itself, so the core imports no network
 (I-26/I-30).
 
+The **cover now survives re-identification** (`app/cover`, I-31): the resting
+screen may show a count only where the number reveals nothing about which matter
+it came from — a count of one, and a household of one matter, each withhold every
+count (k ≥ 2 on both the count and the matters), and a dropped count is an absent
+key, never a rendered zero. The rule is proposed for ratification in
+`docs/DECISION-cover-re-identification.md` (`verified_by ≠ author`).
+
 There is no matter registry yet. Nothing here is installable by anyone who is not
 building it.
 
