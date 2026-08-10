@@ -1,13 +1,33 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "homestead"
-version = "0.0.1"
+# The git tag is the single source of truth — see [tool.hatch.version]. The
+# version is deliberately NOT a literal here. `homestead/__init__.py` used to
+# carry `__version__ = "0.0.1"`; a number nothing derives is a number that goes
+# stale, and homestead-law then pins whatever it says. hatch-vcs derives it from
+# the tag instead, so there is exactly one place a release number is decided.
+dynamic = ["version"]
 description = "The seat of Homestead · Affairs — the shared record, deadline and evidence core (homestead.keep)."
+readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+keywords = ["record", "deadline", "evidence", "self-represented", "legal-aid", "homestead"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Legal Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Office/Business",
+]
 
 # I-27: declared dependencies are TRUE. A cold checkout runs `pip install -e .`
 # and then bare `pytest -q`, with no out-of-band install step and no CI escape
@@ -33,7 +53,12 @@ license = { text = "MIT" }
 dependencies = ["holidays>=0.102,<1.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+# `pyyaml` and `tomli` are for tests/test_release_wiring.py, which reads the
+# release workflows and pyproject to check the four release files agree. It
+# importorskips on yaml, so leaving pyyaml out would turn those checks into a
+# silent skip — the exact failure mode they exist to catch. Dev-only, so I-27's
+# runtime-dependency promise (the `dependencies` list above) is untouched.
+dev = ["pytest>=8.0", "pyyaml", "tomli; python_version<'3.11'"]
 # Nestor is an OPTIONAL EXTRA and never a required dependency.
 # The seam degrades to feature-absent when it is not installed.
 entity = []          # pinned nestor lands here at Phase 6+
@@ -41,8 +66,28 @@ entity = []          # pinned nestor lands here at Phase 6+
 [project.scripts]
 homestead-law = "homestead.app.__main__:main"
 
-[tool.setuptools.packages.find]
-include = ["homestead*"]
+[project.urls]
+Homepage = "https://github.com/rudi193-cmd/homestead"
+Repository = "https://github.com/rudi193-cmd/homestead"
+Issues = "https://github.com/rudi193-cmd/homestead/issues"
+Changelog = "https://github.com/rudi193-cmd/homestead/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+# Derived from the git tag (hatch-vcs). At an exact tag `vX.Y.Z` the version is
+# X.Y.Z; off-tag builds get a `.devN+g<sha>` suffix that PyPI rejects, so an
+# accidental publish from an untagged commit fails loudly instead of shipping
+# something mislabelled. CI must check out with `fetch-depth: 0` — the default
+# shallow checkout carries no tags and the derived version would be wrong.
+#
+# No tag exists yet: this repo has never published. `.release-please-manifest.json`
+# anchors the current version at 0.0.1 (what the code already called itself), and
+# release-please cuts the first real tag from the commits (`release-type: simple`,
+# release-please-config.json) rather than anyone tagging by hand — PyPI never lets
+# a version be reused.
+source = "vcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["homestead"]
 
 [tool.pytest.ini_options]
 # I-28: bare `pytest -q` must work. Nothing shadows the live suite.
