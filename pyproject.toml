@@ -19,13 +19,13 @@ dynamic = ["version"]
 description = "The seat of Homestead · Affairs — the shared record, deadline and evidence core (homestead.keep)."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 keywords = ["record", "deadline", "evidence", "self-represented", "legal-aid", "homestead"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Legal Industry",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

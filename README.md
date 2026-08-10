@@ -147,4 +147,4 @@ Lives in the safe-app-store: `docs/homestead-law-build-plan.md` (the 36
 invariants and the phase order), `docs/homestead-rungs.md` (the `L1`–`L5`
 model), `docs/homestead-affairs-face.md` (the face), `docs/die-rules.md`.
 
-MIT.
+Apache-2.0.
