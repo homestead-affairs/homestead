@@ -47,7 +47,12 @@ PKG = Path(__file__).resolve().parent.parent / "homestead"
 #: — surfaces included — goes through the gate and receives `Served.value`.
 GATE = PKG / "keep" / "rungs.py"
 STORE = PKG / "keep" / "record.py"
-ALLOWED = {GATE, STORE}
+#: keep/store.py is the adapter seam — the store, backing-independent. Like
+#: keep/record.py it is a payload boundary (it serializes and hydrates a
+#: Classified), so it joins the allow-list; every other module still goes through
+#: the gate.
+STORE_SEAM = PKG / "keep" / "store.py"
+ALLOWED = {GATE, STORE, STORE_SEAM}
 
 #: Reflection primitives that read a field without naming it — the forms the
 #: audit used to walk past the literal `.payload` scan. A surface has no honest
