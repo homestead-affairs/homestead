@@ -67,6 +67,16 @@ found. The store's `put` was made race-safe (I-9) and corruption-safe (a corrupt
 row reads `L5`, not a crash), the canonical tree closed to every module but the
 store, and two custody rungs aligned to the spec.
 
+The audit's one deferred residual — that `notes`, kept at `L4`, could hold
+`L5`-worthy content — now has its guard: the **advisory content matcher**
+(`keep/advise`). It flags *declared `L1`, content shaped like an SSN* — the half
+`classify_schema` cannot do — and is built to three conditions each held by a
+test: it may only argue a rung **up**, never down; it is advisory and gates
+nothing (`put` never consults it); and its silence is never a clean bill. Its
+patterns are anchored and tested against the benign strings they must not fire on
+(I-18, F-3's discipline: an address, a ZIP+4, a hearing date), and it never
+echoes what it matched (I-15).
+
 There is no matter registry yet. Nothing here is installable by anyone who is not
 building it.
 

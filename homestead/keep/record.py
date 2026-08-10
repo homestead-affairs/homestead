@@ -183,6 +183,20 @@ class Sidecar:
     def has(self, matter: str, item_type: str, item_id: str) -> bool:
         return self._path(matter, item_type, item_id).exists()
 
+    def advise(self, matter: str, item_type: str, item_id: str) -> tuple:
+        """Advisory PII check over one stored record — read-only, non-blocking.
+
+        The store legitimately holds a record's content, so this is a place the
+        advisory matcher (`keep/advise`) can be handed it without a surface ever
+        reaching a `.payload`. It loads the record and asks whether its content is
+        shaped for a rung higher than the one it was stored at — the guard the
+        `notes = L4` decision leans on. It refuses nothing and changes nothing;
+        an empty result is *no pattern matched*, never a clean bill.
+        """
+        from .advise import advise as _advise
+        record = self.get(matter, item_type, item_id)
+        return _advise(record.rung, record.payload)
+
     def records(self, matter: str) -> list[tuple[tuple[str, str, str], Classified]]:
         """Every stored record for a matter, each with its key as a reference.
 
