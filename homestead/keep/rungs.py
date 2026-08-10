@@ -91,11 +91,17 @@ because no ceiling is `L5` — not because five rows say `never`.
 * **It does not ledger.** `L3` and `L4` on S4 require an explicit act *recorded*
   in the ledger. This module returns a decision; it writes nothing and refuses
   nothing on the grounds that a write did not happen.
-* **It is not a chokepoint.** I-16 wants one authorization point covering every
-  surface. `serve()` and `ambient_rows()` are the *shape* of one, but nothing
-  compels a caller to use them: a Phase 4 renderer that reads
-  `Classified.payload` directly is not stopped by anything in this file. A gate
-  wired to one entry point is not a gate, and at Phase 2 it is wired to none.
+* **It does not enforce the chokepoint at runtime, and now the suite does.**
+  I-16 wants one authorization point covering every surface. `serve()` and
+  `ambient_rows()` are the *shape* of one, and nothing *in this file* compels a
+  caller to use them — a renderer that reads `Classified.payload` directly is
+  not stopped by any line here. What stops it, since bite 3, is
+  `tests/test_invariants_chokepoint.py`: an AST scan that lets exactly this
+  module (the gate) and `keep/record.py` (the store) reach a payload and makes
+  the reach a **build failure** anywhere else, surfaces included. So "a gate
+  wired to one entry point is not a gate" is answered the way this project
+  answers everything — by a test that fails when the gate is bypassed, not by a
+  guard the type could smuggle a value past.
 * **It does not declassify, and there is deliberately no function that does.**
   Declassification is an act with a name and a date, recorded in the ledger.
   Nothing here lowers a rung by inertia, on a schedule, or as a side effect of
@@ -670,6 +676,15 @@ class Classified:
     than the schedule it replaces — that is the re-identification judgement the
     spec puts on a human at classification time, and this class only insists
     that a human made one.
+
+    **`payload` is the raw datum, and a surface must not read it (I-16).** It is
+    a plain attribute because the gate and the store need it — `serve()` reads it
+    to decide what may cross, and `keep/record.py` serializes it — but everything
+    else, every renderer, receives it only as `Served.value` from `serve()` or as
+    `AmbientRow.text` from `ambient_rows()`, already scored. Reaching `.payload`
+    on a surface is the BUG-5 bypass, and since bite 3 it is a build failure:
+    `tests/test_invariants_chokepoint.py` lets only the gate and the store touch
+    it. `serve()` is the obvious path because it is the only one.
     """
 
     rung: Rung

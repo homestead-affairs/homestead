@@ -24,8 +24,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-__all__ = ["home", "app_data", "logs_dir", "record_dir", "matter_dir",
-           "drafts_dir", "ensure"]
+__all__ = ["home", "app_data", "logs_dir", "record_dir", "sidecar_dir",
+           "matter_dir", "drafts_dir", "exports_dir", "anchors_dir", "ensure"]
 
 _ROOT_ENV = "HOMESTEAD_HOME"
 _ROOT_NAME = ".homestead"
@@ -52,12 +52,45 @@ def record_dir() -> Path:
     return home() / "record"
 
 
+def sidecar_dir() -> Path:
+    """Where the app writes (I-6). The canonical record is read-only, so the
+    application's own records — everything it authors or stores — go here, in a
+    parallel tree keyed the same way. Separate from `record_dir()` on purpose:
+    a write path that led into the canonical record is exactly the type-level
+    hole I-6 closes."""
+    return home() / "sidecar"
+
+
 def matter_dir(matter: str) -> Path:
     return record_dir() / matter
 
 
 def drafts_dir() -> Path:
     return home() / "drafts"
+
+
+def exports_dir() -> Path:
+    """Where an export writes the artifact — the record leaving (bite 5, S4).
+
+    Its own tree, separate from the record, the sidecar and the logs. An export
+    is the operator taking their record out; the content lands here and nowhere
+    near a log, which carries references only (I-15). Kept distinct from the
+    anchor tree on purpose: wiping the export area must not reach the head that
+    vouches for the ledger."""
+    return home() / "exports"
+
+
+def anchors_dir() -> Path:
+    """Where an `IntegrityLog` head anchor is held, off the log's own tree.
+
+    The willow-mcp #280 separation: the head that vouches for the chain is not
+    stored next to the chain, so truncating the logs — or wiping the export
+    tree — does not clear the witness in the same stroke. This is **not** a
+    location the app cannot reach (F-5: a shared OS account has no such place);
+    it is the head kept independent of the storage it vouches for. The real
+    closure against an adversary stays `verify(expected_head=…)` with a head the
+    operator recorded off the machine — see docs/DECISION-export-and-the-anchor.md."""
+    return home() / "anchors"
 
 
 def ensure(path: Path | str) -> Path:
