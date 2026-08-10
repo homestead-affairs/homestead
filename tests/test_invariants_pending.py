@@ -55,7 +55,10 @@ UNBUILT = {
     # promotion (dates, surfaces, then record). test_pending_liveness failed the
     # moment the module existed and would not go green again until it was moved.
     "homestead.keep.registry": "Phase 3",
-    "homestead.keep.egress": "Phase 4",
+    # homestead.keep.egress was built after the runnable-path batch: I-17, no
+    # network egress by default, refused unless a per-call act is shown exactly
+    # what will be sent. Its test moved to tests/test_invariants_egress.py,
+    # unmarked.
     "homestead.keep.patterns": "Phase 4",
     # homestead.app.window was built as bite 4 of docs/PLAN-first-runnable.md
     # (the two S1 surfaces). Its I-21 test — a fresh window rests on the cover —
@@ -128,12 +131,8 @@ def test_i31_the_cover_survives_re_identification():
     assert "overdue" not in counts
 
 
-@pending("homestead.keep.egress", "i17 no egress without an explicit per call act")
-def test_i17_no_egress_without_an_explicit_per_call_act():
-    from homestead.keep.egress import send
-
-    with pytest.raises(PermissionError):
-        send("https://example.invalid/", payload={"x": 1})
+# I-17 (`homestead.keep.egress`) was promoted to tests/test_invariants_egress.py
+# when network egress was built after the runnable-path batch.
 
 
 @pending("homestead.keep.patterns", "i18 extraction patterns reject pii")

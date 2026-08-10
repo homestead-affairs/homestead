@@ -77,6 +77,14 @@ patterns are anchored and tested against the benign strings they must not fire o
 (I-18, F-3's discipline: an address, a ZIP+4, a hearing date), and it never
 echoes what it matched (I-15).
 
+**Network egress is refused by default** (`keep/egress`, I-17): nothing on this
+self-contained face dials on its own, and `send` raises unless the caller
+performs an explicit per-call act — it is shown *exactly* what will be sent (the
+confirmation and the transport are handed the same `Wire`, so the bytes approved
+are the bytes that leave — BUG-5's answer at the wire) and says yes. The default
+transport lazy-imports `urllib` inside itself, so the core imports no network
+(I-26/I-30).
+
 There is no matter registry yet. Nothing here is installable by anyone who is not
 building it.
 
