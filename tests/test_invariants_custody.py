@@ -41,16 +41,25 @@ def test_the_pack_classifies_at_import():
 
 
 def test_the_pack_spans_the_ladder_with_defensible_rungs():
-    """The reference pack, field by field, against the model. Each is traceable
-    to a rule in homestead-rungs.md or an example in the surfaces corpus."""
+    """The reference pack, field by field, against homestead-rungs.md § Custody.
+
+    The rungs that appear in the doc's reference table match it exactly rather
+    than raising above it: the audit caught two fields (hearing_date,
+    parenting_time) classified *higher* than the doc with a citation that claimed
+    the doc as authority — an over-classification is safe but a false provenance
+    is not, so both were aligned to the table (hearing date L1, parenting
+    schedule L3) and the reasons corrected. Over-classifying is not free: a
+    hearing date at L2 would not reach the local model a publicly-posted date may,
+    and a parenting schedule at L4 would be withheld from the operator's own list
+    where the doc says they should see it."""
     expected = {
         "courthouse": Rung.L1,       # the court's public identity
-        "hearing_date": Rung.L2,     # a bare date; names no one, no category
+        "hearing_date": Rung.L1,     # posted on the court calendar (doc § Custody: L1)
         "case_number": Rung.L3,      # family records commonly sealed (the worked example)
         "docket": Rung.L3,           # same posture as a case number in a family matter
         "opposing_party": Rung.L3,   # names a person; no protected category
+        "parenting_time": Rung.L3,   # resolves to the child (doc § Custody: L3)
         "child_name": Rung.L4,       # names a person who is a minor — a category the law follows
-        "parenting_time": Rung.L4,   # the minor's whereabouts on a schedule
         "diagnosis": Rung.L4,        # a medical category attached to a person
         "notes": Rung.L4,            # free operator text; routinely carries a protected category (F-4)
         "ssn": Rung.L5,              # sealed / key material — L5 has no override

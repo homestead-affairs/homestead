@@ -53,9 +53,11 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "the court's public identity — public in this matter's forum (step 1)",
     ),
     "hearing_date": _field(
-        Rung.L2,
-        "a bare date; household scheduling that names no person and carries no "
-        "protected category (steps 1-3). It is not the parenting schedule.",
+        Rung.L1,
+        "the hearing's date, time and department — posted on the court calendar, "
+        "so public in this matter's forum (step 1). homestead-rungs.md "
+        "§ Custody classifies it L1 for that reason; the doc's worked example "
+        "is 'Hearing · Aug 15 · 8:30 am · Dept 3 · County Courthouse.'",
     ),
     "case_number": _field(
         Rung.L3,
@@ -80,10 +82,13 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "(step 3 yes), and the whole model turns on not rendering it by default.",
     ),
     "parenting_time": _field(
-        Rung.L4,
-        "the minor's whereabouts on a recurring schedule — identifies a minor "
-        "and carries the category (step 3). The surfaces corpus's worked L4: the "
-        "list sees a derived form, never 'Tue/Thu · minor child A.R.'",
+        Rung.L3,
+        "the parenting schedule — resolves to the child (step 2), which "
+        "homestead-rungs.md § Custody classifies L3. The operator sees it on "
+        "their own list; a model prompt (S2, ceiling L2) gets only the derived "
+        "'a recurring parenting-time obligation on Tue/Thu' — the doc's worked "
+        "example for this field. Not L4: it resolves to the child but does not "
+        "itself carry a protected category the way a diagnosis does.",
     ),
     "diagnosis": _field(
         Rung.L4,
@@ -94,9 +99,18 @@ SCHEMA: dict[str, dict[str, Any]] = {
         Rung.L4,
         "free operator text that resolves to a person and routinely carries a "
         "protected category — substance use, a diagnosis, an allegation (F-4 was "
-        "exactly this content leaking). It reaches the detail pane the operator "
-        "opened and never a prompt (I-15). Not L5: the operator may read their "
-        "own note.",
+        "exactly this content leaking). L4 blocks the F-3/F-4 shape: a note never "
+        "reaches a model prompt (S2, ceiling L2 → derived) or an agent (I-15), "
+        "and the operator reads their own note in the detail pane. **Kept at L4 "
+        "by decision (2026-08-10), against the bite-1-3 audit that argued L5** — "
+        "see docs/audits/bites-1-3-remediation.md. The residual the audit named "
+        "is real: a note holding L5-worthy content would egress on a "
+        "purpose-declared S4 export, past L5's no-egress rule. Closing it needs a "
+        "per-field operator-visible / non-exportable split, which the one-rung "
+        "model does not express; until that lands the advisory content matcher "
+        "(declared L4, content shaped like an L5 datum → raise) is the intended "
+        "guard, and v1 is synthetic-data-only. Not L5: a note the operator cannot "
+        "read is not a note.",
     ),
     "ssn": _field(
         Rung.L5,

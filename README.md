@@ -42,9 +42,20 @@ authorization **chokepoint** is wired ahead of the surfaces that will use it
 `L5` without a trace, and a **detail** pane that shows the `L4` payload and still
 refuses `L5` — the surface calculating nothing itself (I-29), only asking
 `ambient_rows`/`serve`. The tkinter view that draws a `Window`, and loading a
-matter's records from the store into it, are the remaining wiring. There is no
-matter registry yet. Nothing here is installable by anyone who is not building
-it.
+matter's records from the store into it, are the remaining wiring.
+
+**Bites 1–3 were then audited adversarially and remediated**
+(`docs/audits/bites-1-3-remediation.md`). The audit earned its keep: the
+chokepoint was theatre — `getattr(record, "payload")` in a surface reached a
+sealed `L5` payload and passed the suite, because the scan matched the *spelling*
+`.payload` rather than the property. It now bans reflection in the surface layer
+outright, and its regression runs the real scan over every bypass the audit
+found. The store's `put` was made race-safe (I-9) and corruption-safe (a corrupt
+row reads `L5`, not a crash), the canonical tree closed to every module but the
+store, and two custody rungs aligned to the spec.
+
+There is no matter registry yet. Nothing here is installable by anyone who is not
+building it.
 
 ## The method
 

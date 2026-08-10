@@ -213,3 +213,106 @@ def test_canonical_reads_fail_closed_too(tmp_path, monkeypatch):
     paths.ensure(target.parent)
     target.write_text(json.dumps({"payload": "a diagnosis"}))
     assert Canonical().get("custody", "filing", "petition").rung is Rung.L5
+
+
+# ── audit remediation ────────────────────────────────────────────────────────
+
+def test_i9_concurrent_writes_do_not_silently_clobber(tmp_path, monkeypatch):
+    """The audit's TOCTOU, closed. The first version checked `exists()` and then
+    wrote, with a window between; two writers both saw an empty slot and both
+    wrote, one clobbering the other and returning None as if it were a clean
+    first write (166 of 200 racing rounds). Now the check and the create are one
+    act under a lock, and the first write is an exclusive create — so of N
+    racers on one key, exactly one wins and the rest are refused."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    import threading
+
+    store = Sidecar()
+    n = 8
+    barrier = threading.Barrier(n)
+    outcomes: list[tuple[str, object]] = []
+    guard = threading.Lock()
+
+    def racer(i: int) -> None:
+        barrier.wait()  # release all threads at once, to actually contend
+        try:
+            result = store.put("custody", "note", "n", Classified(Rung.L2, f"writer-{i}"))
+            with guard:
+                outcomes.append(("won", result))
+        except FileExistsError:
+            with guard:
+                outcomes.append(("refused", None))
+
+    threads = [threading.Thread(target=racer, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    won = [o for o in outcomes if o[0] == "won"]
+    refused = [o for o in outcomes if o[0] == "refused"]
+    assert len(won) == 1, f"exactly one racer should win, got {len(won)}"
+    assert won[0][1] is None, "the winning first write reports None, not a clobber"
+    assert len(refused) == n - 1, "every other racer is refused, not silently dropped"
+
+
+def test_a_corrupt_row_reads_l5_rather_than_crashing(tmp_path, monkeypatch):
+    """I-11 at the storage boundary, past the rung: an undecodable file — empty,
+    truncated, garbage, an older schema — is a corrupt row, and a corrupt row
+    reads `L5`, not a `JSONDecodeError` that crashes the surface reading it. The
+    audit found `json.loads` sat outside the fail-closed path; now it is inside
+    it."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    target = paths.sidecar_dir() / key("custody", "deadline", "x")
+    paths.ensure(target.parent)
+    for junk in ("", "   ", "{not json", "\x00\x01\x02garbage", "not json at all"):
+        target.write_text(junk)
+        assert Sidecar().get("custody", "deadline", "x").rung is Rung.L5, repr(junk)
+
+
+def test_overwriting_a_corrupt_row_replaces_it_rather_than_crashing(tmp_path, monkeypatch):
+    """The other side of the same fix: `put(overwrite=True)` over a corrupt file
+    reads the previous (fail-closed to L5) and replaces it, rather than crashing
+    on the unreadable prior."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    target = paths.sidecar_dir() / key("custody", "note", "n")
+    paths.ensure(target.parent)
+    target.write_text("}{ not json")
+
+    store = Sidecar()
+    replaced = store.put("custody", "note", "n", Classified(Rung.L2, "clean"), overwrite=True)
+    assert replaced is not None
+    assert replaced.previous.rung is Rung.L5      # the corrupt prior read closed
+    assert store.get("custody", "note", "n").payload == "clean"
+
+
+def test_i6_only_the_store_reaches_the_canonical_tree():
+    """I-6, closed at the app boundary. `Canonical` has no write method — but the
+    audit showed `record_dir()` returns a plain writable `Path`, so app code
+    could overwrite, unlink, or fabricate canonical data by reaching for the raw
+    path, past the read-only handle. So only `paths.py` (which defines them) and
+    `record.py` (whose `Canonical` reads them) may name `record_dir`/`matter_dir`:
+    a surface cannot misuse a writable canonical path it cannot even name.
+
+    This does not make the filesystem itself read-only — nothing in Python can —
+    but it means no module in the package holds a path to write there, which is
+    the enforceable half of 'the app has no write path to the record'."""
+    import ast
+
+    pkg = Path(__file__).resolve().parent.parent / "homestead"
+    allowed = {pkg / "keep" / "paths.py", pkg / "keep" / "record.py"}
+    offenders = []
+    for mod in sorted(p for p in pkg.rglob("*.py") if "__pycache__" not in p.parts):
+        if mod in allowed:
+            continue
+        for node in ast.walk(ast.parse(mod.read_text("utf-8"))):
+            if isinstance(node, ast.Attribute) and node.attr in {"record_dir", "matter_dir"}:
+                offenders.append(f"{mod.relative_to(pkg.parent)}:{node.lineno} .{node.attr}")
+            elif isinstance(node, ast.Name) and node.id in {"record_dir", "matter_dir"}:
+                offenders.append(f"{mod.relative_to(pkg.parent)}:{node.lineno} {node.id}")
+    assert not offenders, (
+        "only the store may reach the canonical tree; a module names a canonical "
+        f"path at {offenders}. The canonical record is read-only to the app "
+        "(I-6), and a writable Path to it in any other module is that guarantee "
+        "reduced to a convention."
+    )

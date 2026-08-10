@@ -37,6 +37,7 @@ The read logic — hydrate a `Classified` from raw JSON, fail closed on a bad ru
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,14 @@ from . import paths
 from .rungs import Classified, Rung, _read_rung
 
 __all__ = ["key", "InvalidKey", "Replaced", "Sidecar", "Canonical"]
+
+#: Serializes writes within a process so the exists-check and the create are one
+#: act (I-9). Across processes the exclusive create below carries the guarantee;
+#: within one, a background thread (an autosave, an indexer) is enough to race a
+#: bare exists()/write, which is the TOCTOU the audit reproduced 166 times in
+#: 200 — the same lockless read-then-write shape the Phase 0 audit found in
+#: SealedLog.
+_WRITE_LOCK = threading.Lock()
 
 
 class InvalidKey(ValueError):
@@ -121,6 +130,31 @@ def _dump(item: Classified) -> str:
     )
 
 
+def _load(target: Path) -> Classified:
+    """Read a stored record from disk, failing closed to L5 on corruption.
+
+    I-11 at the storage boundary is about the *rung*, and `_hydrate` handles a
+    missing or unreadable one — but a file that is not even decodable JSON
+    (empty, truncated, garbage bytes, an older binary schema) never reaches
+    `_hydrate`, and a bare `json.loads` would crash the surface reading it. A
+    corrupt row is not an exception a caller should have to catch; it is an
+    unreadable datum, and an unreadable datum reads L5 — never L1, never a
+    crash. A *missing* file is a different thing (no such record) and is left to
+    raise `FileNotFoundError`, which `has()` lets a caller check for first.
+    """
+    try:
+        text = target.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise
+    except (UnicodeDecodeError, OSError):
+        return Classified(Rung.L5, None)
+    try:
+        raw = json.loads(text)
+    except ValueError:
+        return Classified(Rung.L5, None)
+    return _hydrate(raw)
+
+
 @dataclass(frozen=True)
 class Replaced:
     """What an explicit overwrite displaced (I-9). Returned by `put(overwrite=True)`
@@ -144,8 +178,7 @@ class Sidecar:
         return paths.sidecar_dir() / key(matter, item_type, item_id)
 
     def get(self, matter: str, item_type: str, item_id: str) -> Classified:
-        target = self._path(matter, item_type, item_id)
-        return _hydrate(json.loads(target.read_text()))
+        return _load(self._path(matter, item_type, item_id))
 
     def has(self, matter: str, item_type: str, item_id: str) -> bool:
         return self._path(matter, item_type, item_id).exists()
@@ -166,6 +199,14 @@ class Sidecar:
         Takes a `Classified` and nothing else: an unclassified value has no rung
         to store, and must not acquire one here (I-11). The rung is written with
         the datum, so it comes back with it.
+
+        **The occupied-key check and the write are one act (I-9).** The first
+        version tested `exists()` and then wrote, with a window between them —
+        two writers both saw an empty slot and both wrote, one clobbering the
+        other silently, which the audit reproduced. Now the whole span is under
+        `_WRITE_LOCK`, and a first write uses an **exclusive create** (`open`
+        mode `"x"`, `O_EXCL`), so even a writer in another process that never
+        took the lock cannot clobber — it fails the create and is refused.
         """
         if not isinstance(item, Classified):
             raise TypeError(
@@ -175,18 +216,22 @@ class Sidecar:
             )
         target = self._path(matter, item_type, item_id)
         rel = key(matter, item_type, item_id)
-        previous: Replaced | None = None
-        if target.exists():
+        with _WRITE_LOCK:
+            paths.ensure(target.parent)
             if not overwrite:
-                raise FileExistsError(
-                    f"{rel} already exists. A write never silently overwrites "
-                    "(I-9, BUG-8): pass overwrite=True to replace it, and the "
-                    "prior record is handed back rather than lost."
-                )
-            previous = Replaced(key=rel, previous=self.get(matter, item_type, item_id))
-        paths.ensure(target.parent)
-        target.write_text(_dump(item))
-        return previous
+                try:
+                    with open(target, "x", encoding="utf-8") as fh:
+                        fh.write(_dump(item))
+                except FileExistsError:
+                    raise FileExistsError(
+                        f"{rel} already exists. A write never silently "
+                        "overwrites (I-9, BUG-8): pass overwrite=True to replace "
+                        "it, and the prior record is handed back rather than lost."
+                    )
+                return None
+            previous = _load(target) if target.exists() else None
+            target.write_text(_dump(item), encoding="utf-8")
+            return Replaced(key=rel, previous=previous) if previous is not None else None
 
 
 class Canonical:
@@ -207,8 +252,7 @@ class Canonical:
         return paths.record_dir() / key(matter, item_type, item_id)
 
     def get(self, matter: str, item_type: str, item_id: str) -> Classified:
-        target = self._path(matter, item_type, item_id)
-        return _hydrate(json.loads(target.read_text()))
+        return _load(self._path(matter, item_type, item_id))
 
     def has(self, matter: str, item_type: str, item_id: str) -> bool:
         return self._path(matter, item_type, item_id).exists()
