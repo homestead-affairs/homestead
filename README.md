@@ -77,8 +77,15 @@ patterns are anchored and tested against the benign strings they must not fire o
 (I-18, F-3's discipline: an address, a ZIP+4, a hearing date), and it never
 echoes what it matched (I-15).
 
-There is no matter registry yet. Nothing here is installable by anyone who is not
-building it.
+The **matter registry** now stands (`keep/registry`, I-23): one enumeration —
+`all_matters()` over `REGISTRY` — that ties each matter name to its pack and reads
+that pack's fields live rather than copying them, so navigation, the queue and the
+briefing iterate it instead of keeping lists of their own. Only custody is
+registered (bankruptcy and workers' comp are Phase 5); a pack that exists but is
+unregistered fails the build, and a matter name hand-kept as an enumeration
+anywhere but the registry is a build failure too — BUG-6 was three such lists
+drifting until workers' comp fell out of the urgent queue. Nothing here is
+installable by anyone who is not building it.
 
 ## The method
 

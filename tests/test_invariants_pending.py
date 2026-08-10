@@ -54,7 +54,13 @@ UNBUILT = {
     # tests/test_invariants_record.py, unmarked, the third occasion of this same
     # promotion (dates, surfaces, then record). test_pending_liveness failed the
     # moment the module existed and would not go green again until it was moved.
-    "homestead.keep.registry": "Phase 3",
+    #
+    # homestead.keep.registry was Phase 3 and is built. Its I-23 test — the
+    # registry is the only enumeration — moved to
+    # tests/test_invariants_registry.py, unmarked, the fourth occasion of this
+    # same promotion (dates, surfaces, record, then registry). Same mechanism:
+    # test_pending_liveness failed the moment the module existed and would not go
+    # green again until the test was promoted out.
     "homestead.keep.egress": "Phase 4",
     "homestead.keep.patterns": "Phase 4",
     # homestead.app.window was built as bite 4 of docs/PLAN-first-runnable.md
@@ -98,15 +104,8 @@ def test_pending_liveness():
 
 # ── Phase 3 · the registry ───────────────────────────────────────────────────
 
-@pending("homestead.keep.registry", "i23 the registry is the only enumeration")
-def test_i23_the_registry_is_the_only_enumeration():
-    """BUG-6: workers' comp — one of three advertised matter types — was
-    structurally absent from the urgent queue, because three types were
-    enumerated by hand in three places."""
-    from homestead.keep.registry import REGISTRY, all_matters
-
-    assert set(all_matters()) == set(REGISTRY)
-
+# I-23 (`homestead.keep.registry`) was promoted to
+# tests/test_invariants_registry.py when the registry was built.
 
 # I-36 (`homestead.keep.record`) was promoted to tests/test_invariants_record.py
 # when the store was built as bite 1 of docs/PLAN-first-runnable.md.
