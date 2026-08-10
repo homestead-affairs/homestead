@@ -26,10 +26,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if "--smoke" in argv:
         # Prove the interpreter and every import survived packaging, including
-        # the surface layer, and exit without a display — the check that would
-        # have caught the excludes that made the first binary die on startup.
+        # the surface layer and the export writer, and exit without a display —
+        # the check that would have caught the excludes that made the first
+        # binary die on startup.
         from homestead.app import demo, view, window  # noqa: F401
-        from homestead.keep import logs, paths, record, rungs  # noqa: F401
+        from homestead.keep import export, logs, paths, record, rungs  # noqa: F401
         print("homestead: smoke ok")
         return 0
 
