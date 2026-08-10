@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
         # exit without a display. This is what CI runs against the built
         # artifact — the check that would have caught the excludes that made the
         # first binary die on startup.
-        from homestead.keep import logs, paths, rungs  # noqa: F401
+        from homestead.keep import export, logs, paths, rungs  # noqa: F401
         print("homestead: smoke ok")
         return 0
 

@@ -154,9 +154,16 @@ class IntegrityLog:
     Read the module docstring for exactly what it catches and what it does not.
     """
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(
+        self, path: Path | None = None, *, anchor_path: Path | None = None
+    ) -> None:
         self.path = path or (paths.logs_dir() / "integrity.jsonl")
-        self.anchor_path = self.path.with_suffix(".head")
+        # The anchor defaults to a `.head` file beside the log — unchanged, so
+        # every existing caller keeps its behaviour. A caller that wants the
+        # head held off the log's own tree (the willow-mcp #280 separation)
+        # passes `anchor_path`; `keep/export.py`'s `ledger()` is the one that
+        # does, putting it under `paths.anchors_dir()`.
+        self.anchor_path = anchor_path or self.path.with_suffix(".head")
 
     def _read_anchor(self) -> str | None:
         if not self.anchor_path.exists():
@@ -164,6 +171,9 @@ class IntegrityLog:
         return self.anchor_path.read_text(encoding="utf-8").strip() or None
 
     def _write_anchor(self, head: str) -> None:
+        # Ensure the anchor's own parent — it may live in a different tree from
+        # the log (anchors_dir()), which append() ensures separately for the log.
+        paths.ensure(self.anchor_path.parent)
         self.anchor_path.write_text(head + "\n", encoding="utf-8")
 
     def _lines(self) -> list[dict[str, Any]]:

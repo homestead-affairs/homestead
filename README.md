@@ -41,8 +41,17 @@ authorization **chokepoint** is wired ahead of the surfaces that will use it
 **list** that shows `L1`–`L3` payloads, the *derived* form for `L4`, and drops
 `L5` without a trace, and a **detail** pane that shows the `L4` payload and still
 refuses `L5` — the surface calculating nothing itself (I-29), only asking
-`ambient_rows`/`serve`. The tkinter view that draws a `Window`, and loading a
-matter's records from the store into it, are the remaining wiring.
+`ambient_rows`/`serve`. And the **logs now have a writer** (bite 5,
+`keep/export`): an export — the operator taking their own record out, gated
+through `serve(…, S4_EGRESS, purpose=…)`, since nothing here dials — writes the
+content to `exports/`, one `IntegrityLog` entry naming the declared purpose, and
+one `VisibleLog` `EXPORTED` act, both carrying **references and never content**
+(I-15). `Event.EXPORTED` had a name and no writer; it has one now. The head that
+vouches for the ledger is held off the log's own tree in `anchors/` (the
+willow-mcp #280 separation), and `export_record` returns it so the operator can
+record it off the machine — the only closure against someone who edits both. The
+tkinter view that draws a `Window`, and loading a matter's records from the store
+into it, are the remaining wiring.
 
 **Bites 1–3 were then audited adversarially and remediated**
 (`docs/audits/bites-1-3-remediation.md`). The audit earned its keep: the
@@ -79,7 +88,7 @@ findings; `docs/PHASE0-REMEDIATION.md` holds what changed.*
 | | |
 |---|---|
 | **I-19 / I-20** | One resolver, one spelling. `keep/paths.py` is the only module that may reach a home directory, and `expanduser()` is banned outright — it is invisible to the store's vault-leak linter, so the identical path in that spelling vanishes from the report. |
-| **I-22 / I-15** | Two logs. `VisibleLog` takes a **closed `Event` enum** and a reference tuple — there is no free-text parameter in any position. `IntegrityLog` is hash-chained, locked against concurrent appends, and anchored: truncation and tail rewrites are caught. It is **not** encrypted and does **not** withstand someone who edits both the log and its anchor; the docstring says so and a test asserts it. |
+| **I-22 / I-15** | Two logs, and a writer for them. `VisibleLog` takes a **closed `Event` enum** and a reference tuple — there is no free-text parameter in any position. `IntegrityLog` is hash-chained, locked against concurrent appends, and anchored: truncation and tail rewrites are caught. An **export** (`keep/export`) is the first thing to write either — one integrity entry and one visible act per export, both references, never content. The head anchor is held off the log's own tree (`anchors/`) and returned to the operator to record off the machine. It is **not** encrypted and does **not** withstand someone who edits both the log and its anchor; the docstring says so and a test asserts it. |
 | **I-30 / I-26** | Nothing imports the network and nothing listens. The self-contained shape removes the problem rather than managing it. |
 | **I-14** | A rung is a string. `L3`, never `3` — trust runs the other direction, and `if level >= 3` reads perfectly either way while being right on one scale and catastrophic on the other. |
 | **I-27 / I-28** | Declared dependencies are true (there are none), and bare `pytest -q` works. |
