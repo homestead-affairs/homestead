@@ -32,9 +32,12 @@ closed to `L5` when a stored rung is missing or unreadable (I-11 at the storage
 boundary). The first matter pack — **custody** (`packs/custody`, bite 2) — is
 authored and classified at import: a closed schema whose every field declares a
 rung, its matter and its jurisdiction, so an unclassified field fails the build
-naming itself (I-11), on a real schema rather than a synthetic one. There is no
-matter registry yet, and nothing calls the store or a pack from a surface.
-Nothing here is installable by anyone who is not building it.
+naming itself (I-11), on a real schema rather than a synthetic one. The
+authorization **chokepoint** is wired ahead of the surfaces that will use it
+(bite 3): a payload may be reached only in the gate (`keep/rungs`) and the store
+(`keep/record`), and a reach past `serve()` on any surface is a build failure
+(I-16). There is no matter registry yet, and nothing renders a pack from a
+surface. Nothing here is installable by anyone who is not building it.
 
 ## The method
 
