@@ -20,6 +20,13 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.1.0](https://github.com/rudi193-cmd/homestead/compare/v0.0.3...v0.1.0) (2026-08-11)
+
+
+### Added
+
+* app.theme — the shared surface theme (hoisted from homestead-ledger) ([6dfe288](https://github.com/rudi193-cmd/homestead/commit/6dfe28847ac3df618ffc5f6af859575efdd166fa))
+
 ## [0.0.3](https://github.com/rudi193-cmd/homestead/compare/v0.0.2...v0.0.3) (2026-08-11)
 
 
