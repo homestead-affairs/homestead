@@ -26,7 +26,6 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 ### Added
 
 * app.theme — the shared surface theme (hoisted from homestead-ledger) ([6dfe288](https://github.com/rudi193-cmd/homestead/commit/6dfe28847ac3df618ffc5f6af859575efdd166fa))
-* app.theme — the shared surface theme (hoisted from homestead-ledger) ([#17](https://github.com/rudi193-cmd/homestead/issues/17)) ([d22d933](https://github.com/rudi193-cmd/homestead/commit/d22d933eeb70f7489ebc49ee7dd3fab26cfbcaae))
 
 ## [0.0.3](https://github.com/rudi193-cmd/homestead/compare/v0.0.2...v0.0.3) (2026-08-11)
 
