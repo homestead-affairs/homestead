@@ -5,6 +5,14 @@ decides rather than plans, the decision is **proposed for ratification**
 (`verified_by ≠ author`, the `DECISION-cover-re-identification.md` posture).
 Drafted 2026-08-11, prompted by the operator.
 
+> **Annotated 2026-08-11, same day — bite 1 is now built**, by the operator's
+> direction, as `apps/homestead-health` in the safe-app-store
+> (safe-app-store #173): incubating in the store toward the sibling repo this
+> plan names, the law-gazelle → homestead-law path rather than a repo minted
+> on day one. The seat's *done when* landed as live tests and H-1–H-5 as
+> strict xfails, per § bite 1. The sentence above stays as written — it was
+> true when drafted, and everything below bite 1 remains unbuilt.
+
 One thing for the record, since the prompt arrived wrapped in a rumor: nothing
 in this module was ever waiting on a model-policy change. The restricted end of
 biology is pathogen work; a household's shot card is not near it and never was.
