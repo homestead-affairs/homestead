@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
         # the surface layer and the export writer, and exit without a display —
         # the check that would have caught the excludes that made the first
         # binary die on startup.
-        from homestead.app import demo, view, window  # noqa: F401
+        from homestead.app import demo, theme, view, window  # noqa: F401
         from homestead.keep import advise, export, logs, paths, record, rungs  # noqa: F401
         print("homestead: smoke ok")
         return 0
