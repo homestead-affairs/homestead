@@ -20,6 +20,14 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.0.3](https://github.com/rudi193-cmd/homestead/compare/v0.0.2...v0.0.3) (2026-08-11)
+
+
+### Build
+
+* relicense to Apache-2.0 ([8fad851](https://github.com/rudi193-cmd/homestead/commit/8fad851d3ed64f4b41dc66ce3aad1e1e8c36470b))
+* relicense to Apache-2.0 ([#15](https://github.com/rudi193-cmd/homestead/issues/15)) ([5bdef94](https://github.com/rudi193-cmd/homestead/commit/5bdef9485e6be66336b46ce56ae84caf44f687f1))
+
 ## [0.0.2](https://github.com/rudi193-cmd/homestead/compare/v0.0.1...v0.0.2) (2026-08-10)
 
 
