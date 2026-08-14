@@ -66,8 +66,14 @@ dependencies = ["holidays>=0.102,<1.0"]
 # runtime-dependency promise (the `dependencies` list above) is untouched.
 dev = ["pytest>=8.0", "pyyaml", "tomli; python_version<'3.11'"]
 # Nestor is an OPTIONAL EXTRA and never a required dependency.
-# The seam degrades to feature-absent when it is not installed.
-entity = []          # pinned nestor lands here at Phase 6+
+# The seam (homestead/keep/nestor_seam.py) degrades to feature-absent when it
+# is not installed: nothing in this package imports `nestor` at module load,
+# so a checkout without this extra still imports and runs the whole suite.
+# Pinned to a tag, never a branch (fleet rule R14; the convention is written
+# up in safe-app-store's docs/conventions/pinned-dependency-seams.md — not
+# vendored here, this repo is the consuming side). Bump only by changing this
+# line and re-running the seam's own tests against the new tag.
+entity = ["nestor @ git+https://github.com/rudi193-cmd/Nestor@v0.2.0"]
 
 [project.scripts]
 homestead-law = "homestead.app.__main__:main"
@@ -77,6 +83,17 @@ Homepage = "https://github.com/rudi193-cmd/homestead"
 Repository = "https://github.com/rudi193-cmd/homestead"
 Issues = "https://github.com/rudi193-cmd/homestead/issues"
 Changelog = "https://github.com/rudi193-cmd/homestead/blob/main/CHANGELOG.md"
+
+[tool.hatch.metadata]
+# The `entity` extra pins Nestor by a direct VCS reference (a tag, never a
+# branch — fleet rule R14), which hatchling refuses to build without this flag
+# set explicitly (it defaults to false because a direct reference is not
+# resolvable from a plain index like PyPI). Scoped narrowly: this is what lets
+# `pip install -e .` succeed at all once the reference exists in
+# optional-dependencies, even for an install that never selects `[entity]` —
+# hatchling validates every field's metadata at build time, not just the
+# extras a caller asked for.
+allow-direct-references = true
 
 [tool.hatch.version]
 # Derived from the git tag (hatch-vcs). At an exact tag `vX.Y.Z` the version is
