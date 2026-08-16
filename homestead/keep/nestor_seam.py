@@ -90,14 +90,39 @@ PRECONDITIONS   -- all three MUST hold before any Nestor call in this process
     face's own rules reach. `bind()` exists to close that window before any
     other Nestor call in this process -- see `SeamNotBoundError`.
 
-    The path is not invented here. It is the contract already agreed on both
-    sides: `homestead.keep.paths.home()` and Nestor's own
-    `nestor.homestead_paths.home()` resolve identically ($HOMESTEAD_HOME, else
-    `<user-home>/.homestead`), and both name `keep/ledger.jsonl` under it as
-    the pinned ledger. This seam calls **only** `homestead.keep.paths` for
-    WHERE (I-19/I-20 -- paths.py is the one module that resolves a home
-    directory) and never `nestor.homestead_paths`, so there is one resolver on
-    this side of the boundary, not two that could drift.
+    The path is not invented here, and it is not borrowed either. This seam
+    calls **only** `homestead.keep.paths` for WHERE (I-19/I-20 -- paths.py is
+    the one module permitted to resolve a home directory) and never Nestor's
+    own household resolver, so there is one resolver on this side of the
+    boundary, not two that could drift. `<root>/keep/ledger.jsonl` is then
+    handed to `set_ledger_path()` as an explicit path.
+
+    THAT RULE HAS NOW PAID FOR ITSELF, and the way it did is worth keeping.
+    At the pinned `v0.2.0` the two resolvers happened to agree:
+    `nestor.homestead_paths.home()` read `$HOMESTEAD_HOME`, else
+    `<user-home>/.homestead` -- the same answer as this repo's `paths.home()`.
+    Nestor has since given itself its own root (`nestor.home_paths.home()` ->
+    `$NESTOR_HOME`, else `<user-home>/.nestor`), on the reasoning that a
+    Nestor-only install should not be handed this face's vocabulary. The two
+    no longer agree.
+
+    Nothing here changes, because the agreement was never load-bearing -- it
+    was a coincidence this module deliberately declined to depend on. Had
+    `bind()` called Nestor's resolver for convenience, the next pin bump would
+    have silently moved a hash-chained ledger out of the household root, which
+    is precisely the window `bind()` exists to close. A seam that only *looks*
+    redundant while two sides agree is the seam earning its keep.
+
+    Two consequences for whoever bumps the pin past `v0.2.0`:
+
+    * `nestor.homestead_paths` no longer exists; it is `nestor.home_paths`.
+      This module imports neither, so the bump is not a code change here.
+    * Nestor refuses to resolve a household root when `$HOMESTEAD_HOME` is set
+      and `$NESTOR_HOME` is not, rather than guessing between them. That
+      refusal is reachable only through Nestor's own resolver, which this seam
+      does not call -- `bind()` passes an explicit path and is unaffected.
+      Anything else in a household process that calls Nestor's resolver
+      directly would need `$NESTOR_HOME` set; nothing here does.
 
     And ``EntityResolver.resolve()`` appends on EVERY call (``entity.py``):
 
@@ -198,8 +223,10 @@ def bind(household_root: Path | None = None) -> Path:
     root, on the same terms `paths.py` itself documents for `HOMESTEAD_HOME`.
 
     Sets Nestor's ledger location to `<household_root>/keep/ledger.jsonl` --
-    the path both this repo and `nestor.homestead_paths` agree on -- via
-    `nestor.cascade.set_ledger_path()`. Idempotent: calling it again with the
+    computed here from this repo's own resolver and passed to
+    `nestor.cascade.set_ledger_path()` as an explicit path, so it holds
+    whatever Nestor's own household root happens to be (PRECONDITION 1).
+    Idempotent: calling it again with the
     same root re-asserts the same path (`set_ledger_path` is itself a no-op on
     an unchanged path); calling it with a different root re-binds to the new
     one. Returns the ledger path that is now pinned.
