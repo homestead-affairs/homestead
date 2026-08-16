@@ -154,7 +154,13 @@ def test_verify_ledger_refuses_before_bind():
 def test_bind_pins_the_ledger_under_household_root_keep(tmp_path):
     """The path contract: `<household_root>/keep/ledger.jsonl`, computed from
     `homestead.keep.paths`-shaped input — never a literal, never Nestor's own
-    `nestor.homestead_paths` (PRECONDITION 1: one resolver on this side)."""
+    household resolver (PRECONDITION 1: one resolver on this side).
+
+    Named generically on purpose: that module was `nestor.homestead_paths` at
+    the pinned `v0.2.0` and is `nestor.home_paths` after, resolving to a
+    different root. This assertion holds across both, which is the point — the
+    ledger lands under the root *this* repo resolved, whatever Nestor's is.
+    """
     pytest.importorskip("nestor", reason="the `entity` extra is not installed")
     ledger = nestor_seam.bind(tmp_path)
     assert ledger == tmp_path / "keep" / "ledger.jsonl"
