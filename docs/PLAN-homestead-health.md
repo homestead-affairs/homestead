@@ -335,3 +335,197 @@ hand-edited entry.
 - `docs/DECISION-cover-re-identification.md` — k ≥ 2, which bites hardest here
 - `docs/DECISION-redisclosure.md` — the Part 2 procedure the medications pack will need
 - `homestead/packs/custody.py` — the pack shape, field for field
+
+---
+
+# Extension — the three postures (proposed 2026-08-17)
+
+Status: **proposed, not ratified** (`verified_by ≠ author` — drafted at the
+operator's direction, awaiting a person's seal, the same posture as the plan
+above). Nothing here is built. The 2026-08-11 plan and its built bite 1 are
+**unchanged**; this section only widens what the module is asked to hold.
+
+> **Annotated 2026-08-17, same session** — the living lane's audit, first drafted
+> below as this extension's hardest *open* question, was found already built:
+> `homestead/keep/logs.py`'s `VisibleLog`/`IntegrityLog` pair, descended from
+> Nestor (`nestor/cascade.py`) and the willow-mcp #280 anchor separation, both
+> named in that file's own source. H-8, bite 7, and the Open list are revised to
+> match — the mechanism is now *found, not invented*. The house already knew
+> (CLAUDE.md §11); saying so here so the next seat pays the search once.
+
+## Where this came from
+
+The plan above is a *records* module — a shot card, held by the household, that
+must stand on its own later. Correct, and unchanged. But the operator named two
+more shapes a records module does not carry: **a person asking their own health
+questions** (and asking how to talk about them — with a doctor, a teen, an aging
+parent), and **a family's living concerns — the natural changes a body goes
+through that are worried over and then outgrown.** The first is not a record; it
+is a question against public knowledge. The second is a record's opposite: a
+thing that is *meant* to be replaced, and must be kept against no one.
+
+So the module holds three postures, not one — and the whole of this extension is
+the wall between them, because their invariants are opposites and a shared store
+would collapse them into the most dangerous of the three.
+
+## The posture axis — orthogonal to the rung
+
+The rung (L1–L5) scores *what a surface may show*; it does not say *how the thing
+is kept*. Health needs a second axis, declared per lane and enforced the way
+`classify_schema` enforces the rung:
+
+| Posture | The thing it holds | Its invariant | Its founding rule |
+|---|---|---|---|
+| **pinned** | a record — a dose, a provider, what is due | never silently overwritten | the records plan above; I-36 has no write path to lose |
+| **reference** | public knowledge — an answer, a way to ask | holds **no subject**, dials for **nothing** | H-5, generalised past the schedule |
+| **living** | a household truth in motion — a worry, a change | *allowed* to be replaced, keeps **no trail** against anyone | the vision note's Table: "a memory that forgets on purpose" |
+
+A lane declares its posture; a lane with none stops the build — H-6 below, the
+I-11 discipline one level up. The postures do not blend: a pinned record never
+becomes reference (a subject is in it), reference never becomes living (there is
+no subject to protect), and living never hardens into pinned — that last is
+precisely the tender-principle wrong, pinning a growing person.
+
+## The reference lane, reconciled with H-2 and H-5
+
+*"Asking your own health questions"* and *"help talking to a doctor, a teen, an
+aging parent"* are retrieval against public knowledge, not advice. The
+reconciliation is that the reference lane is **H-5, widened**: from a single
+pinned schedule to a pinned, versioned, public-domain corpus — served by an
+**injected reader** (the fleet's sealed rule: *ship the reader, the corpus stays
+with whoever grew it*), never dialed for (I-17), carrying no subject.
+
+The wall against H-2 (*no symptom-checker, at any version*) is exactly that
+**the reference lane and a subject's record never meet on the same surface.** The
+lane retrieves what *the schedule, the CDC page, the NIH conversation guide* say;
+it never joins that text to *this child's* record to interpret, triage, or
+recommend. Retrieval of public reference is not the practice of medicine;
+composing it against a subject is. The wall is a seam the surface layer refuses
+to cross, not a disclaimer banner.
+
+Two provenance facts the lane inherits: the corpus is assembled from
+public-domain and permissively-licensed parts (the almanac's catalog names where
+they live — exclusion 2), and any attribution a part carries (a CC-BY source)
+rides through to the answer that quotes it — a `sources` record beside the index,
+not a footnote someone can forget.
+
+## The living lane — the collision, and the mechanism `keep` already ships
+
+**`keep` is built to never overwrite. The living lane must.** I-36 has no write
+path to lose; the whole engine's integrity is that a record, once written,
+stands. A family's worry over a bodily change is the opposite object: true now,
+something else next month, and *its whole point is that it leaves no record to be
+held against the person it is about* — the safety turn, in the one place it bites
+hardest, a parent (holder) and a child (subject) across a power gap. A living
+entry that accreted into a pinned per-child history would be exactly the weapon
+the vision note refused to build.
+
+That collision is real, and for a moment it read as the module's one genuinely
+new mechanism. It is not: **`keep` already ships the hard half.** `keep/logs.py`
+runs two logs, and between them they are already *forget-on-purpose, provably*:
+
+- **`VisibleLog`** records an `Event` (a *closed enum*) and a `ref` (identifiers
+  only) — *"deliberately no parameter for a body, a summary, a preview or a
+  note"* (F-4, law-gazelle's note-leak). It is **structurally incapable of
+  holding content**: the shape of an event, never its matter.
+- **`IntegrityLog`** is hash-chained and append-only with the **off-tree head
+  anchor** — the willow-mcp #280 separation, named in its own source — and
+  `verify(expected_head=…)` against a head the operator recorded off the machine.
+  `line_hash` is an unkeyed public SHA-256: **a hash commits to content without
+  keeping it readable.** (Its concurrency lock cites `nestor/cascade.py` by name;
+  the Nestor lineage the shape descends from is right there in the comments.)
+
+So the living lane is **not a new engine.** It is two pieces:
+
+1. a small **forgetting cell** — overwrite-in-place, only-latest, keyed by the
+   **thing, never the subject**; the prior plaintext is genuinely gone on write,
+   the inverse of bite 5's *verify-catches-an-edit*. This is the one new
+   primitive, and it is small. It is **not a `keep` record** — `keep`'s
+   append-only spine (I-36) is untouched, exactly as H-8 reserves.
+2. the **audit, reused from `keep`**: a `LIVING_REPLACED` event in `VisibleLog`
+   (motion, no content) and the *hash* of the replaced value in `IntegrityLog`
+   (commitment, not content), anchored off-machine. The operator can prove *"this
+   cell was replaced four times, in order, un-forged"* while the four priors are
+   unrecoverable — auditable that it forgot, without recording what.
+
+One discipline the reuse forces: even a content-free log leaks by *shape* —
+"subj-02's cell was replaced nine times" is a signal about a person with zero
+content in it. So the living lane's audit lines carry the **thing's** ref, never
+the **subject's** — the same rule H-1 applies to keys, now applied to motion.
+That is H-8, made testable.
+
+## The invariants, proposed
+
+Continuing the module's `H-*` numbering; ratification's call whether any joins the
+face's ledger. Each written to be a test.
+
+| | | Traceable to |
+|---|---|---|
+| **H-6** | **Every lane declares a posture — pinned, reference, or living — and a lane with none stops the build.** Orthogonal to the rung, enforced at import the way a rung-less field fails I-11. The three never blend: no code path turns a subject-bearing record into reference, or hardens a living entry into a pinned one. | I-11's shape, the posture axis |
+| **H-7** | **The reference lane holds no subject and dials for nothing.** Public-domain knowledge, pinned and versioned (H-5), served by an injected reader; it never joins to a subject's record and never composes a recommendation (H-2). Reference text and a subject's record never share a surface. Attribution carried by a source rides through to the answer that quotes it. | H-5, H-2, I-17, the sealed reader/corpus rule |
+| **H-8** | **The living lane forgets on purpose, and proves it.** A forgetting cell overwrites in place with no recoverable prior; it holds the thing, never the subject; it is L5 with no egress path. Its audit reuses `keep`'s two logs — `VisibleLog` (event + ref, structurally content-free) and `IntegrityLog` (hash + off-tree anchor) — so a replacement is provable without the prior being kept. Every audit line refs the thing, never the subject: grepping the living store and both logs for any subject id comes back empty. | the vision note's Table, the safety turn, `keep/logs.py`, H-1's key discipline |
+
+## The bites, continued
+
+The records track (bites 1–5) is unchanged and comes first — the gate and the
+subject discipline before there is much to render. These two extend it, each
+independently landable, each proving one new posture the way immunizations proves
+the pinned seam.
+
+### 6 · The reference seam — an injected reader over a pinned corpus
+
+The information lane: a pinned, versioned public-domain snapshot (a MedQuAD-class
+Q&A set plus the federal conversation-prep material), an injected semantic reader
+living in the module's own file, no subject anywhere in it.
+
+*Done when:* a household question returns cited answers from the pinned corpus;
+grepping the reference store for any subject id comes back empty (H-7); the reader
+has no network import and never resolves a link at runtime (I-17); a CC-BY
+source's attribution appears on every answer that quotes it; and the corpus
+reports its own version and date the way H-5's schedule does.
+
+### 7 · The living lane — a forgetting cell over `keep`'s two logs
+
+A small **forgetting cell** (overwrite-in-place, only-latest, keyed by the thing)
+for the family-concern surface, with its audit reused from `keep`: a
+`LIVING_REPLACED` event in `VisibleLog` and the replaced value's hash in
+`IntegrityLog`, anchored off-tree. L5, no egress path.
+
+*Done when:* overwriting a living entry leaves **no recoverable prior** — the
+value store never yields a superseded content, only the latest; the audit shows
+that a replacement happened (a `VisibleLog` event, and `IntegrityLog`
+`verify(expected_head=…)` against an off-machine head) while no log line carries
+the prior's content; **grepping the living store and both logs for any subject id
+comes back empty** (H-8); and the lane exposes no egress at all, purposed or
+otherwise.
+
+The forgetting cell is the one new primitive; `keep`'s two logs are reused as they
+stand. If, in the building, `IntegrityLog` turns out to want something Nestor's
+ledger has and it does not (a supersede model, an encrypted line), that is the
+check the Open note below names — not a redesign.
+
+## Open — added by this extension
+
+- **Does `keep`'s `IntegrityLog` suffice for the living lane?** The mechanism is
+  found, not open — a forgetting cell over `keep`'s two logs (above). What is left
+  is a *check at bite 7*, not a design decision: whether `IntegrityLog` covers the
+  living lane's needs as it stands, or wants something Nestor's ledger carries and
+  it does not — the supersede model, or the encryption `logs.py` defers to Phase
+  4. Bring in `rudi193-cmd/Nestor` and read its ledger when the bite lands; do not
+  presume the answer here.
+- **The reader's provenance.** The verified-corpus reader (`conflict_scan` —
+  *search for what refutes, not what resembles*) and the pinned reference data
+  currently live in repos outside this box — the extracted `jeles` package and
+  `almanac-data/health-almanac`. Whether the reference lane injects that reader or
+  grows its own is open; H-5's pinned-snapshot rule governs the corpus either way.
+
+## What this extension did not do
+
+- **Built none of it.** This section is the only write; bites 6 and 7 are
+  unbuilt, and the records track is untouched.
+- **Did not touch `homestead.keep`.** The living lane reuses `keep`'s two logs as
+  they stand; bite 7 confirms they suffice rather than presuming a change.
+- **Did not build the forgetting cell, a reference corpus, or a reader.** The
+  living mechanism is now *identified* — `keep`'s `VisibleLog`/`IntegrityLog` plus
+  a small forgetting cell — but identifying is not building; it is left for the
+  bite and the seal.
