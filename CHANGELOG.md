@@ -25,7 +25,6 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 
 ### Added
 
-* add bankruptcy pack with real rung differences ([#26](https://github.com/rudi193-cmd/homestead/issues/26)) ([e0c5101](https://github.com/rudi193-cmd/homestead/commit/e0c510129738cf3d52eaf3b0c8bab60dbdf29aaa))
 * add bankruptcy pack, proving the registry seam carries a real rung difference ([5d8caa9](https://github.com/rudi193-cmd/homestead/commit/5d8caa92c970f7d4120be599af09b1be4371dfb4))
 
 ## [0.1.0](https://github.com/rudi193-cmd/homestead/compare/v0.0.3...v0.1.0) (2026-08-11)
