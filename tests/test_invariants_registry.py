@@ -35,7 +35,7 @@ from homestead.keep.registry import (
     matter,
 )
 from homestead.keep.rungs import Rung
-from homestead.packs import custody
+from homestead.packs import bankruptcy, custody
 
 PKG = Path(__file__).resolve().parent.parent / "homestead"
 
@@ -53,13 +53,11 @@ def test_i23_the_registry_is_the_only_enumeration():
 
 # ── what the registry holds ──────────────────────────────────────────────────
 
-def test_custody_is_registered_and_is_the_only_built_pack():
-    """One pack in v1 — *"one pack proves the seam; three prove nothing that one
-    does not."* Bankruptcy and workers' comp are Phase 5 and are deliberately
-    **not** here: a matter name with no pack behind it is the hand-kept phantom
-    I-23 forbids, the missing half of BUG-6."""
-    assert set(all_matters()) == {"custody"}
-    assert "bankruptcy" not in REGISTRY, "Phase 5, not built — no phantom entry"
+def test_custody_and_bankruptcy_are_registered():
+    """Two packs prove the seam carries a real rung difference for the same
+    field name: case_number is L1 in bankruptcy (public docket) and L3 in
+    custody (commonly sealed). Workers' comp remains Phase 5 and is not built."""
+    assert set(all_matters()) == {"custody", "bankruptcy"}
     assert "workers_comp" not in REGISTRY, "Phase 5, not built — no phantom entry"
 
 
@@ -101,7 +99,7 @@ def test_matter_is_strict_about_an_unknown_name():
     skipped a step, and a `KeyError` here is cheaper than the missing schema read
     it would otherwise have caused downstream."""
     with pytest.raises(KeyError):
-        matter("bankruptcy")
+        matter("workers_comp")
     with pytest.raises(KeyError):
         matter("not_a_matter")
 
@@ -124,12 +122,11 @@ def test_a_pack_on_disk_with_no_entry_fails_the_build():
     """BUG-6 exactly: a matter type that exists and is not enumerated. The guard
     is run here against a registry that omits a discovered pack, so it is shown
     to fire and not merely asserted to exist."""
-    bankruptcy = _fake_pack("bankruptcy")
-    on_disk = {"custody": custody, "bankruptcy": bankruptcy}
+    workers_comp = _fake_pack("workers_comp")
+    on_disk = {"custody": custody, "bankruptcy": bankruptcy, "workers_comp": workers_comp}
     with pytest.raises(RuntimeError) as exc:
         registry_mod._validate(dict(REGISTRY), on_disk)
-    assert "bankruptcy" in str(exc.value)
-    # and it names the failure it is, not a bare "invalid"
+    assert "workers_comp" in str(exc.value)
     assert "no registry entry" in str(exc.value)
 
 
@@ -137,11 +134,11 @@ def test_a_registry_entry_with_no_pack_is_a_phantom_and_fails_the_build():
     """The other half of BUG-6: a name in the enumeration with nothing behind it.
     Inventing a `bankruptcy` entry before its pack exists is the exact thing that
     would let `all_matters()` advertise a type no pack can serve."""
-    phantom = registry_mod._entry(_fake_pack("bankruptcy"))
-    broken = {**REGISTRY, "bankruptcy": phantom}
+    phantom = registry_mod._entry(_fake_pack("workers_comp"))
+    broken = {**REGISTRY, "workers_comp": phantom}
     with pytest.raises(RuntimeError) as exc:
-        registry_mod._validate(broken, {"custody": custody})
-    assert "bankruptcy" in str(exc.value)
+        registry_mod._validate(broken, {"custody": custody, "bankruptcy": bankruptcy})
+    assert "workers_comp" in str(exc.value)
     assert "no pack" in str(exc.value)
 
 
@@ -178,18 +175,18 @@ def test_the_real_registry_passes_its_own_guard():
 def test_adding_a_pack_to_the_registry_needs_no_other_code_change(monkeypatch):
     """*"Adding a pack touches no navigation, queue, or briefing code."*
 
-    The whole point of one enumeration: a second matter type appears everywhere
+    The whole point of one enumeration: a new matter type appears everywhere
     that iterates `all_matters()` the instant it is in `REGISTRY`, with nothing
-    else edited. Demonstrated by injecting a second entry into the registry and
+    else edited. Demonstrated by injecting a third entry into the registry and
     reading it back out of `all_matters()` — the function reads `REGISTRY` at
     call time, so the addition is reflected with no change to the function and no
     second list to keep in step."""
-    bankruptcy = registry_mod._entry(_fake_pack("bankruptcy"))
-    monkeypatch.setitem(registry_mod.REGISTRY, "bankruptcy", bankruptcy)
+    workers_comp = registry_mod._entry(_fake_pack("workers_comp"))
+    monkeypatch.setitem(registry_mod.REGISTRY, "workers_comp", workers_comp)
 
-    assert set(all_matters()) == {"custody", "bankruptcy"}
+    assert set(all_matters()) == {"custody", "bankruptcy", "workers_comp"}
     assert set(all_matters()) == set(registry_mod.REGISTRY)
-    assert matter("bankruptcy").fields == {"case_number": Rung.L3}
+    assert matter("workers_comp").fields == {"case_number": Rung.L3}
 
 
 # ── the structural guard: the registry is the ONLY enumeration ───────────────
