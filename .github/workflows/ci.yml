@@ -29,7 +29,10 @@ jobs:
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: pip install pytest
       - run: pip install -e .
       - run: pytest -q
@@ -47,7 +50,10 @@ jobs:
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: pip install -e ".[dev]"
       - run: pytest -q tests/test_invariants_release.py
 
@@ -66,7 +72,10 @@ jobs:
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: pip install pyinstaller .
       - run: pyinstaller --clean --noconfirm packaging/homestead.spec
       - name: smoke-run the built artifact
