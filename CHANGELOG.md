@@ -20,6 +20,13 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.2.0](https://github.com/rudi193-cmd/homestead/compare/v0.1.0...v0.2.0) (2026-08-18)
+
+
+### Added
+
+* add bankruptcy pack, proving the registry seam carries a real rung difference ([5d8caa9](https://github.com/rudi193-cmd/homestead/commit/5d8caa92c970f7d4120be599af09b1be4371dfb4))
+
 ## [0.1.0](https://github.com/rudi193-cmd/homestead/compare/v0.0.3...v0.1.0) (2026-08-11)
 
 
