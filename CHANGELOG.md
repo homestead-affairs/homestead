@@ -25,14 +25,10 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 
 ### Build
 
-* **deps:** bump actions/checkout from 4 to 7 ([5246269](https://github.com/homestead-affairs/homestead/commit/5246269c491b3676c638ee1df3361733e21f4349))
-* **deps:** bump actions/checkout from 4 to 7 ([#30](https://github.com/homestead-affairs/homestead/issues/30)) ([80231e2](https://github.com/homestead-affairs/homestead/commit/80231e2d47c95447c0105ef7fad1ce023bad0fbc))
-* **deps:** bump actions/download-artifact from 4 to 8 ([f5f77ce](https://github.com/homestead-affairs/homestead/commit/f5f77cef8e2c935ffd239c6e17e71021fe2a6e87))
-* **deps:** bump actions/download-artifact from 4 to 8 ([#31](https://github.com/homestead-affairs/homestead/issues/31)) ([3362eaa](https://github.com/homestead-affairs/homestead/commit/3362eaa2571d197084d20a231ebad430248efcf1))
-* **deps:** bump actions/setup-python from 5 to 7 ([20ab09c](https://github.com/homestead-affairs/homestead/commit/20ab09cee793b59210a1ae682f20def55bb0d66a))
-* **deps:** bump actions/setup-python from 5 to 7 ([#32](https://github.com/homestead-affairs/homestead/issues/32)) ([a884448](https://github.com/homestead-affairs/homestead/commit/a884448f8d982f8b64319417cf9397e803fc4307))
 * **deps:** bump actions/upload-artifact from 4 to 7 ([f7c8628](https://github.com/homestead-affairs/homestead/commit/f7c8628d3a0edb22231e6e4b5405e1a43cfee1d1))
-* **deps:** bump actions/upload-artifact from 4 to 7 ([#33](https://github.com/homestead-affairs/homestead/issues/33)) ([6ed0521](https://github.com/homestead-affairs/homestead/commit/6ed0521cc49934c450db63e52724933198b8e844))
+* **deps:** bump actions/checkout from 4 to 7 ([5246269](https://github.com/homestead-affairs/homestead/commit/5246269c491b3676c638ee1df3361733e21f4349))
+* **deps:** bump actions/download-artifact from 4 to 8 ([f5f77ce](https://github.com/homestead-affairs/homestead/commit/f5f77cef8e2c935ffd239c6e17e71021fe2a6e87))
+* **deps:** bump actions/setup-python from 5 to 7 ([20ab09c](https://github.com/homestead-affairs/homestead/commit/20ab09cee793b59210a1ae682f20def55bb0d66a))
 
 ## [0.2.0](https://github.com/rudi193-cmd/homestead/compare/v0.1.0...v0.2.0) (2026-08-18)
 
