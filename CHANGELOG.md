@@ -20,6 +20,16 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.2.1](https://github.com/homestead-affairs/homestead/compare/v0.2.0...v0.2.1) (2026-08-24)
+
+
+### Build
+
+* **deps:** bump actions/upload-artifact from 4 to 7 ([f7c8628](https://github.com/homestead-affairs/homestead/commit/f7c8628d3a0edb22231e6e4b5405e1a43cfee1d1))
+* **deps:** bump actions/checkout from 4 to 7 ([5246269](https://github.com/homestead-affairs/homestead/commit/5246269c491b3676c638ee1df3361733e21f4349))
+* **deps:** bump actions/download-artifact from 4 to 8 ([f5f77ce](https://github.com/homestead-affairs/homestead/commit/f5f77cef8e2c935ffd239c6e17e71021fe2a6e87))
+* **deps:** bump actions/setup-python from 5 to 7 ([20ab09c](https://github.com/homestead-affairs/homestead/commit/20ab09cee793b59210a1ae682f20def55bb0d66a))
+
 ## [0.2.0](https://github.com/rudi193-cmd/homestead/compare/v0.1.0...v0.2.0) (2026-08-18)
 
 
