@@ -69,11 +69,11 @@ dev = ["pytest>=8.0", "pyyaml", "tomli; python_version<'3.11'"]
 # The seam (homestead/keep/nestor_seam.py) degrades to feature-absent when it
 # is not installed: nothing in this package imports `nestor` at module load,
 # so a checkout without this extra still imports and runs the whole suite.
-# Pinned to a tag, never a branch (fleet rule R14; the convention is written
-# up in safe-app-store's docs/conventions/pinned-dependency-seams.md — not
-# vendored here, this repo is the consuming side). Bump only by changing this
-# line and re-running the seam's own tests against the new tag.
-entity = ["nestor @ git+https://github.com/rudi193-cmd/Nestor@v0.2.0"]
+# Pinned to a PyPI release range (was a VCS tag at v0.2.0; the published
+# wheel is nestor-meaning, import name `nestor`). The API surface this seam
+# calls (EntityResolver, set_ledger_path, ledger.verify) is stable across
+# the 0.2 -> 0.11 range — no code change required in nestor_seam.py.
+entity = ["nestor-meaning>=0.11.0,<1.0"]
 
 [project.scripts]
 homestead-law = "homestead.app.__main__:main"
