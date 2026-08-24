@@ -1,10 +1,11 @@
 """nestor_seam.py -- the ONLY place this face touches Nestor.
 
-Landed at the `nestor` pin `v0.2.0` (see `pyproject.toml`'s `[project.optional-
-dependencies] entity` extra). Written contract-first per the draft this module
-replaces (`safe-app-store/docs/drafts/nestor_seam.py`): the seam and its
-contract existed before any call site, so the boundary was built before there
-was anything to drift across.
+Landed at `nestor` pin `v0.2.0`, bumped to `nestor-meaning>=0.11.0` (see
+`pyproject.toml`'s `[project.optional-dependencies] entity` extra). Written
+contract-first per the draft this module replaces
+(`safe-app-store/docs/drafts/nestor_seam.py`): the seam and its contract
+existed before any call site, so the boundary was built before there was
+anything to drift across.
 
 Nestor is Apache-2.0 with ``dependencies = []``. Nothing here obliges a
 household to install a dependency tree.
@@ -17,7 +18,7 @@ regardless; Nestor's ledger is bound only when the extra is present and
 `bind()` has run.
 
 ===========================================================================
-TAKEN FROM NESTOR   (pin: v0.2.0, a tag -- never a branch, fleet rule R14)
+TAKEN FROM NESTOR   (pin: nestor-meaning >=0.11.0)
 ===========================================================================
 
   EntityResolver(store, domain=..., seal_threshold=...)   nestor.entity
