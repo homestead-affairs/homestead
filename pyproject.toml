@@ -79,10 +79,10 @@ entity = ["nestor-meaning>=0.11.0,<1.0"]
 homestead-law = "homestead.app.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/rudi193-cmd/homestead"
-Repository = "https://github.com/rudi193-cmd/homestead"
-Issues = "https://github.com/rudi193-cmd/homestead/issues"
-Changelog = "https://github.com/rudi193-cmd/homestead/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/homestead-affairs/homestead"
+Repository = "https://github.com/homestead-affairs/homestead"
+Issues = "https://github.com/homestead-affairs/homestead/issues"
+Changelog = "https://github.com/homestead-affairs/homestead/blob/main/CHANGELOG.md"
 
 [tool.hatch.metadata]
 # The `entity` extra pins Nestor by a direct VCS reference (a tag, never a
