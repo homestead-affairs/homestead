@@ -20,6 +20,14 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.2.2](https://github.com/homestead-affairs/homestead/compare/v0.2.1...v0.2.2) (2026-08-25)
+
+
+### Fixed
+
+* 23: one shared reference-component validator across export and logs ([fa618f2](https://github.com/homestead-affairs/homestead/commit/fa618f25f5a4da3fa985054d9fc314c0749ba1b3))
+* 23: one shared reference-component validator across export and logs ([#38](https://github.com/homestead-affairs/homestead/issues/38)) ([7469672](https://github.com/homestead-affairs/homestead/commit/74696721ca9887358f2552b90fc4973b5b1dff14))
+
 ## [0.2.1](https://github.com/homestead-affairs/homestead/compare/v0.2.0...v0.2.1) (2026-08-24)
 
 
