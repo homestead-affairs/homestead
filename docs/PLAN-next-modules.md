@@ -7,63 +7,99 @@ against it and a bite lands. A candidate is not a promise: the list is where
 proposals live before ratification chooses which to build, and the order below
 is not the build order.
 
-The three existing siblings — `homestead-law`, `homestead-ledger`,
-`homestead-health` — each pin `homestead.keep` and bring a domain. A new
-sibling belongs on this face when it holds records the household keeps for
-itself, and its domain does not already fit inside one of the three.
+A sibling belongs on this face when it holds records the household keeps for
+itself, and its domain does not already fit inside one of the three existing
+modules — `homestead-law`, `homestead-ledger`, `homestead-health`. That is a
+narrow test on purpose. A candidate that could sit inside one of the three as
+a pack is a *pack*, not a sibling.
 
-## Candidates
+## Open candidates
 
-### `homestead-people` — the household's own persons register
+*(None right now — see below.)*
 
-**Prompted by 2026-08-24 review of the intake modules.** Law tracks parties on
-a matter, ledger tracks merchants/payees, health tracks providers and holds a
-`roster` for household members (whose immunization records these are). Each
-resolves entities inside its own lane, through Nestor's `EntityResolver`, with
-no shared spine. So "the humans of this household" — the people whose records
-the modules keep — has three partial answers and no canonical one. A child who
-appears on a health record, a parent who signs a court filing, an account
-holder on a bill: today each module names them in its own store, and there is
-no place a rename or a status change reaches once.
+## Considered and ruled out (for now)
 
-The module would hold the persons the household keeps records *for* — the
-household roster itself — and let the sibling modules pin to it the way they
-pin to `homestead.keep`. What each module continues to hold: the party / payee
-/ provider entity as it appears in *its* record (a signed filing names one
-party, a receipt names one payee), resolved through Nestor as today. What this
-module would hold: the household's own members, their identifiers as the
-household uses them (a legal name, a preferred name, a role in the household),
-and the joins from module-scoped entities back to a household person where one
-exists. A merchant is not a household member; a household member can be the
-account holder on a merchant's account, and that is the join.
+Kept here because the next seat should not re-propose them from scratch: the
+reasoning is the point of the record.
 
-**Open before writing a PLAN:**
+### `homestead-people` — a household persons register
 
-- **Does health's `roster` become the seed?** The health module already ships
-  `roster add|list` for household members, scoped to health. If the persons
-  register is a separate module, health's roster narrows to *whose health
-  record this is* — a join, not the definition. If it stays health-scoped, law
-  and ledger grow their own rosters and the fleet has three. The move
-  ratification calls: extract the seed, or leave the seed where it is and let
-  the three grow parallel until the join earns the extraction. `stores/`
-  Article IV governs the extraction either way.
-- **What discipline holds the identifiers?** A household roster is the exact
-  shape of data whose "person id" outlives every module that quotes it and
-  reaches the log lines those modules leave. `keep.logs`' key discipline (H-1
-  applied to persons: the log carries the ref, never the identifying content)
-  is where this starts, and any surface that renders a person's name is on
-  the rungs the way a record's contents are.
-- **What does not belong.** Not a contacts app: an outside person referenced by
-  the household (a doctor, a lawyer, a landlord) stays where each module names
-  them, resolved through Nestor. This module holds the *household's own*
-  people, not everyone the household has ever transacted with.
+*Proposed and ruled out 2026-08-24.* Three modules resolve entities inside
+their own lanes today (parties, payees, providers), and health also holds a
+household `roster` for whose immunization records these are. A shared persons
+register looked like a clean fourth sibling — until the privacy test.
 
-*Would become bite 1 when written:* the seat — `homestead-people` scaffolded,
-pinning `homestead.keep`, with a single `Household.member(id)` primitive and
-the module's own `P-1…P-N` invariants (the persons analogue of `H-1…H-8`) as
-strict `xfail`s the day the repo exists. No sibling module changes until the
-seat is green.
+**Why it doesn't earn a sibling.** A persons register is inherently the *join
+key* across every other module, which is exactly the shape the rest of the
+suite is architected against:
 
-<!-- Next candidates land below. Each earns its own subsection here before a
-PLAN-<name>.md is written; when the PLAN exists, this section becomes a
-pointer to it. -->
+1. **It makes cross-module inference easy.** Today law names a party, ledger
+   names a payee, health names a subject, each in its own store — joinable
+   only through a deliberate act. A persons module is an ambient index over
+   all of them, which is what H-1 was written against ("the log carries the
+   ref, never the identifying content"): the *ref* is fine; the
+   *joinability of refs* is what leaks.
+2. **The existence of the store leaks structure.** "There are four rows in
+   the roster" tells an attacker the household size before any record is
+   opened.
+3. **It centralizes identity.** Every other module holds records *about*
+   people, not the people themselves — so a compromise of one lane doesn't
+   compromise identity. A persons store consolidates the identity graph into
+   one lane, which is the opposite of the containment the fleet builds
+   toward.
+
+**What survives the test.** A *naming primitive* — just "this opaque ref is
+one of ours," no attributes, no queries, no joins pulled from it. Each module
+keeps naming its own subjects; the primitive only marks which refs are
+household members. At that size, it belongs inside `homestead.keep` as a
+small addition to key discipline (an "ours-vs-outside" bit on a ref), not as
+its own repo. If it grows past that, the same three concerns come back.
+
+**Reopen condition.** A concrete need that (a) can't be met by each module
+naming its own subjects through Nestor's `EntityResolver`, and (b) does not
+recreate the ambient join graph the three concerns above name. Health's
+`roster` is not that need: it is scoped to health, and the join to law's
+parties or ledger's payees stays a deliberate act.
+
+### `homestead-home` — the physical property
+
+*Proposed and ruled out 2026-08-24.* Property records — appliance serials,
+warranties, HVAC / roof / plumbing service history, permits — are the
+artifacts of *ownership*, and ownership is a shape ledger already holds. A
+payment produces an asset; the asset has a warranty, a serial, a service log;
+those attach to the asset ledger already knows about because ledger has the
+purchase. The right shape is a `homestead-ledger` pack — call it `Asset`,
+carrying `(kind, serial, warranty_until, service_log[])` — rather than a
+sibling. Utility service accounts are the same argument: an account is a
+ledger concept.
+
+**Reopen condition.** A body of household-property records that survives
+without being attached to a ledger transaction — a thing the household holds
+that ledger doesn't and shouldn't know about. If that appears, the sibling
+question is worth revisiting.
+
+### Vehicles, school, work
+
+*Considered 2026-08-24 alongside people and home; ruled out as siblings.*
+Each looked like a sibling and turned out to spread cleanly across the
+existing three:
+
+- **Vehicles.** Title / registration deadlines → law (deadlines are law's
+  shape, and titles are legal documents). Insurance / maintenance / gas →
+  ledger. Recall notices → law again. The "vehicle as a thing" has no
+  orphan data once you split the deadlines from the money.
+- **School.** Enrollment paperwork → law. Tuition → ledger. Required
+  immunizations already live in health. Everything else (report cards,
+  IEPs, teacher contacts) is *about a person* — the same H-1-H-8 subject
+  discipline health already runs, and lands as a health pack.
+- **Work.** Employment contracts → law. Pay stubs / W-2s → ledger (income
+  is a transaction, same shape as an outbound bill). Benefits enrollment
+  spans ledger + health; PTO is small enough to sit in ledger.
+
+**Reopen condition.** A case where one of these needs cross-module discipline
+that a pack in one lane can't provide (e.g. a vehicle-scoped subject-key
+discipline that neither law nor ledger holds).
+
+<!-- Next candidates land under ## Open candidates. Each earns its own
+subsection there before a PLAN-<name>.md is written; when the PLAN exists,
+the entry becomes a pointer to it. -->
