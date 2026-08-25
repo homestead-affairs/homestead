@@ -108,24 +108,23 @@ def ledger() -> IntegrityLog:
 def _segment(name: str, value: str) -> str:
     """One reference component, validated as a single path segment.
 
-    A separator or a `..` in a component is a write trying to leave its tree —
-    the same escape `record.key` and `ensure()` refuse. Refused here before it
-    reaches the artifact path or a log reference, so a malformed key never lands
-    on disk or in the ledger.
+    Delegates to `paths.component`, the *shared* validator both this and
+    `logs._ref` route through — issue #23 was that these two were written
+    independently and disagreed on what a component may contain, turning
+    the disagreement into a partial write (artifact + `IntegrityLog`
+    committed, then `VisibleLog` refuses) which surfaced as a bare
+    `ValueError` shaped like a clean refusal. Sharing the validator makes
+    that drift impossible.
+
+    Re-raises as `ExportRefused` so a caller catching the module's own
+    contract exception sees this refusal (the old code raised `ValueError`
+    directly for the whitespace / separator / traversal cases too — that
+    ambiguity is closed alongside the shared-validator fix).
     """
-    if not isinstance(value, str) or not value.strip():
-        raise ExportRefused(f"{name} must be a non-empty string, not {value!r}")
-    if value != value.strip():
-        raise ExportRefused(
-            f"{name}={value!r} has surrounding whitespace; a reference component "
-            "is exactly what it names"
-        )
-    if "/" in value or "\\" in value or value in (".", "..") or "\x00" in value:
-        raise ExportRefused(
-            f"{name}={value!r} is not a single segment — a separator or a '..' "
-            "in a reference is a write trying to leave its tree"
-        )
-    return value
+    try:
+        return paths.component(value, name=name)
+    except ValueError as e:
+        raise ExportRefused(str(e)) from e
 
 
 def _write_artifact(

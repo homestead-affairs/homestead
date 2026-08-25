@@ -216,7 +216,10 @@ def test_every_path_helper_sits_under_the_root(tmp_path, monkeypatch):
     monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
     root = paths.home()
     for name in paths.__all__:
-        if name in ("home", "ensure"):     # `ensure` has side effects; tested below
+        # `ensure` has side effects (tested below), `home` is the root itself, and
+        # `component` is the shared reference-part validator (a str → str check,
+        # not a path helper) — none of them return a Path anchored under the root.
+        if name in ("home", "ensure", "component"):
             continue
         fn = getattr(paths, name)
         if not callable(fn):

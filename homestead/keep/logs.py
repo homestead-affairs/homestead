@@ -109,12 +109,19 @@ def _now() -> str:
 
 
 def _ref(parts: Iterable[str]) -> str:
+    """Join reference parts into the log's ``ref`` string.
+
+    Each part is validated through `paths.component` — the same validator
+    `export._segment` uses — so the two cannot disagree on what a component
+    may contain. Before the fix for issue #23 these were two independently
+    written checks (`_segment` allowed embedded ``\\n``, this rejected it),
+    and the drift turned a rejection into a partial write on the export path.
+    """
     parts = [str(p) for p in parts]
     if not parts:
         raise ValueError("a reference needs at least one part")
     for p in parts:
-        if "/" in p or "\\" in p or "\n" in p:
-            raise ValueError(f"reference parts are separator-free, got {p!r}")
+        paths.component(p, name="ref part")
     return "/".join(parts)
 
 

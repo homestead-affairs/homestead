@@ -172,6 +172,110 @@ def test_export_takes_a_classified_not_a_bare_value(kit):
         )
 
 
+# ── issue #23 · a bad reference component is refused before anything is written
+
+# The regression the two-independent-validators bug produced: `export._segment`
+# allowed embedded control characters (\n, \t, \x00, zero-width space) that
+# `logs._ref` rejected, so a bad `item_id` passed the front-load check, reached
+# `_write_artifact` and `IntegrityLog.append`, and only *then* raised at
+# `VisibleLog.record` — a bare `ValueError` shaped like a clean refusal, over an
+# artifact on disk and an integrity entry the operator's log never learned about.
+# Fix: one shared `paths.component` validator, called from both `_segment` and
+# `_ref`. The four tests below hold that closure honest.
+
+_BAD_REF_CHARS = pytest.mark.parametrize(
+    "bad",
+    [
+        "subj-01\nFORGED",       # newline — the exact case from the issue
+        "subj-01\rFORGED",       # carriage return
+        "subj-01\tFORGED",       # tab
+        "subj-01\x00FORGED",     # null byte
+        "subj-01​FORGED",   # zero-width space — Cf, str.isspace() misses it
+        "subj-01 FORGED",   # Unicode line separator — Zl, another isspace miss
+    ],
+    ids=["newline", "carriage-return", "tab", "null", "zero-width-space",
+         "unicode-line-sep"],
+)
+
+
+@_BAD_REF_CHARS
+def test_a_bad_component_refuses_cleanly_and_writes_nothing(kit, bad):
+    """Issue #23: a control/format character in a reference component must
+    refuse *before* the artifact and the integrity entry land. If it doesn't,
+    the operator sees a raised exception over a committed act — a leak that
+    looks like a refusal."""
+    export, logs, paths, rungs = kit
+
+    with pytest.raises(export.ExportRefused):
+        export.export_record(
+            _l4_item(rungs), "immunizations", "history", bad,
+            purpose=rungs.Purpose.EXPORT,
+        )
+
+    # No artifact, no integrity entry, no visible entry — nothing at all.
+    assert not paths.exports_dir().exists() or not any(paths.exports_dir().rglob("*.json"))
+    assert not export.ledger().path.exists(), (
+        "the integrity ledger must not carry an entry for a refused export"
+    )
+    assert not logs.VisibleLog().path.exists(), (
+        "the visible log must not carry an entry for a refused export"
+    )
+
+
+@_BAD_REF_CHARS
+def test_the_two_validators_agree_on_bad_components(bad):
+    """`export._segment` and `logs._ref` must refuse the same set of components.
+    Before the shared `paths.component` validator they didn't, and the drift
+    was issue #23. Kept as a regression: parametrized over the exact characters
+    that split the two old checks."""
+    from homestead.keep import export, logs, paths
+
+    with pytest.raises(ValueError):
+        paths.component(bad, name="test")
+    with pytest.raises(export.ExportRefused):
+        export._segment("test", bad)
+    with pytest.raises(ValueError):
+        logs._ref(("matter", "type", bad))
+
+
+def test_a_segment_refusal_is_export_refused_not_bare_valueerror(kit):
+    """The issue named this half too: the old `_segment` raised its own
+    `ExportRefused` for whitespace / separators / traversal, but the *log*
+    validator raised bare `ValueError` — so a caller catching the contract
+    exception could still be surprised. Now every refusal on the export path
+    surfaces as `ExportRefused`, whether it comes from `_segment` up front or
+    from `logs._ref` on a path that predates the shared validator."""
+    export, logs, paths, rungs = kit
+
+    with pytest.raises(export.ExportRefused):
+        export.export_record(
+            _l4_item(rungs), "immunizations", "history", "subj-01\nFORGED",
+            purpose=rungs.Purpose.EXPORT,
+        )
+
+
+def test_component_accepts_ordinary_identifiers():
+    """The rule refuses what is invisible or control, not what happens to
+    render — a regular interior space stays legal so a matter can be
+    ``"Doe v Roe"`` or an id ``"custody-1"``."""
+    from homestead.keep import paths
+
+    for good in ("ATM-001", "custody-1", "Doe v Roe", "subj_01", "étude"):
+        assert paths.component(good, name="ok") == good
+
+
+def test_component_refuses_empty_and_dots_and_separators():
+    """The pre-existing `_segment` rejections, now enforced by the shared
+    validator — parametrized here so a future rewrite doesn't quietly loosen
+    one of them."""
+    from homestead.keep import paths
+    import pytest as _pt
+
+    for bad in ("", "   ", " x", "x ", ".", "..", "a/b", "a\\b"):
+        with _pt.raises(ValueError):
+            paths.component(bad, name="bad")
+
+
 # ── the head anchor lives off the log's own tree (willow-mcp #280) ────────────
 
 def test_the_anchor_lives_outside_the_log_tree_and_the_export_tree(kit):
