@@ -20,6 +20,13 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.2.3](https://github.com/homestead-affairs/homestead/compare/v0.2.2...v0.2.3) (2026-08-25)
+
+
+### Fixed
+
+* 24: add Event.LIVING_REPLACED for a consumer's forgetting-lane motion ([#40](https://github.com/homestead-affairs/homestead/issues/40)) ([4c434c6](https://github.com/homestead-affairs/homestead/commit/4c434c6d5b12cdedf0630802795fa0251cc7f6db))
+
 ## [0.2.2](https://github.com/homestead-affairs/homestead/compare/v0.2.1...v0.2.2) (2026-08-25)
 
 ## [0.2.1](https://github.com/homestead-affairs/homestead/compare/v0.2.0...v0.2.1) (2026-08-24)
