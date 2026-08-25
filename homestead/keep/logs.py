@@ -89,6 +89,7 @@ class Event(str, Enum):
     RECORD_SYNCED = "record_synced"
     DRAFT_SAVED = "draft_saved"
     EXPORTED = "exported"
+    LIVING_REPLACED = "living_replaced"    # a forgetting cell overwrote in place (H-8)
 
 
 def _canonical(obj: dict[str, Any]) -> str:
