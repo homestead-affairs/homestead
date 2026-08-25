@@ -10,8 +10,11 @@ is not the build order.
 A sibling belongs on this face when it holds records the household keeps for
 itself, and its domain does not already fit inside one of the three existing
 modules — `homestead-law`, `homestead-ledger`, `homestead-health`. That is a
-narrow test on purpose. A candidate that could sit inside one of the three as
-a pack is a *pack*, not a sibling.
+narrow test on purpose. A candidate that could sit inside one of the three
+as a **pack** — a domain-specific record type inside a module's registry, as
+defined in [`PLAN-homestead-health.md`](PLAN-homestead-health.md) (§ *What it
+is*: "modules are sibling repos on the org; packs live inside a module and
+belong to a registry") — is a *pack*, not a sibling.
 
 ## Open candidates
 
