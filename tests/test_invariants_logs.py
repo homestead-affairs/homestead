@@ -36,6 +36,25 @@ def test_i15_visible_log_stores_a_reference_never_content(keep):
     assert "body" not in entry and "text" not in entry
 
 
+def test_living_replaced_records_the_forgetting_lane_motion(keep):
+    """Issue #24 — a consumer's forgetting lane (`homestead-health`'s living
+    lane, H-8: overwrite in place, no recoverable prior) needs a closed
+    `Event` member to surface its motion in the operator's activity feed.
+    Bending an existing member (say `RECORD_SYNCED`, "a record was stored")
+    to mean "a value was forgotten" is precisely the mislabelling the closed
+    enum exists to prevent — R-7's own reason.
+
+    The member behaves like every other one: reference-only, no content, and
+    the closed-enum discipline still refuses free text in `event`."""
+    log = keep.VisibleLog()
+    log.record(keep.Event.LIVING_REPLACED, ref=("concerns", "cell", "C-1"))
+    (entry,) = log.read()
+    assert entry["event"] == "living_replaced"
+    assert entry["ref"] == "concerns/cell/C-1"
+    # The content-free rule still holds for the new member.
+    assert "body" not in entry and "text" not in entry and "value" not in entry
+
+
 def test_i15_visible_log_refuses_free_text_in_any_position(keep):
     """The first version asserted only that a kwarg *named* `body` raised —
     a test of Python's calling convention. The leak had simply moved to
