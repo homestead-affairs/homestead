@@ -22,10 +22,12 @@ the failures happened:
 from __future__ import annotations
 
 import os
+import unicodedata
 from pathlib import Path
 
 __all__ = ["home", "app_data", "logs_dir", "record_dir", "sidecar_dir",
-           "matter_dir", "drafts_dir", "exports_dir", "anchors_dir", "ensure"]
+           "matter_dir", "drafts_dir", "exports_dir", "anchors_dir", "ensure",
+           "component"]
 
 _ROOT_ENV = "HOMESTEAD_HOME"
 _ROOT_NAME = ".homestead"
@@ -91,6 +93,73 @@ def anchors_dir() -> Path:
     closure against an adversary stays `verify(expected_head=…)` with a head the
     operator recorded off the machine — see docs/DECISION-export-and-the-anchor.md."""
     return home() / "anchors"
+
+
+def component(value: str, *, name: str = "component") -> str:
+    """One reference component — the single validator both `export._segment`
+    and `logs._ref` route through, so the two can never drift on what a
+    reference part may contain.
+
+    The drift is what issue #23 was: `export._segment` rejected `/`, `\\`,
+    `.`/`..`, `\\x00`, and surrounding whitespace, but not embedded newlines;
+    `logs._ref` rejected `/`, `\\`, and `\\n`, but not `..`, `\\x00`, or other
+    control characters. A component such as ``"subj-01\\nFORGED"`` passed
+    `_segment`, reached the artifact write and the `IntegrityLog.append`, and
+    only then failed at `_ref` when `VisibleLog.record` ran — a partial write
+    the caller saw as a clean refusal, and a `VisibleLog` that never learned
+    the act happened.
+
+    The strict spelling refuses:
+
+    * separators (``/``, ``\\``) — a component is a single path segment;
+    * ``.`` and ``..`` — the traversals `ensure()` also refuses;
+    * ``\\x00`` — a null byte, subset of the control-char rule below but
+      called out because it is the classic path-truncation trick;
+    * surrounding whitespace — kept from the earlier `_segment` for the same
+      reason: a reference is exactly what it names;
+    * any character in Unicode categories starting with ``C`` (Cc control, Cf
+      format, Cs surrogate, Cn unassigned), and the two line-break separators
+      ``Zl`` / ``Zp`` — this is the total closure the issue names, catching
+      newline, tab, zero-width space (Cf, invisible to ``str.isspace()``), and
+      Unicode line separator (Zl, another `isspace()` miss on some platforms)
+      in one rule rather than a growing blocklist. Regular space (``Zs``) is
+      allowed for the reason below.
+
+    Regular interior spaces are allowed: a matter or item id can be
+    ``"custody-1"`` or ``"Doe v Roe"``. The rule refuses what is invisible or
+    control, not what happens to render.
+
+    Raises `ValueError` on refusal. Callers that own a contract exception
+    (`export.ExportRefused`) catch and re-raise; callers that don't (`logs`)
+    let the `ValueError` surface.
+    """
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{name} must be a non-empty string, not {value!r}")
+    if value.strip() != value:
+        raise ValueError(
+            f"{name}={value!r} has surrounding whitespace; a reference "
+            "component is exactly what it names"
+        )
+    if value in (".", ".."):
+        raise ValueError(
+            f"{name}={value!r} is a path traversal — a reference component "
+            "may not name its own directory or its parent"
+        )
+    if "/" in value or "\\" in value:
+        raise ValueError(
+            f"{name}={value!r} contains a path separator — a reference "
+            "component is a single segment, not a path"
+        )
+    for ch in value:
+        cat = unicodedata.category(ch)
+        if cat.startswith("C") or cat in {"Zl", "Zp"}:
+            raise ValueError(
+                f"{name}={value!r} contains a control, format, or line-break "
+                f"character ({ch!r}, Unicode category {cat}); a reference "
+                "component must be printable so the two logs cannot disagree "
+                "on what it holds"
+            )
+    return value
 
 
 def ensure(path: Path | str) -> Path:
