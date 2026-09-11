@@ -37,7 +37,10 @@ checkpoints — **R1** after Wave 1, **R2** after Wave 4, **R3** after Wave 5,
 **R4** after Wave 6. That is not what this repo's `git log` shows. Every
 engine bite that landed cut its own release — ten releases, `0.3.0` through
 `0.12.0`, one per merged feature PR — `0.12.0` shipped behind
-`E7-public-log-reader` (PR #68) the same day this document was written, after
+`E7-public-log-reader` (PR #68) the same day this document was written, and
+`0.13.0` behind `E7b-fleet-structured-values` (PR #70) a few hours later —
+eleven releases, `0.3.0` through `0.13.0`, *(the count and the range updated
+on audit, 2026-09-11, when the eleventh cut while this bite was open)* after
 this bite's own worktree fast-forwarded onto it (`origin/main` moved by the
 release-please merge alone, no competing code — `git diff --stat` confirmed
 only `CHANGELOG.md` and `.release-please-manifest.json` changed). Two
@@ -74,6 +77,7 @@ the batching the plan described:
 | 0.10.0 | [#65](https://github.com/homestead-affairs/homestead/pull/65) | `E5-integrity-keyed` (#64) |
 | 0.11.0 | [#67](https://github.com/homestead-affairs/homestead/pull/67) | `E6-integrity-encrypt` (#66) |
 | 0.12.0 | [#68](https://github.com/homestead-affairs/homestead/pull/68) | `E7-public-log-reader` |
+| 0.13.0 | [#71](https://github.com/homestead-affairs/homestead/pull/71) | `E7b-fleet-structured-values` (#70), and the `_entries()` alias window moved to 0.14.0 (#72) |
 
 ---
 
@@ -188,24 +192,22 @@ the batching the plan described:
   [#68](https://github.com/homestead-affairs/homestead/pull/68), release
   0.12.0. Confirm on PyPI before the next wave's module bites float a floor
   against it.**
-- **E7b-fleet-structured-values** engine `feat:` (found by the G5-sync
+- ~~**E7b-fleet-structured-values** engine `feat:` (found by the G5-sync
   audit, 2026-09-11) — the fleet's `canonical`/`sidecar` DDL stores `value`
   as `TEXT`, and `fleet_cli._validate_rows` refuses any row whose served
   value is a mapping (a ledger `transfers` pair is L2 `{counterpart, from,
-  to}`); settle the contract as `JSONB` (or canonical-JSON text). **Merged,
-  not yet released** — *(updated on audit, 2026-09-11: it said "not landed"
-  and named `ff33787`, which was true when the builder wrote it and stopped
-  being true the same day.)* PR
-  [#70](https://github.com/homestead-affairs/homestead/pull/70) merged to
-  `main` as `e0f147d` — the envelope row carries the value as canonical JSON
-  text with a `value_format` column, plus `fleet_cli.MAX_VALUE_DEPTH` — and
-  is merged into this branch. **Left unstruck on purpose:** release-please
-  had not cut the release containing it when this was written, so there is
-  no release number to name, and the guard in
-  `tests/test_plan_affairs_face.py` requires a struck bite to name both. It
-  is struck, with `#70` and the release, by whoever merges after that tag
-  exists. The README's capabilities table gains its structured-values note
-  then, for the same reason.
+  to}`); settle the contract as `JSONB` (or canonical-JSON text).~~
+  **Landed: PR
+  [#70](https://github.com/homestead-affairs/homestead/pull/70), release
+  0.13.0.** Settled as canonical JSON *text* rather than `JSONB`: the
+  envelope row carries the value as canonical JSON and the row says so in a
+  `value_format` column, with `fleet_cli.MAX_VALUE_DEPTH` refusing a value
+  nested past a named depth. Struck on the third pass of this bite's audit
+  leg — it read "not landed" while the branch was open, then "merged, not
+  yet released" for the hours between PR #70 and the tag, because the guard
+  in `tests/test_plan_affairs_face.py` requires a struck bite to name a PR
+  *and* a release and there was no release number to name. `git tag
+  --contains e0f147d` is `v0.13.0`, which is where that number comes from.
 - **X7-drift-\<repo\>** (this bite, engine leg) — `tests/test_docs_drift.py`,
   `tests/test_scans_fire.py`, the README status table, and this document.
   Not struck here: a document does not mark its own landing before the PR

@@ -198,6 +198,7 @@ build, planted and proven to fire.*
 | Dates & jurisdictions — forward/backward/mail/business-day counting for `US-federal`, `US-NM`, `US-OR` | 0.5.0 (`E1-dates-a`), 0.6.0 (`E1-dates-b`) | `keep/dates.py` |
 | Sync — an operator-authored envelope, composed and delivered under a per-call confirm | 0.8.0 (`E4-sync-core`) | `keep/sync.py`, `keep/household.py` |
 | Fleet ingest — a Postgres adapter and a CLI that dials out and never listens | 0.9.0 (`E4-postgres-fleet`) | `keep/fleet_cli.py`, `keep/store.py` |
+| Structured fleet values — a served value that is a mapping crosses as canonical JSON text, the row naming its `value_format`, refused past a named nesting depth | 0.13.0 (`E7b-fleet-structured-values`) | `keep/fleet_cli.py`, `keep/store.py` |
 | Keyed integrity — an optional HMAC-SHA256 chain, closing the forged-chain-plus-anchor gap for a log that opts in | 0.10.0 (`E5-integrity-keyed`) | `keep/logs.py` |
 | Sealing — optional AES-256-GCM per line, keyed by HKDF from the same key | 0.11.0 (`E6-integrity-encrypt`) | `keep/sealed.py`, `keep/logs.py` |
 | Public reader — `read_entries()`, the one door that decrypts, skips boundary rows and refuses a short or incomplete answer by name | 0.12.0 (`E7-public-log-reader`) | `keep/logs.py` |
