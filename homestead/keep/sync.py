@@ -373,16 +373,25 @@ def compose(readers: Mapping[str, Reader], scope: SyncScope) -> Envelope:
 def _already_delivered(log: IntegrityLog, envelope_id: str) -> bool:
     """Whether this envelope already has a `record_synced` row.
 
-    Routed through `IntegrityLog._entries()` (E6) rather than a bare
-    `json.loads` over the file: a sealed log's lines are AES-256-GCM
-    ciphertext wrappers on disk, and `_entries()` is the one place that
-    decrypts them and skips the boundary rows — a direct read here would see
-    `{"sealed": 1, ...}` and never find the `act` it is looking for, sync'd
-    or not. No `.payload`; a ledger line is JSON, not a `Classified`."""
+    Routed through `IntegrityLog.read_entries()` (E6; given its public name
+    in E7 — it was `_entries()`) rather than a bare `json.loads` over the
+    file: a sealed log's lines are AES-256-GCM ciphertext wrappers on disk,
+    and `read_entries()` is the one place that decrypts them and skips the
+    boundary rows — a direct read here would see `{"sealed": 1, ...}` and
+    never find the `act` it is looking for, sync'd or not. No `.payload`; a
+    ledger line is JSON, not a `Classified`.
+
+    Named refusals from that reader propagate on purpose — `IntegritySealError`
+    (no key, no extra) and, since the E7 audit, `IntegrityIncompleteError` (the
+    ledger is shorter than its anchor says). Both mean the same thing here: the
+    row that would say "already delivered" may be one of the ones this read
+    could not see, and answering `False` on the strength of that is how the
+    same envelope goes out twice. Only a bare `JSONDecodeError`, which is not a
+    refusal by name, is translated below."""
     if not log.path.exists():
         return False
     try:
-        for entry in log._entries():
+        for entry in log.read_entries():
             if entry.get("act") == Event.RECORD_SYNCED.value and entry.get("envelope") == envelope_id:
                 return True
     except json.JSONDecodeError as e:

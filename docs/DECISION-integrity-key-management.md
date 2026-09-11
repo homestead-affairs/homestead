@@ -397,7 +397,8 @@ unsealed read — the same way §4a treats a missing keyed one.
 construction (`IntegritySealError`, naming whichever is missing) if the key
 is absent or the `cryptography` extra is not installed — never a silent
 write of an unencrypted line where a sealed one was asked for.
-`append()`/`verify()`/`_entries()` carry the identical refusal for a log
+`append()`/`verify()`/`read_entries()` (named `_entries()` until E7 gave it
+a public name — see §9) carry the identical refusal for a log
 *auto-detected* as sealed (the marker says so) but missing what it needs at
 the moment ciphertext is actually touched. The one place this is
 deliberately **not** eager: `IntegrityLog()`'s plain auto-construction
@@ -430,9 +431,16 @@ now closed with a planted test each (`tests/test_invariants_sealed.py`):
 
 * `IntegrityLog(path, sealed=False)` on a sealed log appended a plaintext
   line after the sealed boundary row. It chained correctly, `verify()`
-  returned `True`, and the content was on disk in the clear. `sealed=False`
+  returned `True`, and the content was on disk in the clear. ~~`sealed=False`
   is now a **read-side** escape hatch only: `append()` refuses by name
-  (`IntegritySealError`) on any log carrying the boundary row.
+  (`IntegritySealError`) on any log carrying the boundary row.~~ **Amended
+  2026-09-11 (§9, E7 audit):** `append()` refuses by name on any log carrying
+  the boundary row — that part stands — but "a read-side escape hatch" was
+  too generous by exactly one reader. `read_entries(decrypt=False)` honoured
+  the argument and served the pre-seal plaintext rows as if they were the
+  log. `sealed=False` is now a **write-side promise only** ("do not put me on
+  the sealed side of this file"); every reader asks the file's own witnesses
+  (`_sealing_witnessed`), never the constructor argument.
 * Deleting `anchors/integrity.sealed` made auto-detection (`sealed=None`)
   answer "not sealed", so the next `append()` wrote plaintext. Auto-detection
   now reads the log's own `{"act": "sealed"}` row as well as the marker —
@@ -468,7 +476,102 @@ and asserts every nonce is distinct — a property of the operating system's
 CSPRNG this bite depends on rather than invents, pinned so a future edit
 that makes the nonce derived or predictable is caught.
 
-## What this bite deliberately does not do
+## 9 · Public reader (E7)
+
+Status: **Proposed, 2026-09-11.** — ~~awaiting ratification~~ **Ratified by
+the audit seat, 2026-09-11**, with two short-answer findings fixed on the
+branch before ratifying (see "The two short answers this section first
+missed", below). The shape stands: one public reader, the refusal in its
+signature, the old name kept for one minor.
+author: the build seat
+verified_by: the audit seat, 2026-09-11 (audit fixes: `94c3459`)
+
+Raised by the H6 audit (2026-09-11): `homestead_health`'s `LivingLane.
+replacements()` read `living.jsonl` with a bare `json.loads`, so a sealed
+log answered "never replaced" instead of refusing — I-11's silent-wrong-
+answer shape, reached because the log's one reader had no public name.
+`_entries()` was already that reader in every way that mattered
+(`keep/sync.py`'s `_already_delivered`, and a documented seam in
+`homestead_health`); the underscore hid a name callers already used, not a
+boundary — so this bite gives it one: `IntegrityLog.read_entries(*,
+decrypt=True)`, same method, public. `_entries()` stays for one minor as a
+deprecated alias (`warnings.warn`, identical yield).
+
+**What did not change is the thing §8 and F-6 actually care about.** A
+public name is not a weaker reader — `read_entries()` still refuses by name
+rather than serving a sealed log's content without the key or the extra,
+and a corrupt line raises instead of quietly ending early:
+`list(log.read_entries())` raises, never returns a short list. `decrypt=
+False` — the structural parallel of `verify(decrypt=False)` — was, before
+this bite, a silent partial view: it walked past every sealed line with a
+bare `continue` and returned the plaintext prefix as if it were the whole
+log. That is now a refusal: `decrypt=False` on a ~~log this instance
+considers sealed~~ **log whose file carries either witness of sealing**
+raises before yielding a single entry, because the only two honest answers
+to "what does this log hold, without the key" are "everything" or "I cannot
+tell you," never "some of it, unmarked."
+
+**`test_sealed_log_has_no_public_read_method` is narrowed accordingly**,
+from "no public reader" (which `read_entries()` now falsifies by name) to
+the property it existed to protect: no public reader that can return a
+short answer or a plaintext fallback for a sealed log. `read`, `render`,
+`tail`, `show`, and a bare `entries` stay forbidden — none of them carries
+a signature that could say what it refused. `read_entries` is allowed
+because its keyword argument is exactly that place.
+
+**The alias is removed in 0.13.0.** This bite cuts 0.12.0 and "one minor"
+is the next one; a removal nobody wrote a date on is a removal that never
+happens. The number is in three places that are checked against each other
+— `IntegrityLog._entries()`'s docstring, this paragraph, and
+`tests/test_invariants_logs.py::test_the_entries_alias_is_gone_by_its_named_
+removal_version`, which reads the changelog's top release heading and starts
+failing the moment it reaches 0.13.0 with the alias still present.
+`DeprecationWarning` is silent by default, so nothing would otherwise ever
+notice the window had closed. Checked while ratifying: none of the four
+repos turns warnings into errors (no `filterwarnings = error`, no `-W
+error`, no `PYTHONWARNINGS` in any `pyproject.toml`, CI workflow or
+`conftest.py`), so the alias warns and nothing downstream breaks on it in
+the meantime.
+
+**The two short answers this section first missed.** Both were reachable on
+the version proposed above, and both are now closed with a planted test each
+(`tests/test_invariants_sealed.py`):
+
+* **`sealed=False` bought a plaintext prefix.** The refusal read
+  `self.sealed` — the constructor argument — so
+  `IntegrityLog(path, sealed=False).read_entries(decrypt=False)` on a sealed
+  log returned the pre-seal rows and stopped, with nothing in the return
+  value saying the rest existed. One keyword argument away from every
+  caller, and it needed no key. The refusal now reads the file's own
+  witnesses (the marker and the `{"act": "sealed"}` row —
+  `_sealing_witnessed`), which is precisely what E6's audit made `append()`
+  do about the same argument. A sealed line met with `decrypt=False` and
+  *neither* witness present (a hand-built file) refuses too, rather than
+  being skipped.
+* **A truncated log read as a whole one.** Every surviving line of a
+  truncated log chains and decrypts perfectly; the anchor is the only
+  witness that there were more, and `read_entries()` never consulted it, so
+  chopping the last line off made the method answer as if that line had
+  never been written — `H6-sealed-reader`'s "never replaced" with a
+  different first step. The walk now ends at `_require_whole`, which
+  compares the head it just walked against the anchor and raises
+  `IntegrityIncompleteError` (the third refusal: not "cannot ask", but
+  "asked, and the answer would have been short"). `verify()` reports the
+  same file as `False` — a finding — and that stays the way to ask for one.
+  No anchor, no claim: a log nobody ever anchored still reads.
+
+The rule underneath both, and the thing `test_sealed_log_has_no_public_read_
+method` is now narrowed to: **the only way for a public reader to hand back
+fewer entries than the log holds is a refusal.** Nothing in the signature,
+and no argument at construction, may turn that into a short list instead.
+
+**Health's `ledger_seam.py`** (a separate repo, H6-sealed-reader) becomes a
+one-line pass-through to this method once its floor reaches the release
+carrying it — not this bite's change, noted because it is the reader the
+H6 finding was actually about. Its `getattr(log, "_entries", None)` probe
+keeps working through the deprecation window and refuses by name
+(`LedgerUnreadable`) after it, which is the behaviour it already tests for.
+
 
 * ~~**Encrypt anything.** The log stays plaintext JSON lines, keyed or not.
   `keep/sealed.py` (E6, Phase 4, extra `sealed`) is a separate bite and a

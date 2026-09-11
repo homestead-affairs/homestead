@@ -76,9 +76,22 @@ So there are two, with different powers:
   §8, not discovered later. Decided 2026-08-04: rename and anchor first, key
   next (E5), encrypt last (E6, this bite).
 
-  The absence of a `read()` method is a **naming convention, not a control**.
-  `_lines()` returns everything and `.path` is public. It shapes the app's own
-  habits; it stops nobody with filesystem access.
+  ~~The absence of a `read()` method is a **naming convention, not a
+  control**.~~ **Narrowed 2026-09-11 (E7):** there is now a public reader,
+  `read_entries()` — `_entries()` was already the door every in-package
+  caller used (`keep/sync.py`, and a documented seam in `homestead_health`),
+  so the underscore hid a name callers already depended on, not a control
+  anything enforced. What was never true, and stays true, is a reader that
+  can **return short or fall back to plaintext**: `read_entries()` refuses
+  by name (`IntegritySealError`) rather than serving a sealed log's content
+  without the key or the extra, a corrupt line raises instead of silently
+  ending early, and a file that stops before its anchor says it should
+  raises `IntegrityIncompleteError` rather than answering from what is
+  left. No constructor argument buys a short answer either — `sealed=False`
+  is a promise about *writing*, and every reader asks the file's own
+  witnesses (E7 audit). `_lines()` still returns everything unfiltered, and
+  `.path` is still public — "no public reader" was never the property worth
+  guarding; "no public reader that lies about completeness" is.
 """
 from __future__ import annotations
 
@@ -88,6 +101,7 @@ import json
 import os
 import secrets
 import threading
+import warnings
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -106,7 +120,7 @@ __all__ = [
     "IntegrityKeyError", "init_key", "read_key", "default_key_path",
     "default_marker_path", "KEY_BYTES", "BOUNDARY_ACT",
     "IntegritySealError", "SEAL_BOUNDARY_ACT", "default_sealed_marker_path",
-    "describe_verification",
+    "describe_verification", "IntegrityIncompleteError",
 ]
 
 GENESIS = "genesis"
@@ -171,6 +185,24 @@ class IntegritySealError(Exception):
     "cannot even ask the question," not a finding about the log. There is
     **no plaintext fallback** for any of these — a sealed log that cannot be
     unsealed is refused, never silently served as if it were not sealed.
+    """
+
+
+class IntegrityIncompleteError(Exception):
+    """Refuse by name (I-11): a read finished, but what it walked is not the
+    whole log the anchor vouches for — the file is shorter than it was, or
+    its last line was rewritten.
+
+    The third refusal, and the one the E7 audit added. `IntegrityKeyError`
+    and `IntegritySealError` both mean "cannot even ask"; this one means
+    "asked, and the answer would have been **short**." That distinction is
+    the whole of what `read_entries()` promises over a bare `json.loads`
+    walk: truncating a log is the cheapest attack on it, every surviving
+    line chains perfectly, and nothing in a plain read would notice. It is
+    not `verify()`'s `False`, because it is raised by a *reader* that would
+    otherwise have returned a complete-looking list — `verify()` reports the
+    same file as `False`, a finding, and that stays the method to ask for a
+    finding.
     """
 
 
@@ -535,7 +567,7 @@ class IntegrityLog:
           only wants `verify(decrypt=False)` (needs the key, via stdlib
           `hmac`, for the keyed scaffolding under any sealing; never the
           `cryptography` extra) must still be able to build this object;
-          `append()`/`verify(decrypt=True)`/`_entries()` check for
+          `append()`/`verify(decrypt=True)`/`read_entries()` check for
           themselves, lazily, only when they would actually touch
           ciphertext. A key-less log cannot be verified at all, sealed or
           not — that is unchanged from E5 and `decrypt` does not alter it.
@@ -571,16 +603,32 @@ class IntegrityLog:
             return True
         # sealed is None: auto — see the constructor docstring for why this
         # branch never raises, unlike the other two.
+        return self._sealing_witnessed()
+
+    def _sealing_witnessed(self, lines: list[dict[str, Any]] | None = None) -> bool:
+        """Whether the *file* says this log is sealed, whatever argument this
+        instance was constructed with. `lines`, when a caller has already
+        parsed the file, spares this a second parse of it.
+
+        The marker is a file on the same machine, and deleting it must not be
+        a way to turn sealing off (the E6 audit planted exactly that: with
+        only the marker consulted, `rm anchors/integrity.sealed` made the very
+        next `append()` write plaintext after the sealed boundary, and
+        `verify()` still said ok). The log's own `{"act": "sealed"}` row is
+        the stronger witness — it is chained and keyed, so removing *it* needs
+        the key — so this reads both, and the two must both be gone before a
+        log stops looking sealed.
+
+        `_resolve_sealed`'s auto branch is this question; so is `append()`'s
+        downgrade refusal (via `_has_sealed_boundary` directly) and
+        `read_entries(decrypt=False)`'s. Asking it here rather than at each
+        site is what keeps `sealed=False` from meaning different things to
+        different methods — the E7 audit's finding was exactly that drift.
+        """
         if _recorded_boundary(self.path, marker_path=default_sealed_marker_path()) is not None:
             return True
-        # The marker is a file on the same machine, and deleting it must not
-        # be a way to turn sealing off (the E6 audit planted exactly that: with
-        # only the marker consulted, `rm anchors/integrity.sealed` made the very
-        # next `append()` write plaintext after the sealed boundary, and
-        # `verify()` still said ok). The log's own `{"act": "sealed"}` row is
-        # the stronger witness — it is chained and keyed, so removing *it*
-        # needs the key — so auto-detection reads it too and the two must both
-        # be gone before a log stops looking sealed.
+        if lines is not None:
+            return _boundary_index(lines, act=SEAL_BOUNDARY_ACT) is not None
         return self._has_sealed_boundary()
 
     def _has_sealed_boundary(self) -> bool:
@@ -679,43 +727,82 @@ class IntegrityLog:
         boundary = _boundary_index(lines)
         return _hash_at(lines[-1], len(lines) - 1, boundary, self.key)
 
-    def _entries(self, *, decrypt: bool = True) -> Iterable[dict[str, Any]]:
+    def read_entries(self, *, decrypt: bool = True) -> Iterable[dict[str, Any]]:
         """Yield each entry this log actually recorded — boundary rows
         (`BOUNDARY_ACT`, `SEAL_BOUNDARY_ACT`) skipped, sealed lines
         decrypted when `decrypt` (the default).
 
-        Leading underscore on purpose: `tests/test_invariants_logs.py`'s
-        `test_sealed_log_has_no_public_read_method` forbids a bare `entries`
-        accessor for the same reason it forbids `read`/`render`/`tail` —
-        "the absence of a `read()` method is a naming convention, not a
-        control" (the module docstring), and this bite does not get to
-        reopen that decision just because it needed an internal one. Callers
-        within `homestead.keep` (and this module's own `verify()`) use it by
-        name; nothing surfaces it as an app-facing accessor.
+        **The one public door for a log's content (E7).** `sync.
+        _already_delivered`, `export`'s own re-reads, and (via a documented
+        seam) `homestead_health`'s replacement lookup all went through a bare
+        `json.loads` over the file before this had a public name — a sealed
+        log's ciphertext wrapper breaks that silently (`entry.get("act")` on
+        `{"sealed": 1, ...}` is always `None`; a sealed `living.jsonl`
+        answered "never replaced" instead of refusing, `H6-sealed-reader`).
+        Every such reader now names this method — I-16's chokepoint idea,
+        applied here rather than the record store. `_entries()` is the same
+        method under its old name, kept as a deprecated alias for one minor.
 
-        **The one door for a log's content.** `sync._already_delivered` and
-        `export`'s own re-reads went through a bare `json.loads` over the
-        file before this bite, which a sealed log's ciphertext wrapper would
-        break silently (`entry.get("act")` on `{"sealed": 1, ...}` is always
-        `None`). Every such reader routes through this instead, so a sealed
-        log's ciphertext is invisible to callers that never asked to see it
-        — I-16's chokepoint idea, applied to this file rather than the
-        record store.
+        **`decrypt` carries the refusal, the same split `verify()` makes:**
 
-        `decrypt=False` yields only the plaintext (unsealed or pre-boundary)
-        entries and silently skips sealed ones — for a caller that wants
-        what it can read without the key, not a refusal for what it cannot.
-        `decrypt=True` (the default) requires the key and the `cryptography`
-        extra the moment a sealed line is actually reached, refusing by name
-        (`IntegritySealError`) rather than guessing or fabricating content.
+        * `decrypt=True` (default) — the log's actual content. The moment a
+          sealed line is reached this requires the key and the
+          `cryptography` extra, or `IntegritySealError` by name. A corrupt
+          or tampered line raises from wherever `_lines()` or `sealed_mod.
+          unseal_line` raises it — entries already yielded stay the intact
+          prefix, but the generator never returns normally after, so
+          `list(log.read_entries())` **raises, never returns a short list**.
+        * `decrypt=False` — the *structural* question `verify(decrypt=
+          False)` asks: what this log holds without touching `cryptography`.
+          Identical to `decrypt=True` when the file holds no sealed line.
+          The moment it does — or the moment either witness says this log is
+          sealed (`_sealing_witnessed`: the marker, or the log's own
+          boundary row) — it refuses before yielding a single entry rather
+          than serving the plaintext prefix and dropping the rest. **The
+          `sealed=` constructor argument does not enter into it** (E7
+          audit): `IntegrityLog(path, sealed=False)` is a write-side promise
+          about not *adding* to the sealed segment, and letting it also mean
+          "serve me the plaintext prefix and call it the log" put the exact
+          short answer the narrowed `test_sealed_log_has_no_public_read_
+          method` forbids one keyword argument away from every caller.
+          E6's audit made `append()` read the file rather than the argument
+          for the same reason; this is that ruling applied to the read side.
+
+        **The only way to see fewer entries than the log holds is a
+        refusal** — which is why this does not simply stop at the end of the
+        file. A truncated log's surviving lines chain perfectly and decrypt
+        perfectly; the anchor is the only witness that there were more, so
+        the walk ends by checking it (`_require_whole`) and raises
+        `IntegrityIncompleteError` rather than returning a complete-looking
+        short list. Found by the E7 audit: before it, chopping the last line
+        off a sealed log made this method answer as if that line had never
+        been written, which is `H6-sealed-reader`'s "never replaced" bug
+        with a different first step.
         """
+        lines = self._lines()
+        if not decrypt and self._sealing_witnessed(lines):
+            raise IntegritySealError(
+                "this log is sealed; decrypt=False cannot serve its content "
+                "— there is no plaintext-only partial read of a sealed log, "
+                "and sealed=False does not buy one (the file's own boundary "
+                "row and the marker are the witnesses, not this instance's "
+                f"argument): {self.path}"
+            )
         sealed_mod = None
-        for entry in self._lines():
+        for entry in lines:
             if entry.get("act") in (BOUNDARY_ACT, SEAL_BOUNDARY_ACT):
                 continue
             if entry.get("sealed") == 1:
                 if not decrypt:
-                    continue
+                    # Belt to `_sealing_witnessed`'s braces: a sealed line
+                    # with neither witness present is a file someone built by
+                    # hand, and skipping it silently would be the same short
+                    # answer by a stranger route.
+                    raise IntegritySealError(
+                        f"{self.path} holds a sealed line and decrypt=False "
+                        "cannot serve it — skipping it would make this read "
+                        "short without saying so"
+                    )
                 if self.key is None:
                     raise IntegritySealError(
                         "this log is sealed; the key is absent — sealing "
@@ -725,6 +812,82 @@ class IntegrityLog:
                     from . import sealed as sealed_mod       # lazy import, I-27
                 entry = sealed_mod.unseal_line(entry, key=self.key)
             yield entry
+        self._require_whole(lines)
+
+    def _require_whole(self, lines: list[dict[str, Any]]) -> None:
+        """Raise unless the lines just walked are the whole log the anchor
+        vouches for. Called at the end of `read_entries()`'s walk, so the
+        generator cannot *return* on a short file — it can only raise.
+
+        The anchor is the only witness to length: every surviving line of a
+        truncated log chains correctly to the one before it, so the chain
+        walk `verify()` does catches a reorder and a rewrite but sees nothing
+        wrong with a file that simply stops early. `verify()` catches it at
+        this same comparison and answers `False`; a *reader* cannot answer
+        `False`, so it refuses by name instead (`IntegrityIncompleteError`).
+
+        No anchor, no claim: a log that has never been appended to through
+        this class has nothing to be short of, and this returns quietly — the
+        same posture `verify()` takes (`anchor is None` → `True`). A keyed
+        anchor with no key in hand is "cannot tell", refused as
+        `IntegrityKeyError`, exactly as `verify()` refuses it.
+
+        A concurrent `append()` between the `_lines()` snapshot and here
+        would look like truncation from the snapshot's side. That is the
+        honest reading: the caller did not see the whole log. Appends hold
+        the lock (`_APPEND_LOCK` plus `flock`) and sync is an operator act,
+        never background (plan decision 5), so this costs nothing real.
+        """
+        anchor = self._read_anchor()
+        if anchor is None:
+            return
+        anchor_hex, anchor_keyed = anchor
+        if anchor_keyed and self.key is None:
+            raise IntegrityKeyError(
+                f"the anchor at {self.anchor_path} is keyed; the key is "
+                "absent, so whether this read saw the whole log cannot be "
+                "told"
+            )
+        if not lines:
+            head = GENESIS
+        else:
+            boundary = _boundary_index(lines)
+            head = _hash_at(lines[-1], len(lines) - 1, boundary, self.key)
+        if not hmac.compare_digest(head, anchor_hex):
+            raise IntegrityIncompleteError(
+                f"{self.path} does not end where its anchor "
+                f"({self.anchor_path}) says it should — this read would have "
+                "been short, or its last line has been rewritten; refusing "
+                "rather than answering from what is left (verify() reports "
+                "the same file as a finding)"
+            )
+
+    def _entries(self, *args: Any, **kwargs: Any) -> Iterable[dict[str, Any]]:
+        """Deprecated alias for `read_entries()` (E7). Every in-package
+        caller now spells the public name; this stays for one minor so
+        nothing outside this checkout breaks on the rename without warning
+        first. Identical yield, one `DeprecationWarning`, no other change —
+        see `tests/test_invariants_logs.py::test_entries_alias_warns_once_
+        and_yields_identically`.
+
+        **Removed in 0.13.0.** This bite cuts 0.12.0, "one minor" is the
+        next one, and a removal date nobody wrote down is a removal that
+        never happens — so the version is named here, in
+        `docs/DECISION-integrity-key-management.md` §9, and in
+        `tests/test_invariants_logs.py::test_the_entries_alias_is_gone_by_
+        its_named_removal_version`, which starts failing the moment the
+        changelog's top entry reaches 0.13.0 and this method still exists.
+        Not a generator: the `warnings.warn` fires when the caller *calls*
+        it, not when they first iterate what it returned, so `stacklevel=2`
+        names the caller's own line.
+        """
+        warnings.warn(
+            "IntegrityLog._entries() is a deprecated alias for "
+            "read_entries() and will be removed in 0.13.0",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.read_entries(*args, **kwargs)
 
     def _ensure_boundary(self, fh) -> None:
         """Write the `{"act": "keyed"}` boundary row, once — the first time

@@ -89,8 +89,13 @@ These are not code fixes and matter as much:
   below).
 - ~~**`logs.py` claimed a key that does not exist**~~ — **fixed.** The sentence
   is removed rather than quietly corrected, and the docstring now states the
-  limits: what it detects, what it does not withstand, and that the missing
-  `read()` is a naming convention rather than a control. Original finding: F-6 recommended hash-chained *and encrypted*; the
+  limits: what it detects, what it does not withstand, and ~~that the missing
+  `read()` is a naming convention rather than a control~~ (**narrowed
+  2026-09-11, E7:** there *is* a public reader now, `read_entries()`; what
+  the convention was really protecting — no reader that can hand back a short
+  or plaintext-fallback answer — is now a property with tests rather than a
+  missing method name. See `docs/DECISION-integrity-key-management.md` §9).
+  Original finding: F-6 recommended hash-chained *and encrypted*; the
   encryption was dropped and only its stated cost was kept. That is a sentence
   describing the honest price of a mechanism that was never built, in a file
   whose docstring lectures about exactly this.
