@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -27,9 +28,17 @@ import homestead.packs as packs_pkg
 
 DOC = Path(__file__).resolve().parent.parent / "docs" / "homestead-rungs-procedure.md"
 
+#: A step *citation*, not the word "step". The procedure has exactly five
+#: numbered steps, so a `why` that names one names a number between 1 and 5.
+#: Matching the bare substring `"step"` would accept "steps", "stepping stone",
+#: "sidestep" and "step back" — prose that cites nothing — which is the whole
+#: failure this guard exists to catch, arriving as a word that happens to
+#: contain the right letters.
+_STEP_CITATION = re.compile(r"\bstep\s+[1-5]\b", re.IGNORECASE)
+
 
 def _fields_missing_step(schema: Mapping[str, Any]) -> list[str]:
-    """Field names in `schema` whose `why` does not mention a "step".
+    """Field names in `schema` whose `why` does not cite a numbered step.
 
     This is the whole checker `test_every_pack_field_why_names_a_step` and
     `test_the_step_check_fires_on_a_step_less_why` share — one function, two
@@ -42,11 +51,16 @@ def _fields_missing_step(schema: Mapping[str, Any]) -> list[str]:
     a plain mapping lookup, no rung logic duplicated here. A field whose
     declaration carries no `"why"` at all, or whose `why` is not a string,
     counts as missing a step too — silence is not a step citation.
+
+    The match is `_STEP_CITATION`, `step <1-5>`, and deliberately not the
+    substring `"step"`: the point of the citation is *which* of the five steps
+    justified the rung, so a `why` that says "steps" or "a stepping stone
+    towards L4" has cited nothing and must fail.
     """
     missing: list[str] = []
     for name, declaration in schema.items():
         why = declaration.get("why") if isinstance(declaration, Mapping) else None
-        if not isinstance(why, str) or "step" not in why:
+        if not isinstance(why, str) or not _STEP_CITATION.search(why):
             missing.append(name)
     return missing
 
@@ -117,13 +131,20 @@ def test_every_pack_field_why_names_a_step():
 
 def test_the_step_check_fires_on_a_step_less_why():
     """Planted counterpart: `_fields_missing_step` must actually catch a
-    field whose `why` never mentions a step.
+    field whose `why` never cites a numbered step.
 
     A scan that has never fired has not been shown to check anything. This
     builds a fake schema mapping — never registered with any pack, never
-    classified, nothing this repo would import on its own — with one field
-    carrying a `why` that gives a reason but cites no step, and asserts the
-    same helper `test_every_pack_field_why_names_a_step` relies on names it.
+    classified, nothing this repo would import on its own — and asserts the
+    same helper `test_every_pack_field_why_names_a_step` relies on names every
+    planted field and no other.
+
+    Four plants, because the guard has four ways to be too lax: a `why` that
+    gives a reason and cites no step at all; a `why` with no `why` key; and
+    the two near misses a bare `"step" in why` substring test would wave
+    through — **"steps"** (plural, citing nothing) and **"a stepping stone"**
+    (the letters, none of the meaning). Those last two are the reason this
+    helper matches `step <1-5>` and not the word.
     """
     fake_schema = {
         "good_field": {
@@ -143,9 +164,48 @@ def test_the_step_check_fires_on_a_step_less_why():
             "matter": "_fake",
             "jurisdiction": "US-XX",
         },
+        "planted_plural_steps_field": {
+            "rung": "L3",
+            "matter": "_fake",
+            "jurisdiction": "US-XX",
+            "why": "it clears the classification steps and lands here",
+        },
+        "planted_stepping_stone_field": {
+            "rung": "L3",
+            "matter": "_fake",
+            "jurisdiction": "US-XX",
+            "why": "a stepping stone towards the protected rung",
+        },
     }
     missing = _fields_missing_step(fake_schema)
-    assert missing == ["planted_bad_field", "planted_no_why_field"], (
-        f"expected the checker to flag exactly the two planted violations, "
-        f"got {missing}"
+    assert missing == [
+        "planted_bad_field",
+        "planted_no_why_field",
+        "planted_plural_steps_field",
+        "planted_stepping_stone_field",
+    ], (
+        f"expected the checker to flag exactly the four planted violations and "
+        f"leave `good_field` alone, got {missing}"
     )
+
+
+def test_the_step_check_is_not_satisfied_by_the_bare_word_step():
+    """The tightening itself, pinned: `step` is not a citation, `step 3` is.
+
+    Without this the guard could be loosened back to `"step" in why` and every
+    test above would still pass — the packs all cite numbered steps, so the
+    weaker rule agrees with the stronger one on the real data and the
+    difference only shows on prose nobody has written yet. This is that
+    difference, written down.
+    """
+    cites = "resolves to a person (step 2), no protected category"
+    assert _STEP_CITATION.search(cites)
+    for not_a_citation in (
+        "one of the classification steps",
+        "a stepping stone towards L4",
+        "sidestep the question",
+        "step back and look at the matter",
+        "step six of the procedure",
+        "step",
+    ):
+        assert not _STEP_CITATION.search(not_a_citation), not_a_citation
