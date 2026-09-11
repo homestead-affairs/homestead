@@ -1,8 +1,10 @@
 """`homestead.keep.nestor_seam` — the one place this face touches Nestor.
 
 Nestor is an OPTIONAL EXTRA (`pyproject.toml`'s `[project.optional-
-dependencies] entity`), pinned to the tag `v0.2.0`, never a required
-dependency. Two properties carry that, each a test:
+dependencies] entity`), pinned to `nestor-meaning>=0.11.0,<1.0` on PyPI
+(bumped 2026-09-11 from the VCS tag `v0.2.0` the seam was originally written
+against), never a required dependency. Two properties carry that, each a
+test:
 
 * **The seam is a no-op without the extra.** Nothing in `nestor_seam.py`
   imports `nestor` at module load — an AST scan, the same trick

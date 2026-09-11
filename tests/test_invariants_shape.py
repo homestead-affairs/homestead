@@ -35,36 +35,76 @@ def _toplevel_imports(tree: ast.Module) -> set[str]:
     return names
 
 
-def test_i30_i26_nothing_imports_the_network():
-    """No network module at import time, anywhere. Not the core, not a surface."""
-    offenders = {}
-    for mod in _modules():
+def _network_import_offenders(paths: list[Path]) -> dict[str, list[str]]:
+    """Every path, among `paths`, that imports a network module at the top
+    level. Factored out (X7-drift) so the real package scan and its
+    planted-violation test below run the identical check — this scan had
+    never fired before that test existed."""
+    offenders: dict[str, list[str]] = {}
+    for mod in paths:
         hits = NET & _toplevel_imports(ast.parse(mod.read_text()))
         if hits:
-            offenders[str(mod.relative_to(ROOT))] = sorted(hits)
+            key = str(mod.relative_to(ROOT)) if mod.is_relative_to(ROOT) else mod.name
+            offenders[key] = sorted(hits)
+    return offenders
+
+
+def test_i30_i26_nothing_imports_the_network():
+    """No network module at import time, anywhere. Not the core, not a surface."""
+    offenders = _network_import_offenders(_modules())
     assert not offenders, (
         f"nothing in this application binds or dials. Found: {offenders}"
     )
 
 
-def test_i30_nothing_listens():
-    """No bind/listen/serve call survives review, however it is spelled."""
-    # `bind` is deliberately NOT here. tkinter spells event binding
-    # `widget.bind(...)`, so banning the bare name would fire on every key
-    # handler in the surface layer and the test would be switched off within a
-    # week. The real control is the import scan above: nothing binds a socket
-    # without importing one. These four names have no GUI meaning.
-    banned = {"listen", "serve_forever", "create_server", "ThreadingHTTPServer"}
-    offenders = []
-    for mod in _modules():
+def test_i30_i26_the_network_import_scan_fires_on_a_planted_import(tmp_path):
+    """A scan that has never fired has not been shown to check anything
+    (X7-drift): this file had no planted violation for either network scan
+    until now. A module importing `socket` at the top level must be caught."""
+    leak = tmp_path / "leak.py"
+    leak.write_text("import socket\n\ndef dial():\n    return socket.socket()\n")
+    offenders = _network_import_offenders([leak])
+    assert offenders == {"leak.py": ["socket"]}
+
+
+#: `bind` is deliberately NOT here. tkinter spells event binding
+#: `widget.bind(...)`, so banning the bare name would fire on every key
+#: handler in the surface layer and the test would be switched off within a
+#: week. The real control is the import scan above: nothing binds a socket
+#: without importing one. These four names have no GUI meaning.
+_LISTEN_BANNED = {"listen", "serve_forever", "create_server", "ThreadingHTTPServer"}
+
+
+def _listen_offenders(paths: list[Path]) -> list[str]:
+    """Every bind/listen/serve call, however it is spelled, among `paths`.
+    Factored out (X7-drift) for the same reason `_network_import_offenders`
+    was: the real scan and its plant must run one check, not two."""
+    offenders: list[str] = []
+    for mod in paths:
         tree = ast.parse(mod.read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 f = node.func
                 name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
-                if name in banned:
-                    offenders.append(f"{mod.relative_to(ROOT)}:{node.lineno} {name}")
+                if name in _LISTEN_BANNED:
+                    label = str(mod.relative_to(ROOT)) if mod.is_relative_to(ROOT) else mod.name
+                    offenders.append(f"{label}:{node.lineno} {name}")
+    return offenders
+
+
+def test_i30_nothing_listens():
+    """No bind/listen/serve call survives review, however it is spelled."""
+    offenders = _listen_offenders(_modules())
     assert not offenders, f"nothing may listen. Found: {offenders}"
+
+
+def test_i30_the_listen_scan_fires_on_a_planted_call(tmp_path):
+    """The plant this scan never had (X7-drift): a bare `.serve_forever()`
+    call must be caught, by name and line."""
+    leak = tmp_path / "leak.py"
+    leak.write_text("def run(server):\n    server.serve_forever()\n")
+    offenders = _listen_offenders([leak])
+    assert offenders == ["leak.py:2 serve_forever"]
 
 
 def test_i14_rungs_are_strings_not_integers():
