@@ -128,6 +128,7 @@ __all__ = [
     "compose",
     "context_rung",
     "classify_schema",
+    "derived_of",
     "UnclassifiedField",
     "UnknownSurface",
     "UndeclaredPurpose",
@@ -235,6 +236,21 @@ class Purpose(str, Enum):
     product question about whether these households field discovery. Note that
     the set already individuates by posture elsewhere — `SUBJECT_ACCESS` is an
     `EXPORT` with a statute behind it, and gets its own member for that alone.
+
+    **An eighth member, `SYNC`, added by a separate ratification
+    (docs/DECISION-purpose-sync.md).** Measured the same way `COMPELLED_DISCLOSURE`
+    was: zero cells of `_CEILING` move — a purpose lifts on `S4_EGRESS` alone, and
+    `SYNC` lifts it exactly as far as every other member. It is not `EXPORT`
+    wearing a new name: `EXPORT` is *"the operator taking their own record out"* —
+    a file the operator carries — and `SYNC` is the household's own record going
+    to its own fleet store, an act the operator authored but not one that hands
+    them a copy. The distinction is the same shape as `SUBJECT_ACCESS` versus
+    `EXPORT`: a posture the destination sets, not a difference `may_render` can
+    see or ever needs to. Composing a synced envelope, ledgering it once, and
+    delivering it under a per-call confirm is `keep/sync.py`'s job (Wave 4,
+    unbuilt) — this member's whole meaning lives in the ledger row that module
+    will write, exactly as `COMPELLED_DISCLOSURE`'s meaning waits on Phase 3.
+    See docs/DECISION-connection-consent.md for why a sync is never background.
     """
 
     DRAFTING = "drafting"                # preparing a document the operator will file
@@ -244,6 +260,7 @@ class Purpose(str, Enum):
     SUBJECT_ACCESS = "subject_access"    # a statutory subject-access request
     REDISCLOSURE = "redisclosure"        # passing on a record received under a permission
     ANSWERING = "answering"              # an agent answering a question the operator asked
+    SYNC = "sync"                        # copying the household's own record to its fleet store, as an act the operator authored (DECISION-purpose-sync)
 
 
 def _check_the_str_enums_cannot_be_confused() -> None:
@@ -464,15 +481,21 @@ def _declared(purpose: Any) -> bool:
     `str` enum, so `Purpose.DRAFTING == "drafting"` is `True` and a membership
     test written as `purpose in {p.value for p in Purpose}` — or as
     `Purpose(purpose)`, which coerces — would accept the bare spellings of the
-    six members while refusing every other string. That is not a smaller hole
-    than free text, it is a *stranger* one: six magic strings instead of none.
-    `Surface` had exactly this shape at Phase 2.
+    members while refusing every other string. That is not a smaller hole
+    than free text, it is a *stranger* one: one magic string per member instead
+    of none. `Surface` had exactly this shape at Phase 2.
 
     Nothing here reads *which* member it is, and nothing downstream does either.
     The decision turns on whether a purpose was declared; the ceiling table has
-    two columns, not seven. No member is more of a declaration than another —
-    validating the set is not the same as ranking it, and ranking is what a
-    trust tier and a ledger are for, neither of which this module has.
+    two columns, not one per member. No member is more of a declaration than
+    another — validating the set is not the same as ranking it, and ranking is
+    what a trust tier and a ledger are for, neither of which this module has.
+
+    (The counts in this paragraph were literal — "the six members", "six magic
+    strings", "two columns, not seven" — until `SYNC`'s ratification found them
+    two members out of date and named them for the property instead, which is
+    the fix `docs/DECISION-compelled-disclosure.md` prescribed for a claim that
+    goes false every time the thing it describes legitimately changes.)
     """
     if purpose is None:
         return False
@@ -611,8 +634,8 @@ def may_render(rung: Any, surface: Any, *, purpose: Any = None) -> bool:
     detail pane a purpose is inert — the act of opening the pane is the
     declaration — but it is still *checked*: the type check is unconditional,
     because a check that only ran where the argument mattered would let a
-    call site build the habit of passing rubbish on three surfaces and then
-    carry it to the two where it lifts.
+    call site build the habit of passing rubbish on the surfaces where a
+    purpose is inert and then carry it to the one where it lifts.
 
     **Per-call, never per-session.** This function holds nothing between calls.
     A purpose declared here is spent here; the next call starts undeclared.
@@ -966,3 +989,52 @@ def classify_schema(schema: Mapping[str, Any]) -> dict[str, Rung]:
             reason=reason,
         )
     return classified
+
+
+def derived_of(schema: Mapping[str, Any], field: str) -> str | None:
+    """A field's declared **derived form** — the sentence a pack author wrote to
+    stand in for its payload — or `None` if it declared none.
+
+    This reads the `"derived"` key of `field`'s declaration in `schema`, the way
+    `classify_schema` reads `"rung"`. It is **not** a payload path: it returns
+    the *stand-in sentence itself* (`"A case number is on file"`), never a
+    lookup key, a field name, or the record's value — a caller reaching for the
+    payload through this function has misread what it names. Composing the
+    `Classified` a surface actually receives (rung + payload + this sentence)
+    is a pack's job, at seed or write time; this function only recovers the
+    sentence from the schema so a caller — a surface, a test, `derived_of`'s
+    own contract test — can ask for it without reaching into the mapping by
+    hand.
+
+    Absence is quiet, not a build failure: unlike a missing rung, a missing
+    `"derived"` key does not stop `classify_schema` (decision 3 — that
+    function keeps ignoring the key entirely), so this returns `None` for a
+    field that declared none, an unknown field name, or a declaration that is
+    not a mapping. Whether a field's rung *requires* one is `Classified`'s
+    `__post_init__`'s job (`_NEEDS_DERIVED`, checked at construction), not
+    this function's — this is a read, not a validator.
+
+    **A record is not a schema, and being handed one is refused.**
+    `keep/record.py` serializes a `Classified` to `{"rung", "payload",
+    "derived"}` — the same *shape* as a declaration carrying a derived form, so
+    a mapping of field name to serialized record would read through this
+    function without complaint and hand back stored record content under a
+    docstring promising schema content. That is not a payload reach (this never
+    reads `"payload"`), but it is the near miss that would make one look
+    reasonable, so the one key a declaration can never legitimately carry is
+    the tell: a declaration with a `"payload"` in it is a record, and reading a
+    record's insides is the gate's job (I-16, `serve()`), not this function's.
+    """
+    declaration = schema.get(field)
+    if not isinstance(declaration, Mapping):
+        return None
+    if "payload" in declaration:
+        raise TypeError(
+            f"derived_of({field!r}) was handed a record, not a schema "
+            "declaration: it carries a 'payload' key, which a declaration "
+            "never does. A stored record is read through serve() (I-16), and "
+            "its derived form is Served.value — not this function, which "
+            "reads the pack's schema. Pass matter(<name>).schema."
+        )
+    derived = declaration.get("derived")
+    return derived if isinstance(derived, str) and derived.strip() else None

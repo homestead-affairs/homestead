@@ -33,14 +33,22 @@ from typing import Any
 
 from homestead.keep.rungs import Rung, classify_schema
 
-__all__ = ["MATTER", "JURISDICTION", "SCHEMA", "FIELDS"]
+__all__ = ["MATTER", "JURISDICTION", "JURISDICTIONS", "SCHEMA", "FIELDS"]
 
 MATTER = "custody"
 JURISDICTION = "US-CA"
+#: Every jurisdiction an instance of this matter may be filed under. `JURISDICTION`
+#: is the default a new instance starts with; a matter registered in one of these
+#: (`set_jurisdiction`, Wave 3) may move to another, and `_validate` (decision 1)
+#: requires the default itself be one of the tuple's members.
+JURISDICTIONS: tuple[str, ...] = ("US-CA",)
 
 
-def _field(rung: Rung, why: str) -> dict[str, Any]:
-    return {"rung": rung, "matter": MATTER, "jurisdiction": JURISDICTION, "why": why}
+def _field(rung: Rung, why: str, *, derived: str | None = None) -> dict[str, Any]:
+    decl = {"rung": rung, "matter": MATTER, "jurisdiction": JURISDICTION, "why": why}
+    if derived is not None:
+        decl["derived"] = derived
+    return decl
 
 
 #: The closed custody schema. Field → declaration (rung + matter + jurisdiction +
@@ -65,36 +73,50 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "example: L1 in a bankruptcy where the docket is public, L3 in a family "
         "matter where records are commonly sealed (step 2, then step 4 does not "
         "raise it).",
+        derived="A case number is on file",
     ),
     "docket": _field(
         Rung.L3,
         "same posture as the case number in a family matter — resolves to the "
         "parties (step 2), commonly sealed but not itself key material or a "
         "refusal (step 4 does not raise it).",
+        derived="A docket entry is on file",
     ),
     "opposing_party": _field(
         Rung.L3,
         "names the co-parent — a person — with no protected category attached to "
         "the name itself (step 2 yes, step 3 no).",
+        derived="The other parent is named",
     ),
     "child_name": _field(
         Rung.L4,
         "names a person who is a minor. A minor is a category the law follows "
         "(step 3 yes), and the whole model turns on not rendering it by default.",
+        derived="A minor child is named in this matter",
     ),
     "parenting_time": _field(
         Rung.L3,
         "the parenting schedule — resolves to the child (step 2), which "
         "homestead-rungs.md § Custody classifies L3. The operator sees it on "
         "their own list; a model prompt (S2, ceiling L2) gets only the derived "
-        "'a recurring parenting-time obligation on Tue/Thu' — the doc's worked "
-        "example for this field. Not L4: it resolves to the child but does not "
-        "itself carry a protected category the way a diagnosis does.",
+        "form. Not L4: it resolves to the child but does not itself carry a "
+        "protected category the way a diagnosis does.\n"
+        "The doc's worked example of a derived form for this field is 'a "
+        "recurring parenting-time obligation on Tue/Thu' (PHASE2-SURFACES.md), "
+        "and that sentence is a *record's* stand-in, composed for one schedule "
+        "that really does fall on those days. A schema declares one sentence "
+        "for every instance of the field, so it may not name the days: on the "
+        "household whose schedule is Mon/Wed it would be false, and on the "
+        "household whose schedule is Tue/Thu it would restate exactly the "
+        "value the derived form exists to withhold. The declaration below "
+        "carries the shape of the obligation and nothing that varies.",
+        derived="A recurring parenting-time obligation is on file",
     ),
     "diagnosis": _field(
         Rung.L4,
         "a medical category attached to a person (step 3). 'Medical' belongs to "
         "the rung, which carries it at L4; it never reaches a model prompt.",
+        derived="A medical category is on file for a person",
     ),
     "notes": _field(
         Rung.L4,
@@ -113,6 +135,7 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "(declared L4, content shaped like an L5 datum → raise) is the intended "
         "guard, and v1 is synthetic-data-only. Not L5: a note the operator cannot "
         "read is not a note.",
+        derived="An operator note is on file",
     ),
     "ssn": _field(
         Rung.L5,

@@ -99,8 +99,10 @@ key, never a rendered zero. The rule is proposed for ratification in
 The **matter registry** now stands (`keep/registry`, I-23): one enumeration —
 `all_matters()` over `REGISTRY` — that ties each matter name to its pack and reads
 that pack's fields live rather than copying them, so navigation, the queue and the
-briefing iterate it instead of keeping lists of their own. Only custody is
-registered (bankruptcy and workers' comp are Phase 5); a pack that exists but is
+briefing iterate it instead of keeping lists of their own. ~~Only custody is
+registered (bankruptcy and workers' comp are Phase 5)~~ (struck 2026-09-11:
+bankruptcy landed and is registered too) — custody and bankruptcy are
+registered; workers' comp remains Phase 5, not built. A pack that exists but is
 unregistered fails the build, and a matter name hand-kept as an enumeration
 anywhere but the registry is a build failure too — BUG-6 was three such lists
 drifting until workers' comp fell out of the urgent queue.
@@ -110,9 +112,13 @@ citation is `volume reporter page`, and the reporter is one of a **closed set** 
 published abbreviations, not any capitalized word — so `1420 Maple 87501` cannot
 wear a citation's shape and be POSTed as one (F-3), and `347 F.3d 1120`, which the
 loose regex missed, is caught. An unknown reporter misses a cite; it never matches
-an address — the safe direction. With it, **every invariant this project's pending
-file ever held red is built and green** (`UNBUILT` is empty). Nothing here is
-installable by anyone who is not building it.
+an address — the safe direction. With it, ~~**every invariant this project's pending
+file ever held red is built and green** (`UNBUILT` is empty)~~ — true until
+2026-09-11, when `tests/test_invariants_pending.py` was reseeded with the sync and
+fleet wave: `keep.sync`, `keep.household`, `keep.fleet_cli` and `app.reveal` are
+red again, and six invariants (I-37…I-40, I-32, I-33) are claims rather than code.
+Everything that file ever held **before** that date is built and green. Nothing here
+is installable by anyone who is not building it.
 
 ## The method
 
