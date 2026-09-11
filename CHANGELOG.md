@@ -26,7 +26,6 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 ### Added
 
 * IntegrityLog.read_entries — the one public door for a log's content, refusing by name ([08570a8](https://github.com/homestead-affairs/homestead/commit/08570a8cc1b3daa52aba01968214e3d1a9104af2))
-* IntegrityLog.read_entries — the one public door for a log's content, refusing by name ([#68](https://github.com/homestead-affairs/homestead/issues/68)) ([ff33787](https://github.com/homestead-affairs/homestead/commit/ff337874081a9b7ecadc6d92769a03cd196a32d6))
 
 
 ### Fixed
