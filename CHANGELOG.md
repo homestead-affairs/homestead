@@ -26,13 +26,11 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 ### Added
 
 * the fleet stores any JSON served value as canonical text, so a structured L2 row crosses ([af71748](https://github.com/homestead-affairs/homestead/commit/af71748a04e6cd56e3ae5b25563b6ae1de0d577a))
-* the fleet stores any JSON served value as canonical text, so a structured L2 row crosses ([#70](https://github.com/homestead-affairs/homestead/issues/70)) ([e0f147d](https://github.com/homestead-affairs/homestead/commit/e0f147dfbd092b2a92f2e4a3a596593bbd5c9555))
 
 
 ### Fixed
 
 * give the _entries() alias a released minor of warning before removal ([f1e241a](https://github.com/homestead-affairs/homestead/commit/f1e241a50d6dbe61bc843aef6647df39733ecbee))
-* give the _entries() alias a released minor of warning before removal ([#72](https://github.com/homestead-affairs/homestead/issues/72)) ([a3826e6](https://github.com/homestead-affairs/homestead/commit/a3826e6ec654652e96999d9a28eadcac949c3c5d))
 * refuse a value nested past a named depth, on every interpreter ([cab631c](https://github.com/homestead-affairs/homestead/commit/cab631c873643a79b1ba02d5f5e3bce3509e14a5))
 * the fleet says what encoding a value row is in, and refuses again what E7b let through ([1568dda](https://github.com/homestead-affairs/homestead/commit/1568dda3374127e6b7f402fd0ff2bbcc16020cf6))
 
