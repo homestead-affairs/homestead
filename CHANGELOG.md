@@ -25,7 +25,6 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 
 ### Added
 
-* US-NM and US-OR court-deadline rules with per-branch verification status ([#56](https://github.com/homestead-affairs/homestead/issues/56)) ([229977a](https://github.com/homestead-affairs/homestead/commit/229977a16ba71787185e6c6ddc8c5b2f61d5bdaf))
 * US-NM and US-OR join the deadline rule table ([4f28f78](https://github.com/homestead-affairs/homestead/commit/4f28f78c1a9c62e82a0885f21d2dd4fc0f761ce3))
 
 
