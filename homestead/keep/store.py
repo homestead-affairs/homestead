@@ -59,6 +59,7 @@ __all__ = [
     "key", "InvalidKey", "RecordExists", "Replaced", "Due",
     "StorageAdapter", "FileAdapter", "SQLiteAdapter",
     "InvalidTable", "MissingFleetExtra", "PostgresAdapter",
+    "canonical_value_text", "VALUE_FORMAT_JSON", "VALUE_FORMAT_RAW",
     "Reader", "Sidecar", "Canonical",
 ]
 
@@ -304,6 +305,55 @@ class MissingFleetExtra(ImportError):
 
 _FLEET_TABLES = frozenset({SIDECAR, CANONICAL})
 
+#: What a fleet row's `value_format` column says its `value` text *is*.
+#: `"json"` — canonical JSON (`canonical_value_text`), every row written
+#: from E7b (2026-09-11) on. `"raw"` — the served value stored verbatim,
+#: every row written before it, and the column's `DEFAULT`, so an existing
+#: table gains the column with the truth already in it
+#: (`fleet_cli.ensure_schema`'s `ADD COLUMN IF NOT EXISTS`). The two are not
+#: distinguishable from the text alone — a pre-E7b amount `1450.00` is also
+#: good JSON for the *float* `1450.0` — which is why the column exists
+#: rather than a guess in `decode_value`.
+VALUE_FORMAT_JSON = "json"
+VALUE_FORMAT_RAW = "raw"
+
+
+def canonical_value_text(value: Any) -> str:
+    """Canonical JSON text for a fleet row's `value` — sorted keys, no
+    whitespace, unicode kept literal. The same shape `keep/sync.py`'s
+    `_canonical_bytes` freezes an envelope with, so there is one canonical
+    encoding in the codebase, not two that can drift.
+
+    `PostgresAdapter.insert`/`.write` store exactly this text in the fleet's
+    `value TEXT NOT NULL` column, alongside `value_format = VALUE_FORMAT_JSON`
+    so a reader never has to guess whether a row predates this encoding;
+    `keep/fleet_cli.py`'s `decode_value` is the way back out (E7b,
+    2026-09-11 — `docs/DECISION-fleet-ingest.md` § "Structured values").
+
+    A served value at `S4_EGRESS` may be `str`, a mapping, a list, a `bool`,
+    an `int`, or `None` (a ledger `transfers` pair is a mapping —
+    `{counterpart, from, to}`, the G5-sync audit's finding, 2026-09-11).
+    Every one of those round-trips through JSON; `None` becomes the four-
+    byte text `null`, never a SQL `NULL` — the column itself is unchanged.
+
+    **`allow_nan=False`.** Python's `json` writes `NaN`/`Infinity`/
+    `-Infinity` by default and none of the three is JSON — the text column
+    would hold something no other reader could parse, and `json.loads` would
+    take it back only because Python's decoder is equally lax. A non-finite
+    number raises `ValueError` here instead, the posture
+    `homestead_ledger.money.decimal_amount` already takes (I-11).
+
+    Raises `TypeError` for anything `json.dumps` cannot serialize (`bytes`,
+    a `set`, …), `ValueError` for a non-finite number or a circular
+    reference, `RecursionError` for a structure nested past the
+    interpreter's limit. `fleet_cli._validate_rows` is what turns each into
+    a refusal by name, before any row is written; a caller reaching this
+    directly, after that has run, is not expected to see one.
+    """
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    )
+
 
 class PostgresAdapter:
     """The fleet's own backing — a shared Postgres database one household's
@@ -320,7 +370,12 @@ class PostgresAdapter:
     `insert` returns the affected row count rather than a bare bool, so a
     caller can tell "already there" (`0`) from "written" (`1`) without a
     second read — `keep/fleet_cli.py`'s canonical insert-only count depends
-    on it.
+    on it. They also take `value` as whatever JSON-shaped thing `serve()`
+    returned — `str`, a mapping, a list, a `bool`, an `int`, or `None` — and
+    canonicalize it to text themselves via `canonical_value_text`, writing
+    `value_format = VALUE_FORMAT_JSON` beside it (E7b, 2026-09-11);
+    `StorageAdapter.insert`/`.write` take an already-serialized blob, and
+    this is the one deliberate place the two contracts differ.
 
     `psycopg` is imported inside `__init__`, never at module load — the one
     caller that ever needs it already needs the extra. Table names are
@@ -427,7 +482,32 @@ class PostgresAdapter:
             )
         return table
 
+    def read_value(self, table: str, ref: Ref) -> tuple[str, str] | None:
+        """`(value_text, value_format)` for one fleet row, or `None`.
+
+        Not part of `StorageAdapter`, whose `read()` hands back the stored
+        text and nothing else. This is the fleet's own read, and it exists
+        because the text alone does not say what it *is*: a row written
+        before E7b (2026-09-11) holds the served string verbatim
+        (`VALUE_FORMAT_RAW`), one written after holds canonical JSON
+        (`VALUE_FORMAT_JSON`), and a pre-E7b ledger amount `1450.00` reads
+        as perfectly good JSON for the float `1450.0`. `fleet_cli.
+        decode_value` takes both halves for that reason (I-11).
+        """
+        table = self._table(table)
+        matter, item_type, item_id = ref
+        with self._cursor() as cur:
+            cur.execute(
+                f"SELECT value, value_format FROM {table} WHERE household=%s "
+                "AND matter=%s AND item_type=%s AND item_id=%s",
+                (self._household, matter, item_type, item_id),
+            )
+            row = cur.fetchone()
+        return (row[0], row[1]) if row is not None else None
+
     def read(self, table: str, ref: Ref) -> str | None:
+        """The `StorageAdapter` read — the stored text, with no word on what
+        encoding it is in. Use `read_value()` when that matters."""
         table = self._table(table)
         matter, item_type, item_id = ref
         with self._cursor() as cur:
@@ -450,39 +530,54 @@ class PostgresAdapter:
             rows = cur.fetchall()
         return [((matter, it, ii), value) for it, ii, value in rows]
 
-    def insert(self, table: str, ref: Ref, blob: str, *, envelope: str, synced_at: str) -> int:
+    def insert(self, table: str, ref: Ref, value: Any, *, envelope: str, synced_at: str) -> int:
         """`INSERT … ON CONFLICT DO NOTHING`, returning the row count. `0`
         means the key was already there — canonical rows are append-only,
         and `keep/fleet_cli.py` counts a `0` here as skipped, never
-        overwritten."""
+        overwritten.
+
+        `value` is the served value as-is (`str`, a mapping, a list, a
+        `bool`, an `int`, or `None`) — `canonical_value_text` turns it into
+        the text this stores, and `value_format` records that that is what
+        the text is (E7b, 2026-09-11)."""
         table = self._table(table)
         matter, item_type, item_id = ref
+        blob = canonical_value_text(value)
         with self._cursor() as cur:
             cur.execute(
                 f"INSERT INTO {table} "
-                "(household, matter, item_type, item_id, value, envelope, synced_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s) "
+                "(household, matter, item_type, item_id, value, value_format, "
+                "envelope, synced_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
                 "ON CONFLICT (household, matter, item_type, item_id) DO NOTHING",
-                (self._household, matter, item_type, item_id, blob, envelope, synced_at),
+                (self._household, matter, item_type, item_id, blob,
+                 VALUE_FORMAT_JSON, envelope, synced_at),
             )
             count = cur.rowcount
         return count
 
-    def write(self, table: str, ref: Ref, blob: str, *, envelope: str, synced_at: str) -> None:
+    def write(self, table: str, ref: Ref, value: Any, *, envelope: str, synced_at: str) -> None:
         """Upsert — the sidecar's shape: a later sync of the same key
         replaces it (never used for the canonical table, which is
-        insert-only at the fleet too)."""
+        insert-only at the fleet too). `value` is canonicalized the same
+        way `insert` does, and `value_format` is carried through the
+        `DO UPDATE` too — a pre-E7b `"raw"` row that this upsert replaces
+        becomes a `"json"` row, because its text now *is* JSON (E7b,
+        2026-09-11)."""
         table = self._table(table)
         matter, item_type, item_id = ref
+        blob = canonical_value_text(value)
         with self._cursor() as cur:
             cur.execute(
                 f"INSERT INTO {table} "
-                "(household, matter, item_type, item_id, value, envelope, synced_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s) "
+                "(household, matter, item_type, item_id, value, value_format, "
+                "envelope, synced_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
                 "ON CONFLICT (household, matter, item_type, item_id) DO UPDATE SET "
-                "value=excluded.value, envelope=excluded.envelope, "
-                "synced_at=excluded.synced_at",
-                (self._household, matter, item_type, item_id, blob, envelope, synced_at),
+                "value=excluded.value, value_format=excluded.value_format, "
+                "envelope=excluded.envelope, synced_at=excluded.synced_at",
+                (self._household, matter, item_type, item_id, blob,
+                 VALUE_FORMAT_JSON, envelope, synced_at),
             )
 
 
