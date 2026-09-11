@@ -90,6 +90,76 @@ def _query_one(dsn, sql, params):
         conn.close()
 
 
+def _execute(dsn, sql, params=()):
+    import psycopg
+
+    conn = psycopg.connect(dsn)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_a_pre_e7b_row_reads_back_as_raw_text_and_an_upsert_moves_it_to_json():
+    """**The migration E7b said it did not need (E7b audit, 2026-09-11).**
+
+    Every fleet row written before this bite holds the *served string*
+    verbatim — `PostgresAdapter.insert`/`.write` took an already-serialized
+    blob and passed it straight to the statement — so `2026-10-06` is in
+    that column, not `"2026-10-06"`. The bite's note claimed those rows were
+    "already a JSON string literal" and so needed no migration; they are
+    not, and `json.loads` on one either raises or, on an amount like
+    `1450.00`, quietly hands back a float.
+
+    The column `value_format` is the whole migration: `ensure_schema`'s
+    `ADD COLUMN IF NOT EXISTS … DEFAULT 'raw'` lands on the rows that were
+    there first, which are exactly the raw ones. This plants such a row —
+    inserted without naming the column, the way a pre-E7b `insert` did —
+    and reads it back through the door the fleet gives a reader.
+    """
+    import psycopg
+
+    from homestead.keep import fleet_cli
+    from homestead.keep.store import SIDECAR, PostgresAdapter, VALUE_FORMAT_JSON
+
+    hh = _hh("legacy")
+    conn = psycopg.connect(DSN)
+    try:
+        fleet_cli.ensure_schema(conn)
+    finally:
+        conn.close()
+
+    # Exactly the statement the pre-E7b adapter ran: no `value_format`, so
+    # the column's DEFAULT decides — and the default is the truth here.
+    _execute(
+        DSN,
+        "INSERT INTO sidecar (household, matter, item_type, item_id, value, "
+        "envelope, synced_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (hh, "custody", "deadline", "old", "2026-10-06", "e-old",
+         "2026-01-01T00:00:00+00:00"),
+    )
+
+    adapter = PostgresAdapter(DSN, household=hh)
+    text, value_format = adapter.read_value(SIDECAR, ("custody", "deadline", "old"))
+    assert (text, value_format) == ("2026-10-06", "raw")
+    assert fleet_cli.decode_value(text, value_format=value_format) == fleet_cli.Decoded(
+        "2026-10-06", legacy=True
+    ), "a pre-E7b row is the text it is — never re-typed by a json.loads guess"
+
+    # A later sync of the same key writes canonical JSON, and says so.
+    adapter.write(
+        SIDECAR, ("custody", "deadline", "old"), "2026-11-01",
+        envelope="e-new", synced_at="2026-02-01T00:00:00+00:00",
+    )
+    text, value_format = adapter.read_value(SIDECAR, ("custody", "deadline", "old"))
+    assert (text, value_format) == ('"2026-11-01"', VALUE_FORMAT_JSON)
+    assert fleet_cli.decode_value(text, value_format=value_format) == fleet_cli.Decoded(
+        "2026-11-01", legacy=False
+    )
+
+
 def test_ddl_is_idempotent():
     """`ensure_schema()` runs at the top of every ingest — a second call
     against a database it already shaped must not raise."""
@@ -404,12 +474,14 @@ def test_the_adapter_and_the_ingest_write_the_same_row():
     ts = "2026-01-01T00:00:00+00:00"
     assert adapter.insert(CANONICAL, ("custody", "note", "c"), value, envelope="e1", synced_at=ts) == 1
     assert adapter.insert(CANONICAL, ("custody", "note", "c"), "OTHER", envelope="e2", synced_at=ts) == 0
-    (stored,) = _query_one(
-        DSN, "SELECT value FROM canonical WHERE household=%s AND item_id='c'", (hb,)
+    (stored, stored_format) = _query_one(
+        DSN,
+        "SELECT value, value_format FROM canonical WHERE household=%s AND item_id='c'",
+        (hb,),
     )
-    assert fleet_cli.decode_value(stored) == value, (
-        "canonical is insert-only — DO NOTHING, never overwritten"
-    )
+    assert fleet_cli.decode_value(stored, value_format=stored_format) == fleet_cli.Decoded(
+        value, legacy=False
+    ), "canonical is insert-only — DO NOTHING, never overwritten"
 
 
 def test_a_stale_envelope_is_refused_and_allow_stale_leaves_the_anchor():
@@ -445,7 +517,8 @@ def test_two_households_in_one_database_never_see_each_others_rows():
     constructed with, and the primary key carries it — the same key in two
     households is two rows, and a read of one never returns the other.
     `.read()`/`.read_matter()` hand back the stored text as-is —
-    `fleet_cli.decode_value` is what turns it back into "one"/"two"."""
+    `fleet_cli.decode_value`, told the row's `value_format`, is what turns
+    it back into "one"/"two"."""
     from homestead.keep import fleet_cli
     from homestead.keep.store import SIDECAR, PostgresAdapter
 
@@ -453,14 +526,17 @@ def test_two_households_in_one_database_never_see_each_others_rows():
     fleet_cli.ingest(_envelope_for(h1, [_hostile_row(item_id="same", value="one")]), DSN)
     fleet_cli.ingest(_envelope_for(h2, [_hostile_row(item_id="same", value="two")]), DSN)
 
-    assert fleet_cli.decode_value(
-        PostgresAdapter(DSN, household=h1).read(SIDECAR, ("custody", "note", "same"))
-    ) == "one"
-    assert fleet_cli.decode_value(
-        PostgresAdapter(DSN, household=h2).read(SIDECAR, ("custody", "note", "same"))
-    ) == "two"
+    for household, expected in ((h1, "one"), (h2, "two")):
+        text, value_format = PostgresAdapter(DSN, household=household).read_value(
+            SIDECAR, ("custody", "note", "same")
+        )
+        assert fleet_cli.decode_value(text, value_format=value_format) == fleet_cli.Decoded(
+            expected, legacy=False
+        )
     [(ref, stored)] = PostgresAdapter(DSN, household=h1).read_matter(SIDECAR, "custody")
-    assert ref == ("custody", "note", "same") and fleet_cli.decode_value(stored) == "one"
+    assert ref == ("custody", "note", "same") and fleet_cli.decode_value(
+        stored, value_format="json"
+    ) == fleet_cli.Decoded("one", legacy=False)
     assert _query_one(
         DSN, "SELECT count(*) FROM sidecar WHERE item_id='same' AND household IN (%s,%s)", (h1, h2)
     ) == (2,)
