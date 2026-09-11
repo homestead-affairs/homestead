@@ -18,14 +18,21 @@ from typing import Any
 
 from homestead.keep.rungs import Rung, classify_schema
 
-__all__ = ["MATTER", "JURISDICTION", "SCHEMA", "FIELDS"]
+__all__ = ["MATTER", "JURISDICTION", "JURISDICTIONS", "SCHEMA", "FIELDS"]
 
 MATTER = "bankruptcy"
 JURISDICTION = "US-federal"
+#: Every jurisdiction an instance of this matter may be filed under. `JURISDICTION`
+#: is the default a new instance starts with; `_validate` (decision 1) requires
+#: the default itself be one of this tuple's members.
+JURISDICTIONS: tuple[str, ...] = ("US-federal",)
 
 
-def _field(rung: Rung, why: str) -> dict[str, Any]:
-    return {"rung": rung, "matter": MATTER, "jurisdiction": JURISDICTION, "why": why}
+def _field(rung: Rung, why: str, *, derived: str | None = None) -> dict[str, Any]:
+    decl = {"rung": rung, "matter": MATTER, "jurisdiction": JURISDICTION, "why": why}
+    if derived is not None:
+        decl["derived"] = derived
+    return decl
 
 
 SCHEMA: dict[str, dict[str, Any]] = {
@@ -74,17 +81,20 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "financial obligations (step 2 yes). Not L1 despite the public schedule: "
         "aggregated creditor data reveals the debtor's financial posture in "
         "full, which is L3 material (step 2, then step 4 does not raise it).",
+        derived="A creditor list is on file",
     ),
     "income": _field(
         Rung.L3,
         "the debtor's household income — resolves to a person's financial "
         "situation (step 2 yes, step 3 no). Filed under seal in some districts "
         "but required for the means test.",
+        derived="Household income is on file",
     ),
     "assets": _field(
         Rung.L3,
         "the debtor's asset schedule — resolves to financial position (step 2). "
         "Public on the docket but aggregated here as structured data.",
+        derived="An asset schedule is on file",
     ),
     "notes": _field(
         Rung.L4,
@@ -92,6 +102,7 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "custody's notes field: resolves to a person and routinely carries "
         "categories a model prompt must not see (step 3). L4 blocks it from "
         "S2 (ceiling L2) and S3.",
+        derived="An operator note is on file",
     ),
     "ssn": _field(
         Rung.L5,
