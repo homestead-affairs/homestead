@@ -59,14 +59,22 @@ So there are two, with different powers:
     with a head the operator recorded **off the machine**. `head()` is public
     so that is possible; nothing forces it.
 
-  **There is no encryption** — that stays a deliberate **Phase 4** item (E6,
-  `keep/sealed.py`), not an oversight. ~~and no key~~ (struck 2026-09-11, E5):
-  the key above closes the forged-chain gap; it does not make the log
-  unreadable to whoever has filesystem access, which is what sealing is for.
-  F-6 recommended hash-chained *and* encrypted; key management for a person in
-  crisis is a product decision, and a user who loses the key loses the ability
-  to verify (not to read) the record permanently. Decided 2026-08-04: rename
-  and anchor first, key next (E5, this bite), encrypt last (E6).
+  ~~**There is no encryption** — that stays a deliberate **Phase 4** item
+  (E6, `keep/sealed.py`), not an oversight.~~ **Closed 2026-09-11 (E6), for a
+  log that opts in.** `IntegrityLog` now takes `sealed=True` (or auto-detects
+  a log `homestead integrity seal` already turned): from the sealed boundary
+  row on, every line is AES-256-GCM ciphertext (`keep/sealed.py`), keyed off
+  the same `integrity.key` by HKDF rather than a second secret. `~~and no
+  key~~` (struck 2026-09-11, E5): the key above closes the forged-chain gap;
+  keying alone does not make the log unreadable to whoever has filesystem
+  access — sealing does, for the segment written after it turns on. F-6
+  recommended hash-chained *and* encrypted; a household that never runs
+  `homestead integrity seal` keeps the E5 posture exactly (a user who loses
+  the key loses the ability to verify, not to read); one that does trades up
+  to E6's, where losing the key loses the ability to read the sealed segment
+  too — no escrow, stated in `docs/DECISION-integrity-key-management.md`
+  §8, not discovered later. Decided 2026-08-04: rename and anchor first, key
+  next (E5), encrypt last (E6, this bite).
 
   The absence of a `read()` method is a **naming convention, not a control**.
   `_lines()` returns everything and `.path` is public. It shapes the app's own
@@ -97,6 +105,8 @@ __all__ = [
     "VisibleLog", "IntegrityLog", "Event", "line_hash",
     "IntegrityKeyError", "init_key", "read_key", "default_key_path",
     "default_marker_path", "KEY_BYTES", "BOUNDARY_ACT",
+    "IntegritySealError", "SEAL_BOUNDARY_ACT", "default_sealed_marker_path",
+    "describe_verification",
 ]
 
 GENESIS = "genesis"
@@ -121,9 +131,26 @@ KEY_BYTES = 32
 BOUNDARY_ACT = "keyed"
 
 #: Which logs have turned keyed, recorded beside the key rather than inside
-#: the log an attacker is rewriting. See `_record_keyed` for what this closes
+#: the log an attacker is rewriting. See `_record_boundary` for what this closes
 #: and, precisely, what it does not.
 MARKER_FILENAME = "integrity.keyed"
+
+#: The tag on the one line that marks where an `IntegrityLog` turned
+#: *sealed* (E6, Phase 4) — the exact parallel of `BOUNDARY_ACT` for keying.
+#: Lines before it verify as they always did (plaintext, keyed or not);
+#: this line and every line after are the AES-256-GCM ciphertext wrapper
+#: format `keep/sealed.py` defines. Written once, by `IntegrityLog.seal()`
+#: or lazily by the first `append()` on an instance with `sealed=True` —
+#: never by `init-key`, which only makes the key. A sealed log is keyed
+#: first: this row itself, like the `BOUNDARY_ACT` row before it, is a
+#: plaintext keyed line, so a reader without the *sealing* extra can still
+#: find where sealing began.
+SEAL_BOUNDARY_ACT = "sealed"
+
+#: Which logs have turned sealed, recorded beside the key — the parallel of
+#: `MARKER_FILENAME` for keying. `IntegrityLog(sealed=None)` (the default)
+#: reads this to decide whether a log it was not told about is sealed.
+SEALED_MARKER_FILENAME = "integrity.sealed"
 
 
 class IntegrityKeyError(Exception):
@@ -131,6 +158,19 @@ class IntegrityKeyError(Exception):
     unreadable as a key, or an existing key would be overwritten. Never
     confused with `verify()` returning `False` — that is tamper detection;
     this is "the key needed to even ask the question is missing or broken."
+    """
+
+
+class IntegritySealError(Exception):
+    """Refuse by name (I-11), for sealing specifically: the `sealed` extra
+    (`cryptography`) is not installed, or a sealed log's key is absent.
+    Distinct from `IntegrityKeyError` because the two name different fixes
+    — `pip install "homestead-affairs[sealed]"` versus `homestead integrity
+    init-key` — and a caller catching one should not have to guess which
+    applies. Never confused with `verify()` returning `False`: this is
+    "cannot even ask the question," not a finding about the log. There is
+    **no plaintext fallback** for any of these — a sealed log that cannot be
+    unsealed is refused, never silently served as if it were not sealed.
     """
 
 
@@ -213,6 +253,10 @@ def default_marker_path() -> Path:
     return paths.anchors_dir() / MARKER_FILENAME
 
 
+def default_sealed_marker_path() -> Path:
+    return paths.anchors_dir() / SEALED_MARKER_FILENAME
+
+
 def _log_tag(path: Path) -> str:
     """A log's line in the marker: a digest of its resolved path, never the
     path itself. Fixed-width (no escaping question), and the marker discloses
@@ -233,9 +277,13 @@ def _boundary_commitment(boundary_hash: str) -> str:
     return hashlib.sha256(f"homestead-integrity-boundary:{boundary_hash}".encode()).hexdigest()
 
 
-def _recorded_boundary(path: Path) -> str | None:
+def _recorded_boundary(path: Path, *, marker_path: Path | None = None) -> str | None:
     """The commitment recorded when this log turned keyed, or `None` if this
-    log has no marker line.
+    log has no marker line. `marker_path` defaults to the keyed marker
+    (`default_marker_path()`); `IntegrityLog`'s sealed-boundary bookkeeping
+    passes `default_sealed_marker_path()` through the same function rather
+    than a second copy of it — the shape (a digest of the path, a commitment
+    to a boundary row's keyed hash, one line per log) is identical for both.
 
     **What this closes.** Without it, a forger without the key does not need
     to forge an HMAC at all: they delete the `{"act": "keyed"}` row, re-chain
@@ -252,7 +300,7 @@ def _recorded_boundary(path: Path) -> str | None:
     does not make an on-machine adversary impossible, which F-5 says no
     application can. See `docs/DECISION-integrity-key-management.md` §4a.
     """
-    marker = default_marker_path()
+    marker = marker_path or default_marker_path()
     if not marker.exists():
         return None
     tag = _log_tag(path)
@@ -267,13 +315,14 @@ def _recorded_boundary(path: Path) -> str | None:
     return None
 
 
-def _record_keyed(path: Path, boundary_hash: str) -> None:
-    """Record that `path` turned keyed, at this boundary row. Append-only and
-    `0o600`, beside the key: one line per log, `<path digest> <commitment>`.
+def _record_boundary(path: Path, boundary_hash: str, *, marker_path: Path | None = None) -> None:
+    """Record that `path` turned keyed (or sealed — see `marker_path`) at
+    this boundary row. Append-only and `0o600`, beside the key: one line per
+    log, `<path digest> <commitment>`.
     """
-    if _recorded_boundary(path) is not None:
+    marker = marker_path or default_marker_path()
+    if _recorded_boundary(path, marker_path=marker) is not None:
         return
-    marker = default_marker_path()
     paths.ensure(marker.parent)
     fd = os.open(str(marker), os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
     try:
@@ -329,12 +378,15 @@ def line_hash(entry: dict[str, Any], key: bytes | None = None) -> str:
     return hmac.new(key, canonical, hashlib.sha256).hexdigest()
 
 
-def _boundary_index(lines: list[dict[str, Any]]) -> int | None:
-    """The index of the `{"act": "keyed"}` marker, or `None` if this chain
-    has never turned keyed. Lines at or after this index verify keyed; lines
-    before it verify unkeyed, whatever the caller's current key is."""
+def _boundary_index(lines: list[dict[str, Any]], *, act: str = BOUNDARY_ACT) -> int | None:
+    """The index of the `{"act": act}` marker, or `None` if this chain has
+    never turned that act. Defaults to `BOUNDARY_ACT` (keying); passing
+    `act=SEAL_BOUNDARY_ACT` finds the sealing boundary the same way — the
+    sealing search is unaffected by whether a keying boundary exists too,
+    since a sealed log's boundary rows are always in `keyed, then sealed`
+    order and each is found by its own `act` value independently."""
     for i, entry in enumerate(lines):
-        if entry.get("act") == BOUNDARY_ACT:
+        if entry.get("act") == act:
             return i
     return None
 
@@ -345,12 +397,42 @@ def _hash_at(entry: dict[str, Any], idx: int, boundary: int | None, key: bytes |
     to be in hand right now. A keyed position without a key refuses by name
     (I-11): returning an unkeyed hash there would silently accept a chain a
     forger built without the key, which is exactly the gap keying exists to
-    close."""
+    close.
+
+    A sealed line (`keep/sealed.py`'s ciphertext wrapper, `entry["sealed"]
+    == 1`) carries its own contribution to the chain as its `hash` field —
+    computed at seal time, over the plaintext, before encryption — so this
+    needs no key and no decryption to keep walking the chain (I-27's "chain
+    still verifies by hash without decrypting"). Whether that `hash` field
+    is *honest* is a stronger question `IntegrityLog.verify()`'s decrypting
+    pass answers separately; this function only walks positions.
+    """
+    if entry.get("sealed") == 1:
+        digest = entry.get("hash")
+        if not isinstance(digest, str):
+            raise ValueError(f"a sealed line at position {idx} has no hash field")
+        return digest
     if boundary is not None and idx >= boundary:
         if key is None:
             raise IntegrityKeyError("this log is keyed; the key is absent")
         return line_hash(entry, key)
     return line_hash(entry)
+
+
+def describe_verification(ok: bool, *, sealed: bool, decrypt: bool) -> str:
+    """The three things `IntegrityLog.verify()`'s boolean can mean, spelled
+    out — because a sealed log checked with `decrypt=False` proves *less*
+    than an ordinary pass and must never be announced identically as "ok"
+    (item 3 of the E6 bite: never report a sealed log clean by hashing
+    ciphertext alone without saying so). `ok=False` is always "FAILED",
+    sealed or not — a broken chain is a broken chain. Only a *passing*
+    check on a sealed log, read without decrypting, gets the third answer.
+    """
+    if not ok:
+        return "FAILED"
+    if sealed and not decrypt:
+        return "chain verified, contents not authenticated"
+    return "ok"
 
 
 def _now() -> str:
@@ -417,6 +499,7 @@ class IntegrityLog:
         anchor_path: Path | None = None,
         key: bytes | None = None,
         keyed: bool | None = None,
+        sealed: bool | None = None,
     ) -> None:
         """`keyed` controls whether this instance uses the HMAC key, in three
         states — pick one, don't guess from context:
@@ -437,6 +520,38 @@ class IntegrityLog:
         tests that want a known key without touching `anchors_dir()`.
         Contradicts `keyed=False` (a key was handed over on purpose) and that
         combination is refused rather than silently resolved either way.
+
+        `sealed` (E6, Phase 4) is the same three-state shape, layered on top
+        of keying — sealing uses the same raw key (`keep/sealed.py`'s HKDF
+        derives an independent AES subkey from it; there is no second
+        secret to lose):
+
+        * `None` (default) — **auto**. Sealed iff `default_sealed_marker_path()`
+          records this log's sealing boundary **or** the log itself carries the
+          `{"act": "sealed"}` row (`_has_sealed_boundary`) — either witness is
+          enough, so deleting the marker file does not turn sealing off.
+          Never refuses at construction
+          even if the `sealed` extra or the key is missing — a caller that
+          only wants `verify(decrypt=False)` (needs the key, via stdlib
+          `hmac`, for the keyed scaffolding under any sealing; never the
+          `cryptography` extra) must still be able to build this object;
+          `append()`/`verify(decrypt=True)`/`_entries()` check for
+          themselves, lazily, only when they would actually touch
+          ciphertext. A key-less log cannot be verified at all, sealed or
+          not — that is unchanged from E5 and `decrypt` does not alter it.
+        * `True` — **require** sealing. Refuses at construction
+          (`IntegritySealError`, naming what is missing) if the key is
+          absent or the `cryptography` extra is not installed — never a
+          silent plaintext fallback (I-11).
+        * `False` — **force unsealed**, even with a marker present. For a
+          caller with a specific reason to read the pre-seal segment. It is a
+          *read-side* escape hatch only: `append()` on a log that carries the
+          sealed boundary row refuses by name rather than writing plaintext
+          after it (a downgrade), whatever this flag says.
+
+        Unsealing is not offered: nothing in this codebase turns a sealed
+        log back to plaintext going forward. See
+        `docs/DECISION-integrity-key-management.md`'s Sealing section.
         """
         self.path = path or (paths.logs_dir() / "integrity.jsonl")
         # The anchor defaults to a `.head` file beside the log — unchanged, so
@@ -446,6 +561,56 @@ class IntegrityLog:
         # does, putting it under `paths.anchors_dir()`.
         self.anchor_path = anchor_path or self.path.with_suffix(".head")
         self.key = self._resolve_key(key, keyed)
+        self.sealed = self._resolve_sealed(sealed)
+
+    def _resolve_sealed(self, sealed: bool | None) -> bool:
+        if sealed is False:
+            return False
+        if sealed is True:
+            self._require_sealing_ready()
+            return True
+        # sealed is None: auto — see the constructor docstring for why this
+        # branch never raises, unlike the other two.
+        if _recorded_boundary(self.path, marker_path=default_sealed_marker_path()) is not None:
+            return True
+        # The marker is a file on the same machine, and deleting it must not
+        # be a way to turn sealing off (the E6 audit planted exactly that: with
+        # only the marker consulted, `rm anchors/integrity.sealed` made the very
+        # next `append()` write plaintext after the sealed boundary, and
+        # `verify()` still said ok). The log's own `{"act": "sealed"}` row is
+        # the stronger witness — it is chained and keyed, so removing *it*
+        # needs the key — so auto-detection reads it too and the two must both
+        # be gone before a log stops looking sealed.
+        return self._has_sealed_boundary()
+
+    def _has_sealed_boundary(self) -> bool:
+        """Whether this log's own lines carry the `{"act": "sealed"}` row.
+
+        Defensive on purpose: a log whose tail is a half-written line from a
+        crash must still *construct* (`verify()` is where that becomes a
+        `False`), so an unparseable file answers "no boundary found here"
+        rather than raising out of `__init__`."""
+        try:
+            return _boundary_index(self._lines(), act=SEAL_BOUNDARY_ACT) is not None
+        except (json.JSONDecodeError, OSError):
+            return False
+
+    def _require_sealing_ready(self):
+        """The key and the `cryptography` extra, both present, or refuse by
+        name (`IntegritySealError`) naming whichever is missing — before any
+        I/O. Returns the `sealed` module (imported here, lazily, and nowhere
+        else at module scope in this file — I-27) so a caller does not need
+        a second import statement."""
+        if self.key is None:
+            raise IntegritySealError(
+                "sealing requires the integrity key, and none is available "
+                "to this log — run `homestead integrity init-key` first, or "
+                "pass key=... / keyed=True"
+            )
+        from . import sealed as _sealed_mod
+
+        _sealed_mod.require_available()
+        return _sealed_mod
 
     @staticmethod
     def _resolve_key(key: bytes | None, keyed: bool | None) -> bytes | None:
@@ -514,6 +679,53 @@ class IntegrityLog:
         boundary = _boundary_index(lines)
         return _hash_at(lines[-1], len(lines) - 1, boundary, self.key)
 
+    def _entries(self, *, decrypt: bool = True) -> Iterable[dict[str, Any]]:
+        """Yield each entry this log actually recorded — boundary rows
+        (`BOUNDARY_ACT`, `SEAL_BOUNDARY_ACT`) skipped, sealed lines
+        decrypted when `decrypt` (the default).
+
+        Leading underscore on purpose: `tests/test_invariants_logs.py`'s
+        `test_sealed_log_has_no_public_read_method` forbids a bare `entries`
+        accessor for the same reason it forbids `read`/`render`/`tail` —
+        "the absence of a `read()` method is a naming convention, not a
+        control" (the module docstring), and this bite does not get to
+        reopen that decision just because it needed an internal one. Callers
+        within `homestead.keep` (and this module's own `verify()`) use it by
+        name; nothing surfaces it as an app-facing accessor.
+
+        **The one door for a log's content.** `sync._already_delivered` and
+        `export`'s own re-reads went through a bare `json.loads` over the
+        file before this bite, which a sealed log's ciphertext wrapper would
+        break silently (`entry.get("act")` on `{"sealed": 1, ...}` is always
+        `None`). Every such reader routes through this instead, so a sealed
+        log's ciphertext is invisible to callers that never asked to see it
+        — I-16's chokepoint idea, applied to this file rather than the
+        record store.
+
+        `decrypt=False` yields only the plaintext (unsealed or pre-boundary)
+        entries and silently skips sealed ones — for a caller that wants
+        what it can read without the key, not a refusal for what it cannot.
+        `decrypt=True` (the default) requires the key and the `cryptography`
+        extra the moment a sealed line is actually reached, refusing by name
+        (`IntegritySealError`) rather than guessing or fabricating content.
+        """
+        sealed_mod = None
+        for entry in self._lines():
+            if entry.get("act") in (BOUNDARY_ACT, SEAL_BOUNDARY_ACT):
+                continue
+            if entry.get("sealed") == 1:
+                if not decrypt:
+                    continue
+                if self.key is None:
+                    raise IntegritySealError(
+                        "this log is sealed; the key is absent — sealing "
+                        f"requires the key at {default_key_path()}"
+                    )
+                if sealed_mod is None:
+                    from . import sealed as sealed_mod       # lazy import, I-27
+                entry = sealed_mod.unseal_line(entry, key=self.key)
+            yield entry
+
     def _ensure_boundary(self, fh) -> None:
         """Write the `{"act": "keyed"}` boundary row, once — the first time
         this log is appended to while a key is present. `init-key` itself
@@ -531,7 +743,49 @@ class IntegrityLog:
         self._write_anchor(boundary_hash, keyed=True)
         # The second place the turning point is written, so deleting this row
         # downgrades the log loudly instead of silently (`_recorded_boundary`).
-        _record_keyed(self.path, boundary_hash)
+        _record_boundary(self.path, boundary_hash)
+
+    def _ensure_sealed_boundary(self, fh) -> None:
+        """Write the `{"act": "sealed"}` boundary row, once — the exact
+        parallel of `_ensure_boundary` for keying, called after it (a sealed
+        log is keyed first: this row, and the plaintext prefix before it,
+        verify by keyed HMAC, never by AES-GCM — a row that says "everything
+        from here is ciphertext" cannot itself be the first ciphertext line,
+        or a reader could not even find where sealing began). Idempotent.
+        """
+        if _boundary_index(self._lines(), act=SEAL_BOUNDARY_ACT) is not None:
+            return
+        marker = {"act": SEAL_BOUNDARY_ACT, "at": _now(), "prev": self.head()}
+        fh.write(_canonical(marker) + "\n")
+        fh.flush()
+        boundary_hash = line_hash(marker, self.key)
+        self._write_anchor(boundary_hash, keyed=True)
+        _record_boundary(self.path, boundary_hash, marker_path=default_sealed_marker_path())
+
+    def seal(self) -> None:
+        """`homestead integrity seal`'s domain call: start sealing this log
+        from here on. Requires the key and the `cryptography` extra —
+        refused by name (`IntegritySealError`), before writing anything,
+        never a partial seal. Ensures the keyed boundary first (sealing
+        implies keying; there is no separate sealing secret), then the
+        sealed boundary row, then marks this instance so `append()`
+        encrypts from now on. Idempotent: a log that already carries the
+        sealed boundary row is left alone. **Unsealing is not offered** —
+        nothing in this codebase turns a sealed log back to plaintext.
+        """
+        self._require_sealing_ready()
+        paths.ensure(self.path.parent)
+        with _APPEND_LOCK:
+            with self.path.open("a", encoding="utf-8") as fh:
+                if _HAVE_FCNTL:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                try:
+                    self._ensure_boundary(fh)
+                    self._ensure_sealed_boundary(fh)
+                finally:
+                    if _HAVE_FCNTL:
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        self.sealed = True
 
     def append(self, entry: dict[str, Any]) -> None:
         """Append one entry, reading the tail and writing under one lock.
@@ -552,7 +806,11 @@ class IntegrityLog:
 
         When `self.key` is set, the first call also writes the boundary row
         (see `_ensure_boundary`) before the entry itself, so every entry this
-        call writes from here on is unambiguously on the keyed side.
+        call writes from here on is unambiguously on the keyed side. When
+        `self.sealed` is set (E6), the same happens one layer further: the
+        sealed boundary row is ensured, then the entry itself is encrypted
+        (`keep/sealed.py:seal_line`) rather than written plaintext — never a
+        silent plaintext fallback if sealing was asked for (I-11).
         """
         paths.ensure(self.path.parent)
         with _APPEND_LOCK:
@@ -562,21 +820,46 @@ class IntegrityLog:
                 try:
                     if self.key is not None:
                         self._ensure_boundary(fh)
-                    sealed = dict(entry)
-                    sealed["at"] = _now()
-                    sealed["prev"] = self.head()   # re-read inside the lock
-                    fh.write(_canonical(sealed) + "\n")
+                    sealed_mod = None
+                    if self.sealed:
+                        sealed_mod = self._require_sealing_ready()
+                        self._ensure_sealed_boundary(fh)
+                    elif self._has_sealed_boundary():
+                        # A downgrade, refused by name rather than written.
+                        # `IntegrityLog(path, sealed=False)` is a read-side
+                        # escape hatch for the pre-seal segment, never a
+                        # licence to put a plaintext line *after* the row that
+                        # says everything from here is ciphertext — that line
+                        # would chain and verify clean, and the content it
+                        # leaked to disk would be unrecoverable from the file.
+                        raise IntegritySealError(
+                            f"{self.path} carries a sealed boundary; appending "
+                            "a plaintext line after it would downgrade the log "
+                            "— refused (construct without sealed=False, or seal "
+                            "a different log)"
+                        )
+                    plain = dict(entry)
+                    plain["at"] = _now()
+                    plain["prev"] = self.head()   # re-read inside the lock,
+                    #                                after any boundary rows
+                    #                                this call just wrote
+                    if sealed_mod is not None:
+                        line = sealed_mod.seal_line(plain, key=self.key, prev=plain["prev"])
+                        head_hash = line["hash"]
+                    else:
+                        line = plain
+                        # The anchor is a separate file, so truncating the
+                        # log without also editing this is caught by verify().
+                        keyed_now = self.key is not None
+                        head_hash = line_hash(plain, self.key) if keyed_now else line_hash(plain)
+                    fh.write(_canonical(line) + "\n")
                     fh.flush()
-                    # The anchor is a separate file, so truncating the log
-                    # without also editing this is caught by verify().
-                    keyed_now = self.key is not None
-                    head_hash = line_hash(sealed, self.key) if keyed_now else line_hash(sealed)
-                    self._write_anchor(head_hash, keyed=keyed_now)
+                    self._write_anchor(head_hash, keyed=(self.key is not None))
                 finally:
                     if _HAVE_FCNTL:
                         fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
-    def verify(self, expected_head: str | None = None) -> bool:
+    def verify(self, expected_head: str | None = None, *, decrypt: bool = True) -> bool:
         """Walk the chain and check it against the anchor.
 
         `expected_head`, if given, wins over the on-disk anchor — it is the only
@@ -589,7 +872,33 @@ class IntegrityLog:
         deleting it and re-chaining the survivors with plain SHA-256 is what a
         forger without the key would do, and it is answered with `False` — a
         finding — not with a clean unkeyed verification. "Cannot tell" stays
-        reserved for `IntegrityKeyError`.
+        reserved for `IntegrityKeyError`. The sealed boundary row (E6) is
+        checked the identical way, against `default_sealed_marker_path()`,
+        **and** a plaintext line sitting *after* that row is the same finding:
+        it chains perfectly and nothing else in this walk would notice it, so
+        it is checked for by name.
+
+        **`decrypt` (E6, default `True`).** A sealed line's `hash` field
+        (`keep/sealed.py`) lets the `prev`/`hash` chain be walked, and
+        checked against the anchor, without touching ciphertext at all —
+        that is what `decrypt=False` does, and it never needs the
+        `cryptography` extra (only stdlib `hmac`, for the keyed boundary
+        rows every sealed log carries — a log with no key at all still
+        cannot be verified, `decrypt` or not; that is unchanged from E5).
+        It proves the file's *structure* holds together (nothing
+        truncated, nothing reordered by an attacker who also controls
+        every `hash` field) and **nothing about whether the content is
+        genuine**, because `hash` itself is not authenticated by
+        anything decrypt=False touches. `decrypt=True` (the default) adds
+        that: every sealed line is decrypted and its GCM tag and `hash`
+        field checked (`keep/sealed.py:unseal_line`); a failure there is a
+        finding (`False`), same as any other tamper — this method never
+        reports a sealed log clean by hashing ciphertext alone unless the
+        caller explicitly passed `decrypt=False` (see
+        `describe_verification`, which puts that distinction into words).
+        Missing key or missing extra, with a sealed line actually
+        encountered and `decrypt=True`: `IntegritySealError`, "cannot tell,"
+        never a silent `False`.
 
         Every comparison against a hash — the chain link and the final anchor
         or expected head — uses `hmac.compare_digest`, never `==`/`!=`
@@ -613,11 +922,47 @@ class IntegrityLog:
                 _boundary_commitment(line_hash(lines[boundary], self.key)), recorded
             ):
                 return False        # a different boundary row than the one recorded
+        seal_boundary = _boundary_index(lines, act=SEAL_BOUNDARY_ACT)
+        recorded_seal = _recorded_boundary(self.path, marker_path=default_sealed_marker_path())
+        if recorded_seal is not None:
+            if seal_boundary is None:
+                return False        # the sealed boundary row was deleted: a downgrade
+            if self.key is not None and not hmac.compare_digest(
+                _boundary_commitment(line_hash(lines[seal_boundary], self.key)), recorded_seal
+            ):
+                return False        # a different boundary row than the one recorded
+
+        sealed_mod = None
         for i, entry in enumerate(lines):
             prev_field = entry.get("prev")
             if not isinstance(prev_field, str) or not hmac.compare_digest(prev_field, prev):
                 return False        # missing/wrong-typed prev is a mismatch, not a crash
-            prev = _hash_at(entry, i, boundary, self.key)
+            if seal_boundary is not None and i > seal_boundary and entry.get("sealed") != 1:
+                # A plaintext line past the sealing boundary is a downgrade,
+                # and it chains perfectly — nothing else in this walk would
+                # notice it. Found by the E6 audit. `False` (a finding about
+                # the log), never "cannot tell": this needs no key to see.
+                return False
+            if decrypt and entry.get("sealed") == 1:
+                if self.key is None:
+                    raise IntegritySealError(
+                        "this log is sealed; the key is absent — sealing "
+                        f"requires the key at {default_key_path()}"
+                    )
+                if sealed_mod is None:
+                    from . import sealed as sealed_mod       # lazy import, I-27
+                try:
+                    # `unseal_line` itself checks the recovered plaintext's
+                    # hash against the line's `hash` field with
+                    # `compare_digest` — see `keep/sealed.py`; nothing here
+                    # repeats that comparison.
+                    sealed_mod.unseal_line(entry, key=self.key)
+                except sealed_mod.SealTamperError:
+                    return False    # ciphertext, AAD or hash field does not check out
+            try:
+                prev = _hash_at(entry, i, boundary, self.key)
+            except ValueError:
+                return False        # a sealed line missing its own hash field: corrupt, not "cannot tell"
 
         if expected_head is not None:
             return hmac.compare_digest(prev, expected_head)

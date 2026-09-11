@@ -84,6 +84,20 @@ entity = ["nestor-meaning>=0.11.0,<1.0"]
 # construct `PostgresAdapter`. `[binary]` ships a prebuilt libpq rather than
 # requiring one on the machine that runs `homestead-fleet ingest`.
 fleet = ["psycopg[binary]>=3.1,<4"]
+# Phase 4 sealing (E6-integrity-encrypt, decision 6): AES-256-GCM per line
+# over an `IntegrityLog`, key derived by HKDF from the existing keyed-chain
+# key (`homestead/keep/sealed.py`). Pure-Python AEAD is not an option — no
+# audited, maintained one exists — so this is the one place the engine
+# reaches for a compiled dependency at all. `keep/sealed.py` imports
+# `cryptography` lazily, inside functions, never at module load
+# (`test_i27_...` in `tests/test_invariants_sealed.py` and I-27 both check
+# this): a checkout without the extra still imports `sealed.py` and every
+# module that imports it, and only fails, by name, the moment sealing or
+# unsealing is actually attempted. Floor is the version this was verified
+# against (HKDF and AESGCM are both stable well before it); the cap follows
+# the same "verified against, not indefinitely trusted" posture as the
+# `holidays` and `psycopg` ranges above.
+sealed = ["cryptography>=42,<47"]
 
 [project.scripts]
 # ~~homestead-law = "homestead.app.__main__:main"~~ (struck 2026-09-11): the
