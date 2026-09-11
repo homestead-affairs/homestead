@@ -35,7 +35,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 #: Serializes directory creation in the file adapter. Not for the file write —
 #: that is O_EXCL and race-safe on its own — but for `paths.ensure`, whose
@@ -324,24 +324,99 @@ class PostgresAdapter:
 
     `psycopg` is imported inside `__init__`, never at module load — the one
     caller that ever needs it already needs the extra. Table names are
-    validated against `{SIDECAR, CANONICAL}` before any SQL interpolation —
-    see `InvalidTable`.
+    validated against `{SIDECAR, CANONICAL}` **in the method that builds the
+    statement**, not by a caller who promises to have checked earlier — see
+    `InvalidTable`.
+
+    `transaction()` makes the four methods composable: inside it they run on
+    one connection and commit nothing, so a caller that must write several
+    rows and its own bookkeeping as a unit uses *these* statements rather
+    than writing a second copy of them (E4-postgres-fleet audit, 2026-09-11
+    — `keep/fleet_cli.py`'s `ingest()` had duplicated both `ON CONFLICT`
+    clauses for exactly that reason).
     """
 
-    def __init__(self, dsn: str, *, household: str) -> None:
-        try:
-            import psycopg
-        except ImportError as e:
-            raise MissingFleetExtra(
-                "the 'fleet' extra is not installed — "
-                'pip install "homestead-affairs[fleet]" to use PostgresAdapter'
-            ) from e
-        self._psycopg = psycopg
+    def __init__(self, dsn: str, *, household: str, connect: Any = None) -> None:
+        """`connect` is the seam `keep/fleet_cli.py` passes its own
+        `_connect()` through, so one process has exactly one place that
+        reaches for `psycopg`. A caller that supplies it has already taken
+        responsibility for opening a connection, so this constructor does
+        not import `psycopg` at all — which is what lets the no-database
+        tests drive `ingest()` on a fake connection with the `fleet` extra
+        uninstalled."""
+        if connect is None:
+            try:
+                import psycopg
+            except ImportError as e:
+                raise MissingFleetExtra(
+                    "the 'fleet' extra is not installed — "
+                    'pip install "homestead-affairs[fleet]" to use PostgresAdapter'
+                ) from e
+            self._open = lambda: psycopg.connect(dsn)
+        else:
+            self._open = lambda: connect(dsn)
         self._dsn = dsn
         self._household = household
+        #: The connection an open `transaction()` holds, or `None`. Every
+        #: statement below runs on it while it is set, and commits nothing
+        #: — the transaction owns the commit.
+        self._conn: Any = None
 
     def _connect(self):
-        return self._psycopg.connect(self._dsn)
+        return self._open()
+
+    @contextmanager
+    def transaction(self) -> Iterator[Any]:
+        """One connection, one transaction, for a caller that must write
+        several rows *and* its own bookkeeping as a single unit.
+
+        `keep/fleet_cli.py`'s `ingest()` is that caller: every row, the
+        `envelopes` row and the `anchors` upsert commit together or not at
+        all. Without this it had to duplicate `insert`/`write`'s SQL —
+        because those commit per call — and two copies of an `ON CONFLICT`
+        clause are two things that can drift apart. Inside the block,
+        `read`/`read_matter`/`insert`/`write` run on this connection and
+        commit nothing; the yielded connection is there for the statements
+        the adapter contract does not cover (the fleet's own `envelopes`
+        and `anchors` tables, whose names are literals).
+
+        Commits on a clean exit, rolls back on any exception — including
+        `KeyboardInterrupt`, which is the one an operator running an ingest
+        by hand is most likely to produce.
+        """
+        if self._conn is not None:
+            raise RuntimeError(
+                "PostgresAdapter.transaction() does not nest — one adapter "
+                "holds at most one open transaction"
+            )
+        conn = self._connect()
+        self._conn = conn
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            self._conn = None
+            conn.close()
+
+    @contextmanager
+    def _cursor(self) -> Iterator[Any]:
+        """A cursor on the open `transaction()` if there is one — which
+        then owns the commit — or one on a connection of this call's own,
+        committed and closed here."""
+        if self._conn is not None:
+            with self._conn.cursor() as cur:
+                yield cur
+            return
+        conn = self._connect()
+        try:
+            with conn.cursor() as cur:
+                yield cur
+            conn.commit()
+        finally:
+            conn.close()
 
     @staticmethod
     def _table(table: str) -> str:
@@ -355,7 +430,7 @@ class PostgresAdapter:
     def read(self, table: str, ref: Ref) -> str | None:
         table = self._table(table)
         matter, item_type, item_id = ref
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 f"SELECT value FROM {table} WHERE household=%s AND matter=%s "
                 "AND item_type=%s AND item_id=%s",
@@ -366,7 +441,7 @@ class PostgresAdapter:
 
     def read_matter(self, table: str, matter: str) -> list[tuple[Ref, str]]:
         table = self._table(table)
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 f"SELECT item_type, item_id, value FROM {table} "
                 "WHERE household=%s AND matter=%s ORDER BY item_type, item_id",
@@ -382,7 +457,7 @@ class PostgresAdapter:
         overwritten."""
         table = self._table(table)
         matter, item_type, item_id = ref
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 f"INSERT INTO {table} "
                 "(household, matter, item_type, item_id, value, envelope, synced_at) "
@@ -391,7 +466,6 @@ class PostgresAdapter:
                 (self._household, matter, item_type, item_id, blob, envelope, synced_at),
             )
             count = cur.rowcount
-            conn.commit()
         return count
 
     def write(self, table: str, ref: Ref, blob: str, *, envelope: str, synced_at: str) -> None:
@@ -400,7 +474,7 @@ class PostgresAdapter:
         insert-only at the fleet too)."""
         table = self._table(table)
         matter, item_type, item_id = ref
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 f"INSERT INTO {table} "
                 "(household, matter, item_type, item_id, value, envelope, synced_at) "
@@ -410,7 +484,6 @@ class PostgresAdapter:
                 "synced_at=excluded.synced_at",
                 (self._household, matter, item_type, item_id, blob, envelope, synced_at),
             )
-            conn.commit()
 
 
 def _default_adapter() -> StorageAdapter:
