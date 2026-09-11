@@ -26,7 +26,6 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 ### Added
 
 * cover_counts takes an optional per-matter distribution (I-31) ([9120e50](https://github.com/homestead-affairs/homestead/commit/9120e5023e3f8864318fd8c9c289540f2c0bb6a9))
-* the cover's anonymity gate reads a per-matter distribution ([#58](https://github.com/homestead-affairs/homestead/issues/58)) ([a473f8d](https://github.com/homestead-affairs/homestead/commit/a473f8de4f9938a3416e20f8fb4b181593498c76))
 
 
 ### Fixed
