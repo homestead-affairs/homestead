@@ -295,7 +295,11 @@ def _entries_calls_outside_its_own_definition(package_root: Path) -> list[str]:
     for path in sorted(package_root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for call in _ast_calls_named(tree, "_entries"):
-            hits.append(f"{path.relative_to(package_root.parent)}:{call.lineno}")
+            # `.as_posix()`, not `str()`: the engine's CI matrix includes
+            # Windows, where `str()` renders `keep\offender.py` and any
+            # comparison against a posix literal below fails only there.
+            rel = path.relative_to(package_root.parent).as_posix()
+            hits.append(f"{rel}:{call.lineno}")
     return hits
 
 
@@ -327,7 +331,7 @@ def test_entries_alias_scan_fires_on_a_planted_violation(tmp_path):
         encoding="utf-8",
     )
     hits = _entries_calls_outside_its_own_definition(fake_pkg)
-    assert len(hits) == 1 and hits[0].endswith("offender.py:2")
+    assert hits == ["fake_homestead/keep/offender.py:2"]
 
 
 def test_sealed_log_verify_does_not_return_content(keep):
