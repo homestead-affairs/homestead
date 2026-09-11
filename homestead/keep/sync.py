@@ -379,7 +379,15 @@ def _already_delivered(log: IntegrityLog, envelope_id: str) -> bool:
     and `read_entries()` is the one place that decrypts them and skips the
     boundary rows — a direct read here would see `{"sealed": 1, ...}` and
     never find the `act` it is looking for, sync'd or not. No `.payload`; a
-    ledger line is JSON, not a `Classified`."""
+    ledger line is JSON, not a `Classified`.
+
+    Named refusals from that reader propagate on purpose — `IntegritySealError`
+    (no key, no extra) and, since the E7 audit, `IntegrityIncompleteError` (the
+    ledger is shorter than its anchor says). Both mean the same thing here: the
+    row that would say "already delivered" may be one of the ones this read
+    could not see, and answering `False` on the strength of that is how the
+    same envelope goes out twice. Only a bare `JSONDecodeError`, which is not a
+    refusal by name, is translated below."""
     if not log.path.exists():
         return False
     try:

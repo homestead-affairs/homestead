@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import threading
 from pathlib import Path
 
@@ -205,7 +206,13 @@ def test_sealed_log_has_no_public_read_method(keep):
     naming-convention residual as before this bite — see the module
     docstring's own account of what changed here and what did not."""
     log = keep.IntegrityLog()
-    for forbidden in ("read", "render", "tail", "entries", "all", "show"):
+    for forbidden in ("read", "render", "tail", "entries", "all", "show",
+                      # E7 audit: the spellings the next hand reaches for
+                      # once `read_entries` exists and it wants something
+                      # shorter. Same objection to each — none of them has
+                      # anywhere to put "except I could not tell you that
+                      # part", so none of them can exist at all.
+                      "iter_entries", "records", "rows", "lines", "dump"):
         assert not hasattr(log, forbidden), (
             f"IntegrityLog.{forbidden}() would hand the audit trail to whoever "
             "opens the app — which is the reader F-6 is protecting against"
@@ -215,6 +222,55 @@ def test_sealed_log_has_no_public_read_method(keep):
         "keyword argument is where a sealed log's refusal lives, which is "
         "the property this guard actually cares about"
     )
+
+
+#: Every public name on `IntegrityLog`, and why it is allowed to be public.
+#: A list of forbidden spellings only catches the spellings someone thought
+#: of; this catches the one they did not. Adding a public member means
+#: adding it here *and* answering, in `tests/test_invariants_sealed.py`'s
+#: table (`test_no_public_reader_answers_a_sealed_log_short`), what it does
+#: to a sealed log without the key, without the extra, truncated and
+#: corrupt.
+PUBLIC_INTEGRITY_LOG_SURFACE = {
+    "append":        "writes; refuses a downgrade by name",
+    "seal":          "writes the boundary; refuses without key or extra",
+    "verify":        "a finding (bool) or a refusal — never content",
+    "head":          "one hash, never content",
+    "read_entries":  "content — the one door, refusal in the signature",
+    "path":          "a path (the module docstring's acknowledged residual)",
+    "anchor_path":   "a path",
+    "key":           "the raw key, for a caller that already holds it",
+    "keyed":         "bool",
+    "sealed":        "bool",
+}
+
+
+def test_integrity_logs_public_surface_is_closed(keep):
+    """The non-vacuity guard for the one above (E7 audit). A forbidden-name
+    list can only ever fail to find a name nobody listed — it would have
+    passed unchanged if this bite had added `IntegrityLog.dump_all()`. So
+    the whole public surface is enumerated instead, and a new public member
+    fails here until someone writes down what it answers on a sealed log."""
+    public = {n for n in dir(keep.IntegrityLog) if not n.startswith("_")}
+    public |= {n for n in vars(keep.IntegrityLog()) if not n.startswith("_")}
+    assert public == set(PUBLIC_INTEGRITY_LOG_SURFACE), (
+        "IntegrityLog's public surface moved: added "
+        f"{sorted(public - set(PUBLIC_INTEGRITY_LOG_SURFACE))}, removed "
+        f"{sorted(set(PUBLIC_INTEGRITY_LOG_SURFACE) - public)}. Adding one "
+        "means adding it here, and to the sealed-log table in "
+        "tests/test_invariants_sealed.py that says what it answers when the "
+        "key, the extra, or the tail of the file is missing"
+    )
+
+
+def test_the_public_surface_guard_is_not_vacuous(keep, monkeypatch):
+    """The plant for the guard above: a public member that nobody wrote
+    down. Set on the class, not an instance, because that is how one would
+    actually arrive — a new `def` in `logs.py`."""
+    monkeypatch.setattr(keep.IntegrityLog, "dump", lambda self: "everything",
+                        raising=False)
+    public = {n for n in dir(keep.IntegrityLog) if not n.startswith("_")}
+    assert public - set(PUBLIC_INTEGRITY_LOG_SURFACE) == {"dump"}
 
 
 def _ast_calls_named(tree: ast.AST, name: str) -> list[ast.Call]:
@@ -283,3 +339,96 @@ def test_sealed_log_verify_does_not_return_content(keep):
 def test_both_logs_live_under_the_root(keep, tmp_path):
     assert tmp_path in keep.IntegrityLog().path.parents
     assert tmp_path in keep.VisibleLog().path.parents
+
+
+# ── E7 audit: the deprecated `_entries()` alias, and its removal ───────────
+
+#: The release that removes `IntegrityLog._entries()`. E7 cuts 0.12.0 and the
+#: alias lives "one minor"; a removal nobody wrote a date on is a removal
+#: that never happens, so the version is here, in the method's own docstring,
+#: and in `docs/DECISION-integrity-key-management.md` §9 — and the test below
+#: starts failing the moment the changelog says it has arrived.
+ENTRIES_ALIAS_REMOVED_IN = (0, 13, 0)
+
+
+def _latest_released_version() -> tuple[int, int, int]:
+    """The top `## [X.Y.Z]` heading in CHANGELOG.md — release-please writes
+    it from the tag, and unlike `importlib.metadata.version()` it is the same
+    number in a worktree, a shallow CI checkout and an editable install
+    (which report a `.devN+g<sha>` guess derived from whatever tags the
+    checkout happens to carry)."""
+    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    m = re.search(r"^## \[(\d+)\.(\d+)\.(\d+)\]", text, re.M)
+    assert m, "CHANGELOG.md has no released-version heading to read"
+    return tuple(int(g) for g in m.groups())
+
+
+def test_the_entries_alias_is_gone_by_its_named_removal_version():
+    """The reminder. `_entries()` is a `DeprecationWarning` alias kept for
+    one minor; `DeprecationWarning` is silent by default, so nothing else in
+    this repo or any module downstream will ever *notice* that the minor has
+    passed. This fails on the first release at or past the named version
+    while the alias is still there."""
+    from homestead.keep.logs import IntegrityLog
+
+    if _latest_released_version() < ENTRIES_ALIAS_REMOVED_IN:
+        assert hasattr(IntegrityLog, "_entries"), (
+            "the deprecation window has not closed yet — removing the alias "
+            "early breaks homestead-health's ledger_seam, which reaches for "
+            "it by name (H6-sealed-reader)"
+        )
+        return
+    assert not hasattr(IntegrityLog, "_entries"), (
+        f"IntegrityLog._entries() was to be removed in "
+        f"{'.'.join(str(n) for n in ENTRIES_ALIAS_REMOVED_IN)} and the "
+        "changelog says that release has shipped — delete the alias, drop "
+        "`warnings` from the I-27 stdlib allowlist in "
+        "tests/test_invariants_integrity_keyed.py if nothing else needs it, "
+        "and strike the sentence in DECISION-integrity-key-management.md §9"
+    )
+
+
+def test_the_named_removal_version_is_written_down_where_a_reader_looks():
+    """The version is in three places on purpose — the method's docstring,
+    the DECISION doc, and the constant above — and this is what keeps them
+    the same number."""
+    want = ".".join(str(n) for n in ENTRIES_ALIAS_REMOVED_IN)
+    from homestead.keep.logs import IntegrityLog
+
+    assert want in (IntegrityLog._entries.__doc__ or ""), (
+        f"_entries()'s docstring does not name {want} as its removal release"
+    )
+    decision = (ROOT / "docs" / "DECISION-integrity-key-management.md").read_text(
+        encoding="utf-8")
+    assert want in decision.split("## 9 ·", 1)[1], (
+        f"DECISION §9 does not name {want} as the alias's removal release"
+    )
+
+
+def test_the_entries_alias_warns_when_it_is_called_not_when_it_is_iterated(keep):
+    """`stacklevel=2` only names the caller's own line if the warning fires
+    at *call* time. Written as a generator function (`yield from
+    self.read_entries(...)`) the alias would warn at the first `next()`
+    instead — somewhere else entirely, possibly inside a comprehension in a
+    third module, and possibly never for a caller that builds the generator
+    and drops it. This pins the shape: calling it warns, before anything is
+    iterated."""
+    import inspect
+    import warnings as _w
+
+    log = keep.IntegrityLog()
+    log.append({"kind": "a", "ref": "r1"})
+
+    assert not inspect.isgeneratorfunction(keep.IntegrityLog._entries), (
+        "_entries() must not be a generator function — its DeprecationWarning "
+        "would then fire on the first next(), not at the call stacklevel=2 "
+        "names"
+    )
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        gen = log._entries()               # not iterated
+    assert [w.category for w in caught] == [DeprecationWarning]
+    assert caught[0].filename == __file__, (
+        "stacklevel=2 should name the caller's file, not logs.py"
+    )
+    assert [e["ref"] for e in gen] == ["r1"]

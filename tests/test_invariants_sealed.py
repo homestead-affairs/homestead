@@ -30,6 +30,7 @@ import os
 import re
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -725,3 +726,255 @@ def test_ci_runs_one_leg_with_the_sealed_extra_and_one_without():
     assert set(with_extra) <= set(jobs["test"]["needs"]), (
         "a leg the aggregate `test` gate does not need cannot block a merge"
     )
+
+
+# ── E7 audit: the short-answer property, adversarially ─────────────────────
+#
+# The narrowed `test_sealed_log_has_no_public_read_method` claims something
+# about *every* public reader, not just `read_entries()`. These make that
+# claim concrete: each public reader is put in front of a sealed log in each
+# of the four states a reader can meet one, and the answer is classified.
+# Only three answers are allowed — raise, a hash (not content), or a `False`
+# finding. A *complete-looking short list of content* is the defect, and it
+# is what two of these found.
+
+
+def _sealed_log(keep, *, plain: int = 1, secret: int = 2):
+    """A sealed log with real rows either side of the boundary."""
+    keep.init_key()
+    log = keep.IntegrityLog()
+    for i in range(plain):
+        log.append({"kind": "plain", "ref": f"p{i + 1}"})
+    log.seal()
+    for i in range(secret):
+        log.append({"kind": "secret", "ref": f"s{i + 1}"})
+    return log
+
+
+def _outcome(fn):
+    """`("raised", ExcName)` or `("returned", value)` — the classifier the
+    table below reads."""
+    try:
+        return "returned", fn()
+    except Exception as exc:                       # noqa: BLE001 - classifying
+        return "raised", type(exc).__name__
+
+
+def _reader_table(keep, path):
+    """Every public reader on `IntegrityLog`, by the name a caller spells."""
+    return {
+        "read_entries()":
+            lambda: [e["ref"] for e in keep.IntegrityLog(path).read_entries()],
+        "read_entries(decrypt=False)":
+            lambda: [e["ref"] for e in keep.IntegrityLog(path).read_entries(decrypt=False)],
+        "IntegrityLog(sealed=False).read_entries()":
+            lambda: [e["ref"] for e in keep.IntegrityLog(path, sealed=False).read_entries()],
+        "IntegrityLog(sealed=False).read_entries(decrypt=False)":
+            lambda: [e["ref"] for e in
+                     keep.IntegrityLog(path, sealed=False).read_entries(decrypt=False)],
+        "_entries() alias":
+            lambda: [e["ref"] for e in keep.IntegrityLog(path)._entries()],
+        "verify()": lambda: keep.IntegrityLog(path).verify(),
+        "verify(decrypt=False)": lambda: keep.IntegrityLog(path).verify(decrypt=False),
+        "head()": lambda: keep.IntegrityLog(path).head(),
+    }
+
+
+def test_no_public_reader_answers_a_sealed_log_short(keep, home):
+    """The table. Every public reader on `IntegrityLog`, against a sealed
+    log in each of the four states it can be met in, must raise, hand back a
+    hash, or report a `False` finding — never a short list of content that
+    reads as the whole log.
+
+    `head()` returning the last hash of a truncated file is fine: it is a
+    hash, not content, and it is what an operator compares against the head
+    they wrote down. `verify()` returning `False` is fine: that is the
+    finding. What is not fine is `read_entries()` handing back two of three
+    rows and returning normally, which is what a truncated tail used to get
+    (fixed with `_require_whole`), and what `IntegrityLog(sealed=False).
+    read_entries(decrypt=False)` used to get on any sealed log at all (fixed
+    by asking the file, not the constructor argument). Both are planted
+    individually below; this is the sweep that says nothing else does it
+    either."""
+    pytest.importorskip("cryptography")
+    log = _sealed_log(keep)
+    path = log.path
+    full = ["p1", "s1", "s2"]
+    assert [e["ref"] for e in log.read_entries()] == full      # the control
+
+    def check(state: str):
+        for label, call in _reader_table(keep, path).items():
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                how, what = _outcome(call)
+            if how == "raised":
+                continue                          # a refusal is always fine
+            if "entries" in label:
+                assert what == full, (
+                    f"{state}: {label} returned {what!r} — content short of "
+                    f"{full!r}, offered as if it were the whole log"
+                )
+            else:
+                assert isinstance(what, (bool, str)), (
+                    f"{state}: {label} returned {what!r} — a reader that does "
+                    "not hand back content handed back some"
+                )
+
+    check("intact")
+
+    intact = path.read_text(encoding="utf-8").splitlines()
+    path.write_text("\n".join(intact[:-1]) + "\n", encoding="utf-8")
+    check("truncated tail")
+
+    path.write_text("\n".join(intact) + "\n{not json\n", encoding="utf-8")
+    check("garbage line")
+
+    path.write_text("\n".join(intact) + "\n", encoding="utf-8")
+    (home / "anchors" / "integrity.key").unlink()
+    check("key deleted")
+
+
+def test_no_public_reader_answers_short_without_the_extra(keep, home, monkeypatch):
+    """The same table, in the state the `sealed` extra is simply not
+    installed — the leg the CI runs without `[sealed]`, and the one where a
+    plaintext fallback would be cheapest to write by accident."""
+    pytest.importorskip("cryptography")
+    log = _sealed_log(keep)
+    path = log.path
+    _block_cryptography(monkeypatch)
+
+    for label, call in {
+        "read_entries()": lambda: list(keep.IntegrityLog(path).read_entries()),
+        "read_entries(decrypt=False)":
+            lambda: list(keep.IntegrityLog(path).read_entries(decrypt=False)),
+        "IntegrityLog(sealed=False).read_entries()":
+            lambda: list(keep.IntegrityLog(path, sealed=False).read_entries()),
+        "IntegrityLog(sealed=False).read_entries(decrypt=False)":
+            lambda: list(keep.IntegrityLog(path, sealed=False).read_entries(decrypt=False)),
+    }.items():
+        how, what = _outcome(call)
+        assert how == "raised", (
+            f"without the extra, {label} returned {what!r} instead of "
+            "refusing — a plaintext fallback by another name"
+        )
+
+
+def test_sealed_false_does_not_buy_a_plaintext_prefix_of_a_sealed_log(keep, home):
+    """The plant (E7 audit). `sealed=False` is documented as a *read-side*
+    escape hatch, and before this fix it was exactly that: on a log whose
+    file carries the sealed boundary row, `IntegrityLog(path, sealed=False).
+    read_entries(decrypt=False)` returned the pre-seal plaintext rows and
+    stopped, with nothing in the return value saying the rest existed. The
+    guard the bite narrowed forbids precisely that answer — and it was one
+    constructor argument away from every caller, key or no key.
+
+    E6's audit made `append()` read the file's own boundary row rather than
+    the constructor argument; this is the same ruling on the read side."""
+    pytest.importorskip("cryptography")
+    log = _sealed_log(keep)
+
+    for kwargs in ({"sealed": False},
+                   {"sealed": False, "keyed": False},
+                   {"sealed": False, "key": None}):
+        reopened = keep.IntegrityLog(log.path, **kwargs)
+        assert reopened.sealed is False              # the argument is honoured
+        with pytest.raises(keep.IntegritySealError, match="sealed=False"):
+            list(reopened.read_entries(decrypt=False))
+
+    # …and with the key in hand, `decrypt=True` still serves the whole log:
+    # the escape hatch was never about hiding rows from a reader who can
+    # decrypt them.
+    assert [e["ref"] for e in
+            keep.IntegrityLog(log.path, sealed=False).read_entries()] == ["p1", "s1", "s2"]
+
+
+def test_sealed_false_refuses_even_with_the_sealed_marker_deleted(keep, home):
+    """Both witnesses, not one. Deleting `anchors/integrity.sealed` was E6's
+    downgrade plant; `read_entries()` must not be the route that reopens it,
+    so the refusal reads the log's own `{"act": "sealed"}` row too."""
+    pytest.importorskip("cryptography")
+    log = _sealed_log(keep)
+    keep.default_sealed_marker_path().unlink()
+
+    with pytest.raises(keep.IntegritySealError):
+        list(keep.IntegrityLog(log.path, sealed=False).read_entries(decrypt=False))
+
+
+def test_a_hand_built_sealed_line_with_no_witness_still_refuses(keep, home):
+    """Neither marker nor boundary row, one sealed line: the last way a
+    `decrypt=False` walk could silently skip content. It refuses instead."""
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.append({"kind": "plain", "ref": "p1"})
+    lines = [json.loads(x) for x in log.path.read_text(encoding="utf-8").splitlines()]
+    lines.append({"sealed": 1, "prev": "x", "hash": "y", "ct": "zz", "n": "nn"})
+    _write_lines(log.path, lines)
+
+    with pytest.raises(keep.IntegritySealError, match="sealed line"):
+        list(keep.IntegrityLog(log.path).read_entries(decrypt=False))
+
+
+def test_read_entries_refuses_a_truncated_log_instead_of_returning_short(keep, home):
+    """The plant (E7 audit). Chopping the last line off a log leaves every
+    survivor chaining and decrypting perfectly — the anchor is the only
+    witness that there were more. Before this fix `read_entries()` walked the
+    survivors and *returned*, so a caller got a complete-looking two-row
+    answer about a three-row log: `H6-sealed-reader`'s "never replaced" with
+    a different first step. It now refuses by name."""
+    pytest.importorskip("cryptography")
+    log = _sealed_log(keep)
+    assert [e["ref"] for e in log.read_entries()] == ["p1", "s1", "s2"]
+
+    lines = log.path.read_text(encoding="utf-8").splitlines()
+    log.path.write_text("\n".join(lines[:-1]) + "\n", encoding="utf-8")
+
+    reopened = keep.IntegrityLog(log.path)
+    with pytest.raises(keep.IntegrityIncompleteError, match="anchor"):
+        list(reopened.read_entries())
+    assert reopened.verify() is False           # the same file, as a finding
+    assert isinstance(reopened.head(), str)     # a hash is not content
+
+
+def test_truncation_refusal_holds_for_an_unsealed_log_too(keep, home):
+    """Nothing about this is sealing-specific — an unsealed, unkeyed log is
+    the cheapest thing in the repo to truncate, and `read_entries()` is now
+    the reader health's seam calls on `living.jsonl`."""
+    log = keep.IntegrityLog(keyed=False)
+    log.append({"kind": "a", "ref": "r1"})
+    log.append({"kind": "b", "ref": "r2"})
+    lines = log.path.read_text(encoding="utf-8").splitlines()
+    log.path.write_text(lines[0] + "\n", encoding="utf-8")
+
+    with pytest.raises(keep.IntegrityIncompleteError):
+        list(keep.IntegrityLog(log.path, keyed=False).read_entries())
+
+
+def test_a_log_with_no_anchor_still_reads(keep, home):
+    """No anchor, no claim about length — the same posture `verify()` takes
+    (`anchor is None` -> `True`). The completeness check must not turn a log
+    nobody ever anchored into an unreadable one."""
+    log = keep.IntegrityLog(keyed=False)
+    log.append({"kind": "a", "ref": "r1"})
+    log.anchor_path.unlink()
+    assert [e["ref"] for e in keep.IntegrityLog(log.path, keyed=False).read_entries()] == ["r1"]
+
+
+def test_sync_on_a_truncated_ledger_refuses_rather_than_delivering_twice(keep, home):
+    """What the truncation refusal is actually worth, at the one seam that
+    reads this log to decide whether to act. `_already_delivered` answering
+    `False` about a ledger whose `record_synced` row was chopped off is a
+    second delivery of the same envelope — the exactly-once property sync
+    exists to hold. Before the E7 audit's `_require_whole`, that is what it
+    answered."""
+    from homestead.keep import sync
+
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.append({"act": keep.Event.RECORD_SYNCED.value, "envelope": "env-abc123"})
+    assert sync._already_delivered(log, "env-abc123") is True
+
+    lines = log.path.read_text(encoding="utf-8").splitlines()
+    log.path.write_text("\n".join(lines[:-1]) + "\n", encoding="utf-8")
+
+    with pytest.raises(keep.IntegrityIncompleteError):
+        sync._already_delivered(keep.IntegrityLog(log.path), "env-abc123")
