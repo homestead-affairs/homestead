@@ -39,15 +39,23 @@ raw module for the same reason `SurfaceFacts` is one — a consumer reads a smal
 closed contract (`name`, `jurisdiction`, `fields`, `schema`) instead of
 rummaging a module's namespace for whatever it happens to expose.
 
-## Only custody is built
+## Custody and bankruptcy are built
 
-Custody is the one pack in v1 — *"one pack proves the seam; three prove nothing
-that one does not."* Bankruptcy and workers' comp are the two other types the
-model discusses (a case number is `L1` in a bankruptcy, `L3` in a family
-matter), and they are **Phase 5, not built**. They are not in this registry,
-and inventing a stub for either would be the hand-kept phantom this invariant
-forbids — a matter name in a list with no pack behind it, which is the missing
-half of BUG-6.
+~~Custody is the one pack in v1 — "one pack proves the seam; three prove
+nothing that one does not." Bankruptcy and workers' comp are the two other
+types the model discusses (a case number is `L1` in a bankruptcy, `L3` in a
+family matter), and they are Phase 5, not built. They are not in this
+registry, and inventing a stub for either would be the hand-kept phantom this
+invariant forbids — a matter name in a list with no pack behind it, which is
+the missing half of BUG-6.~~ (struck 2026-09-11: bankruptcy landed — a case
+number is `L1` there, `L3` in custody, so the two packs already prove the seam
+carries a real rung difference for the same field name.)
+
+Custody and bankruptcy are both registered below. Workers' comp is the
+remaining type the model discusses and is **Phase 5, not built**; it is not in
+this registry, and inventing a stub for it would be the hand-kept phantom this
+invariant forbids — a matter name in a list with no pack behind it, which is
+the missing half of BUG-6.
 
 ## What it does not hold
 
@@ -119,7 +127,9 @@ def _entry(pack: ModuleType) -> MatterType:
 #: The one enumeration (I-23). Keyed by matter name → its `MatterType`. Authored
 #: here, the way `surfaces.FACTS` is authored — add a pack by importing it and
 #: adding a line, and everything that iterates `all_matters()` picks it up with
-#: no other change. Only `custody` is built (bankruptcy, workers' comp: Phase 5).
+#: no other change. `custody` and `bankruptcy` are built and registered; workers'
+#: comp is Phase 5, not built. ~~Only `custody` is built (bankruptcy, workers'
+#: comp: Phase 5).~~ (struck 2026-09-11: bankruptcy landed.)
 REGISTRY: dict[str, MatterType] = {
     bankruptcy.MATTER: _entry(bankruptcy),
     custody.MATTER: _entry(custody),
@@ -187,8 +197,8 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
         raise RuntimeError(
             f"registry entries with no pack: {phantom}. A matter name in the "
             "enumeration with no pack behind it is the hand-kept phantom I-23 "
-            "forbids — enumerate only what is built (custody; bankruptcy and "
-            "workers' comp are Phase 5)."
+            "forbids — enumerate only what is built (custody and bankruptcy; "
+            "workers' comp is Phase 5)."
         )
 
 

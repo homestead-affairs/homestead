@@ -99,8 +99,10 @@ key, never a rendered zero. The rule is proposed for ratification in
 The **matter registry** now stands (`keep/registry`, I-23): one enumeration —
 `all_matters()` over `REGISTRY` — that ties each matter name to its pack and reads
 that pack's fields live rather than copying them, so navigation, the queue and the
-briefing iterate it instead of keeping lists of their own. Only custody is
-registered (bankruptcy and workers' comp are Phase 5); a pack that exists but is
+briefing iterate it instead of keeping lists of their own. ~~Only custody is
+registered (bankruptcy and workers' comp are Phase 5)~~ (struck 2026-09-11:
+bankruptcy landed and is registered too) — custody and bankruptcy are
+registered; workers' comp remains Phase 5, not built. A pack that exists but is
 unregistered fails the build, and a matter name hand-kept as an enumeration
 anywhere but the registry is a build failure too — BUG-6 was three such lists
 drifting until workers' comp fell out of the urgent queue.

@@ -267,3 +267,17 @@ def test_a_breaking_change_below_1_0_cuts_1_0_0_rather_than_a_minor():
         f"manifest is {version} — past 1.0 both flags are dead weight, because "
         "`isPreMajor` gates them and it is false from 1.0.0 on. Remove them."
     )
+
+
+def test_the_console_script_is_named_for_the_engine_not_a_module():
+    """`homestead-law` collided by name with the law module's own console
+    script of the same name — whichever package installed second silently
+    clobbered the other's entry point. The engine's script is named for the
+    engine (`homestead`), never for a module it does not own."""
+    pyproject = tomllib.loads((_REPO / "pyproject.toml").read_text())
+    scripts = pyproject["project"]["scripts"]
+    assert scripts.get("homestead") == "homestead.app.__main__:main"
+    assert "homestead-law" not in scripts, (
+        "homestead-law is the law module's own console script name — the "
+        "engine must not declare a script with that name too"
+    )

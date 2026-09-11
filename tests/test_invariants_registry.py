@@ -22,6 +22,7 @@ build rather than going silently unhandled.
 from __future__ import annotations
 
 import ast
+import re
 import types
 from pathlib import Path
 
@@ -280,6 +281,70 @@ def test_the_structural_guard_fires_on_a_planted_enumeration(tmp_path):
         "a bare display string is not an enumeration and must not be caught — "
         "the ban is on hand-keeping the set, not on the word appearing"
     )
+
+
+# ── the docs do not claim only custody is registered ─────────────────────────
+
+_STALE_PHRASES = (
+    "Only custody is built",
+    "only custody is registered",
+    "Phase 3 and not built",
+)
+
+_README = Path(__file__).resolve().parents[1] / "README.md"
+_PACKS_INIT = PKG / "packs" / "__init__.py"
+_REGISTRY_PY = PKG / "keep" / "registry.py"
+
+
+def _strip_struck(text: str) -> str:
+    """Drop every `~~...~~` span before scanning — history stays struck
+    through, never deleted (house style), so a stale claim quoted *inside* a
+    strike is not a live claim and must not trip the guard. `re.DOTALL`
+    because a struck span can wrap several lines."""
+    return re.sub(r"~~.*?~~", "", text, flags=re.DOTALL)
+
+
+def _module_docstring(path: Path) -> str:
+    return ast.get_docstring(ast.parse(path.read_text("utf-8"))) or ""
+
+
+def _live_text_for(path: Path) -> str:
+    text = path.read_text("utf-8") if path == _README else _module_docstring(path)
+    return _strip_struck(text)
+
+
+def _stale_hits(text: str) -> list[str]:
+    return [p for p in _STALE_PHRASES if p.lower() in text.lower()]
+
+
+def test_registry_docs_do_not_claim_only_custody():
+    """Bankruptcy is registered alongside custody (`REGISTRY` and
+    `test_custody_and_bankruptcy_are_registered` above both say so); a doc that
+    still claims only custody is registered, or that the registry itself is
+    unbuilt, is stale prose disagreeing with the code it describes. History
+    stays struck through, never deleted, so the check only looks at what is
+    still asserted live."""
+    offenders = {
+        str(p): hits
+        for p in (_REGISTRY_PY, _PACKS_INIT, _README)
+        if (hits := _stale_hits(_live_text_for(p)))
+    }
+    assert not offenders, (
+        f"stale 'only custody' claims outside a struck-through span: {offenders}"
+    )
+
+
+def test_the_stale_claim_check_fires_on_a_planted_phrase(tmp_path):
+    """A scan that has never fired has not been shown to check anything. The
+    planted counterpart: a stale phrase written live (not struck through) must
+    trip the check, and the same phrase struck through must not."""
+    live = tmp_path / "live.py"
+    live.write_text('"""Only custody is built here."""\n', "utf-8")
+    assert _stale_hits(_module_docstring(live))
+
+    struck = tmp_path / "struck.py"
+    struck.write_text('"""~~Only custody is built here.~~ Now two are."""\n', "utf-8")
+    assert not _stale_hits(_strip_struck(_module_docstring(struck)))
 
 
 def test_the_guard_would_catch_the_registry_itself_if_it_were_not_exempt():
