@@ -78,7 +78,8 @@ SCHEMA: dict[str, dict[str, Any]] = {
     "docket": _field(
         Rung.L3,
         "same posture as the case number in a family matter — resolves to the "
-        "parties, commonly sealed but not itself key material or a refusal.",
+        "parties (step 2), commonly sealed but not itself key material or a "
+        "refusal (step 4 does not raise it).",
         derived="A docket entry is on file",
     ),
     "opposing_party": _field(
@@ -119,10 +120,11 @@ SCHEMA: dict[str, dict[str, Any]] = {
     ),
     "notes": _field(
         Rung.L4,
-        "free operator text that resolves to a person and routinely carries a "
-        "protected category — substance use, a diagnosis, an allegation (F-4 was "
-        "exactly this content leaking). L4 blocks the F-3/F-4 shape: a note never "
-        "reaches a model prompt (S2, ceiling L2 → derived) or an agent (I-15), "
+        "free operator text that resolves to a person (step 2) and routinely "
+        "carries a protected category (step 3) — substance use, a diagnosis, an "
+        "allegation (F-4 was exactly this content leaking). L4 blocks the F-3/F-4 "
+        "shape: a note never reaches a model prompt (S2, ceiling L2 → derived) "
+        "or an agent (I-15), "
         "and the operator reads their own note in the detail pane. **Kept at L4 "
         "by decision (2026-08-10), against the bite-1-3 audit that argued L5** — "
         "see docs/audits/bites-1-3-remediation.md. The residual the audit named "
