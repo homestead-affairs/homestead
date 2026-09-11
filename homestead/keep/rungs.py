@@ -128,6 +128,7 @@ __all__ = [
     "compose",
     "context_rung",
     "classify_schema",
+    "derived_of",
     "UnclassifiedField",
     "UnknownSurface",
     "UndeclaredPurpose",
@@ -966,3 +967,33 @@ def classify_schema(schema: Mapping[str, Any]) -> dict[str, Rung]:
             reason=reason,
         )
     return classified
+
+
+def derived_of(schema: Mapping[str, Any], field: str) -> str | None:
+    """A field's declared **derived form** — the sentence a pack author wrote to
+    stand in for its payload — or `None` if it declared none.
+
+    This reads the `"derived"` key of `field`'s declaration in `schema`, the way
+    `classify_schema` reads `"rung"`. It is **not** a payload path: it returns
+    the *stand-in sentence itself* (`"A case number is on file"`), never a
+    lookup key, a field name, or the record's value — a caller reaching for the
+    payload through this function has misread what it names. Composing the
+    `Classified` a surface actually receives (rung + payload + this sentence)
+    is a pack's job, at seed or write time; this function only recovers the
+    sentence from the schema so a caller — a surface, a test, `derived_of`'s
+    own contract test — can ask for it without reaching into the mapping by
+    hand.
+
+    Absence is quiet, not a build failure: unlike a missing rung, a missing
+    `"derived"` key does not stop `classify_schema` (decision 3 — that
+    function keeps ignoring the key entirely), so this returns `None` for a
+    field that declared none, an unknown field name, or a declaration that is
+    not a mapping. Whether a field's rung *requires* one is `Classified`'s
+    `__post_init__`'s job (`_NEEDS_DERIVED`, checked at construction), not
+    this function's — this is a read, not a validator.
+    """
+    declaration = schema.get(field)
+    if not isinstance(declaration, Mapping):
+        return None
+    derived = declaration.get("derived")
+    return derived if isinstance(derived, str) and derived.strip() else None

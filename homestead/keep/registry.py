@@ -104,6 +104,16 @@ class MatterType:
         from, carrying each field's rung, matter and jurisdiction."""
         return self.pack.SCHEMA
 
+    @property
+    def jurisdictions(self) -> tuple[str, ...]:
+        """Every jurisdiction an instance of this matter may be filed under —
+        `pack.JURISDICTIONS`, read live like `fields`/`schema` so there is one
+        tuple and the registry cannot carry a stale copy of it. `jurisdiction`
+        above is the *default* a new instance starts with (decision 1); this is
+        the full set `set_jurisdiction` (Wave 3) may move an instance within,
+        and `_validate` requires the default itself be one of its members."""
+        return self.pack.JURISDICTIONS
+
 
 def _entry(pack: ModuleType) -> MatterType:
     """A `MatterType` from a pack, reading the name and jurisdiction it declares.
@@ -159,6 +169,11 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
       which is the workers'-comp-out-of-the-queue failure precisely;
     * a registry entry for a pack that is not on disk — a phantom matter, a name
       in the list with nothing behind it.
+    * a pack whose `JURISDICTIONS` is missing, empty, holds a blank member, or
+      does not contain its own `JURISDICTION` — decision 1's default-outside-the-
+      supported-tuple failure: a pack whose default jurisdiction is not itself
+      one it lists could never satisfy `set_jurisdiction`'s own refusal on the
+      instance it starts every matter in.
     """
     for key, entry in registry.items():
         if not isinstance(entry, MatterType):
@@ -171,6 +186,27 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
                 f"({entry.pack.MATTER!r}) — a matter is keyed by the name its "
                 "pack declares, read once, so the two cannot drift. A key kept "
                 "by hand next to a name set elsewhere is BUG-6's shape."
+            )
+        jurisdictions = getattr(entry.pack, "JURISDICTIONS", None)
+        if (
+            not isinstance(jurisdictions, tuple)
+            or not jurisdictions
+            or not all(isinstance(j, str) and j.strip() for j in jurisdictions)
+        ):
+            raise RuntimeError(
+                f"{key!r}: JURISDICTIONS must be a non-empty tuple of non-empty "
+                f"strings, not {jurisdictions!r}. A pack with none, or with a "
+                "blank member, has an unreadable jurisdiction set — the exact "
+                "shape absence takes elsewhere in this module (I-11's building "
+                "failing closed) applied to decision 1's per-matter jurisdiction."
+            )
+        if entry.pack.JURISDICTION not in jurisdictions:
+            raise RuntimeError(
+                f"{key!r}: JURISDICTION {entry.pack.JURISDICTION!r} is not in "
+                f"its own JURISDICTIONS {jurisdictions!r}. A pack's default "
+                "jurisdiction must be one of the jurisdictions it supports — "
+                "every new instance starts at the default, and a default "
+                "outside the supported tuple is a matter that cannot open."
             )
 
     unregistered = sorted(set(on_disk) - set(registry))

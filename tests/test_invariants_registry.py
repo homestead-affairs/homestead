@@ -106,13 +106,19 @@ def test_matter_is_strict_about_an_unknown_name():
 
 # ── the import-time guard fires — BUG-6's shape, from each side ───────────────
 
-def _fake_pack(name: str, *, jurisdiction: str = "US-CA") -> types.ModuleType:
+def _fake_pack(
+    name: str,
+    *,
+    jurisdiction: str = "US-CA",
+    jurisdictions: tuple[str, ...] = ("US-CA",),
+) -> types.ModuleType:
     """A stand-in pack with the attributes `_entry`/`_validate` read. Built for
     the guard tests the way `test_invariants_surfaces` builds fake modules for
     the schema scan — a real module object, not a mock."""
     mod = types.ModuleType(f"homestead.packs._fake_{name}")
     mod.MATTER = name
     mod.JURISDICTION = jurisdiction
+    mod.JURISDICTIONS = jurisdictions
     mod.FIELDS = {"case_number": Rung.L3}
     mod.SCHEMA = {"case_number": {"rung": Rung.L3, "matter": name}}
     return mod
