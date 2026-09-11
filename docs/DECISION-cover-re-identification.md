@@ -29,10 +29,14 @@ is that implementation, at the surface, over aggregate counts.
 ## What the surface is handed, and what it is not
 
 `cover_counts(matters, **counts)` receives the **roster of open matters** and a
-set of **per-category aggregate counts** (`overdue=1`, `due_soon=4`, …). It is
+set of **per-category aggregate counts** (`overdue=1`, `due_soon=4`, …). ~~It is
 *not* handed the per-matter distribution — it does not know whether `overdue=3`
-is `(3,0,0)` or `(1,1,1)` across the matters. That boundary is load-bearing for
-the rule and is stated as a limit below rather than hidden.
+is `(3,0,0)` or `(1,1,1)` across the matters.~~ (struck 2026-09-11, E4: it is now
+handed the distribution when a caller has one — `cover_counts(matters, *,
+by_matter=None, **counts)`. Without one, every sentence above still holds, and
+that is still the default.) That boundary is load-bearing for the rule and is
+stated as a limit below rather than hidden — see *The honest limit* and the
+struck paragraph that closes it.
 
 ## The rule: two independent anonymity gates, `K = 2`
 
@@ -87,12 +91,73 @@ from `(1,1)` — and neither can the reader, from the number alone. This is a
 deliberate boundary, of the same kind as `DECISION-compelled-disclosure.md`'s
 "known, open gap": the aggregate is the honest unit the cover has.
 
-**If a later bite wants the stronger guarantee** — show a count only when it
+~~**If a later bite wants the stronger guarantee** — show a count only when it
 demonstrably spans ≥2 matters — the caller must pass the per-matter distribution
 and Gate 2 tightens to read it (a count survives when ≥2 matters each contribute
 ≥1). That is a widening of the input, not a change to the rule's direction, and
 it is left for when a distribution exists to check. Recorded here so the next
-seat finds the boundary named rather than re-deriving it.
+seat finds the boundary named rather than re-deriving it.~~
+
+> **Struck 2026-09-11 — the boundary is closed.** That later bite landed
+> (E4-cover-distribution): `cover_counts` now takes an optional keyword-only
+> `by_matter` (matter → category → share), and when it is given Gate 2 tightens
+> exactly as predicted — a category survives only when at least `K` **distinct
+> matters in the distribution** each contribute at least one to it. `(2, 0)` is
+> dropped where `(1, 1)` passes. The widening was of the input, not of the
+> rule's direction, as this paragraph forecast. `by_matter=None` — the default,
+> and every call written before the parameter existed — is byte-identical to the
+> aggregate-only behaviour described above, so the limit in the paragraph above
+> this one still describes what a caller *without* a distribution gets. The
+> paragraph is struck because it described its own future as open, and a
+> decision brief that does that is a stale claim, not a record.
+>
+> Two things the widening settled that the forecast did not name:
+>
+> * **The distribution is evidence, and evidence is checked before it is read**
+>   (I-11). `by_matter` must be a mapping of matter to share table; its matters
+>   must be a subset of the roster; every share must be a plain non-bool,
+>   **non-negative** `int`; every category it distributes must be one the caller
+>   also counted (the totals check runs over the union of both sides); and each
+>   category's distributed total must equal the aggregate passed for it.
+>   Anything else is refused by category name, never repaired. The sign is
+>   load-bearing and was found on audit: without it `{a: 3, b: 1, c: -2}` totals
+>   `2`, clears the totals check and presents *two* contributors for a spread no
+>   household has — a negative term makes a sum stop being a count.
+> * **The roster is a set.** The matters gate counts *distinct* matters, so
+>   `["custody", "custody"]` is one matter and shows nothing. This was wrong in
+>   the aggregate-only code from the start — it is the same failure law's L2c
+>   audit found one layer up, a gate satisfied by the *shape* of the list handed
+>   to it rather than by the household — and it is fixed here rather than left
+>   for the caller to avoid.
+
+### What the tightening itself publishes
+
+Tightening a gate is not free, and this brief should not pretend it is. A
+published count now carries one bit the aggregate-only gate did not publish:
+that ≥`K` matters contribute to it. Run the rule backwards at the floor —
+exactly `K` matters on the roster, a count of exactly `K` — and the reader lands
+on `(1, 1)` exactly. So "2 overdue" over two matters, under the distribution
+gate, does tell a reader who knows the rule that each matter holds one.
+
+That is **inside** I-31's threat model, not a hole in it. The model asks that the
+resting number not resolve to *which* matter the news belongs to (F-5's reader
+behind the chair, the rung model's `L2`, step 2a). `(1, 1)` is the one
+distribution perfectly symmetric across the roster: it singles nobody out, and
+there is no "which one?" left to answer. Compare the case the tightening
+*removes* — `(2, 0)`, where the news is entirely one matter's and the old gate
+showed it anyway. The trade is strictly in the model's direction.
+
+Nor does it reach further than the floor. At three matters, `overdue=6` with
+`{a: 5, b: 1, c: 0}` publishes only "at least two of the three contribute";
+`(4,1,1)`, `(2,2,2)` and `(3,2,1)` are all still consistent, and an observer who
+separately knows `c` is clean learns `a + b = 6` — which is the aggregate over
+the matters that have news, the honest unit this brief has argued for
+throughout. The gate that avoids even the floor inference is "show nothing",
+which is Phase 0.
+
+**For ratification:** that the floor inference (`K` matters, count `K` ⇒ each
+contributes one) is an acceptable price for dropping `(2, 0)`, or a request to
+raise `K`, which is a one-line change and its own test.
 
 ## What this is *not*
 
@@ -121,16 +186,41 @@ seat finds the boundary named rather than re-deriving it.
 3. **The survivor renders as its real number**, not a band.
 4. **The distribution limit** — that certifying "does not force one matter" (not
    "provably spread across ≥2") is the right line for an aggregate-only surface,
-   and that tightening it is correctly deferred to when a distribution is passed.
+   ~~and that tightening it is correctly deferred to when a distribution is
+   passed.~~ (struck 2026-09-11: no longer deferred — E4 passed a distribution
+   and tightened it.) and that it remains the right line for the `by_matter=None`
+   calls that are still the default.
 5. **Leaving the matter-count out** — that not surfacing `len(matters)` by
    default is the right default, or a request to add it.
+6. **(E4, 2026-09-11) The tightened Gate 2 and what it publishes** — that
+   "≥`K` distinct matters each contribute ≥1" is the right stronger rule when a
+   distribution exists; that its floor inference (see *What the tightening
+   itself publishes*) is an acceptable price; and that a distribution which
+   cannot be checked — non-mapping, a matter off the roster, a negative or
+   non-`int` share, a category distributed but never counted, a total that
+   disagrees with its aggregate — is **refused by category name**, not repaired
+   and not quietly downgraded to the aggregate-only gate.
+7. **(E4, 2026-09-11) The roster read as a set** — that `["custody", "custody"]`
+   is one matter and shows nothing; this corrects the original code, which
+   counted list entries and would have shown a lone matter's counts on a
+   duplicated roster.
 
 ## Files
 
 - `homestead/app/cover.py` — the module and its docstring.
 - `tests/test_invariants_cover.py` — the promoted I-31 test plus the hard cases
   (each gate alone, absence-not-zero, real-number survivor, fail-closed on a
-  non-integer).
+  non-integer), and — since E4 — the distribution cases: `(2,0)` dropped and
+  `(1,1)` kept, `by_matter=None` byte-identical to the old behaviour, each
+  refusal above with its violation planted, the duplicated roster, and a planted
+  matter name and share asserted absent from `str`, `args` and `__notes__` of
+  every refusal.
 - `tests/test_invariants_pending.py` — `homestead.app.cover` struck from
   `UNBUILT`, the pending test removed, a promotion note left in its place.
 - `README.md` — one status sentence.
+- `docs/homestead-rungs-procedure.md` — the I-31 row, widened (struck, dated).
+- `homestead_law`'s `queue.cover()` calls its *own* vendored copy of this
+  function (`homestead_law/app/cover.py`), not this one, so nothing in law
+  changed with E4 and nothing in law can. Law's copy still takes
+  `(matters, **counts)`; the Wave-5 caller that means to pass a distribution has
+  to widen that copy too, or import this module.
