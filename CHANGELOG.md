@@ -20,6 +20,18 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.5.0](https://github.com/homestead-affairs/homestead/compare/v0.4.0...v0.5.0) (2026-09-11)
+
+
+### Added
+
+* backward counting, mail days, business days, district-state holidays ([90bf4ca](https://github.com/homestead-affairs/homestead/commit/90bf4ca2c57c8351868a6410162816e35e0f6bae))
+
+
+### Fixed
+
+* audit E1-dates-a — say what VERIFIED means, and let the mail re-roll see the district ([ab21e33](https://github.com/homestead-affairs/homestead/commit/ab21e335c72ccf15e8605f7dd955aa11f14b8f5d))
+
 ## [0.4.0](https://github.com/homestead-affairs/homestead/compare/v0.3.0...v0.4.0) (2026-09-11)
 
 
