@@ -94,14 +94,111 @@ and both hands correctly declined to settle them alone:
 2. **Basic ISO** (`20260810`). Currently refused. Unambiguous, and cheap to
    accept. The argument for continuing to refuse is that every accepted format
    is a format the corpus must cover forever.
-3. **Backward counting** (FRCP 6(a)(5) — periods measured *before* an event
+3. ~~**Backward counting** (FRCP 6(a)(5) — periods measured *before* an event
    roll backward off a weekend, not forward). Currently refused outright rather
    than guessed, which is right for now: a sign flip here moves a deadline the
    wrong way past a weekend. But service and notice deadlines are counted
-   backward routinely, so refusal is a gap, not a resolution.
+   backward routinely, so refusal is a gap, not a resolution.~~
+   **Settled 2026-09-11** — `court_days_before` implements 6(a)(5). See the
+   section below.
 
 Non-federal jurisdictions are refused the same way and for the same reason —
 silently applying federal rules to a California court-day period is a wrong
 answer with no visible cause. The calendar is injectable
 (`holiday_calendar=frozenset(...)`) so local closures need no edit to this
 module.
+
+---
+
+## The rule table, and the three counters beside it — 2026-09-11
+
+`dates.py` stopped being "one forward counter" and became a **rule table with
+four counting functions reading it**. Added in E1-dates-a, ahead of the NM and
+OR rows E1-dates-b brings:
+
+| | What it is | Rule |
+|---|---|---|
+| `court_days(start, n, *, jurisdiction, holiday_calendar, district_state)` | The forward counter Phase 1 already had, plus the state-holiday addition | FRCP 6(a)(1), rolled under 6(a)(6); `district_state` is 6(a)(6)(C) |
+| `court_days_before(end, n, *, jurisdiction, holiday_calendar)` | `n` days **before** an event, rolled **backward** | FRCP 6(a)(5) / FRBP 9006(a)(5) |
+| `add_mail_days(deadline, *, jurisdiction, holiday_calendar, district_state)` | The 3 added days, applied to an **already-rolled** end and rolled again | FRCP 6(d) / FRBP 9006(f) |
+| `business_days(start, n, *, jurisdiction, holiday_calendar)` | `n` **open** days — closures skipped *while* counting | Not a federal rule; the shape the NM/OR short-period rules need |
+
+`RULES` holds one `CountingRule` per jurisdiction and `JURISDICTIONS =
+tuple(RULES)` is derived from it, so the implemented set cannot drift from the
+table it describes. `RuleStatus.UNCERTAIN` on a row makes every function that
+would need it **refuse** — `UnparseableDate("UNCERTAIN: …")` naming the
+jurisdiction and the citation — rather than compute. That is I-11 applied to a
+legal citation, and it is planted and fired, not assumed.
+
+**Three asymmetries, each of which is the rule and not a gap.**
+
+* `court_days_before` has **no `district_state` parameter at all**.
+  6(a)(6)(C) adds the district state's holidays for periods measured *after*
+  an event only; a filing due 14 days *before* an event that falls on a state
+  holiday is still due that day. A parameter here would invite applying the
+  addition in the direction the rule excludes, so there is none — and a
+  keyword call raises `TypeError`.
+* `add_mail_days` **does** take one, because "3 days are added after the
+  period would otherwise expire under (a)" makes the added days themselves
+  computed under (a), and (a)(6)(C) is part of (a). Without it the composition
+  the bankruptcy pack needs returns a closed day: a 14-day period from
+  2026-11-10 in D.N.M. ends Tuesday 2026-11-24, and +3 is Friday 2026-11-27 —
+  a federal working day, and an NM court holiday, because New Mexico keeps
+  Presidents' Day on the Friday after Thanksgiving.
+* `holiday_calendar` bypasses the `RULES` status check on three functions and
+  **not** on `add_mail_days`. The other three take their period from the
+  caller, so a caller-supplied calendar leaves nothing of the rule in the
+  answer. `add_mail_days` takes its period — the 3 — from `rule.mail_days`, so
+  a caller who supplies a calendar is still trusting the unverified half.
+  Fail closed beats seam symmetry.
+
+A `district_state` calendar is **merged with** the federal one, never
+substituted for it. `holidays.US(subdiv=…)` is not a superset of
+`holidays.US()`: New Mexico's drops 2026-02-16, Washington's Birthday, a day
+every federal courthouse in the district is shut. Substituting would compute
+that Monday as a deadline. `test_i41_a_district_state_calendar_may_only_add_
+closures_never_remove_one` pins it.
+
+### What `VERIFIED` means on the `US-federal` row, and what it does not
+
+**The primary text of FRCP 6 and FRBP 9006 cannot be read from this build
+environment.** law.cornell.edu (LII), uscourts.gov, govinfo.gov (GPO),
+uscode.house.gov and supremecourt.gov are all refused by the organization's
+egress proxy — tried on the build pass and again on the 2026-09-11 audit pass,
+and refused before the request leaves the box. The refusal is the network's,
+not the source's.
+
+The row ships `VERIFIED` anyway, on converging independent secondary
+restatements that agree clause for clause on 6(a)(1)(A)–(C), 6(a)(5) and
+6(a)(6)(C) — including the forward/backward asymmetry and the 2009
+Time-Computation committee note — and on 6(d)/9006(f) including the 2016
+amendment that removed the three extra days for electronic service. FRCP 6(a)
+is settled, uncontested text; the NM and OR rows, where the plan already
+expects `UNCERTAIN`, are not.
+
+What makes that defensible rather than a quiet upgrade is that **the
+disclosure travels with the value**. Both citation strings on the row end in a
+dated `PROVENANCE:` sentence naming the basis and the blocked hosts, so a
+refusal message, or a stored deadline's instruction from Wave 3 onward, cannot
+quote this table as though someone had the rule open in front of them.
+`RuleStatus`'s docstring says `VERIFIED` means "checked, and the `source` says
+against what" — not "primary" — and
+`test_i41_verified_rows_disclose_where_their_text_came_from` refuses any
+`VERIFIED` row whose citation omits it, with a planted row proving the check
+fires. Replace the PROVENANCE sentence with a primary quotation the first time
+one can be read; do not delete it without one.
+
+### The corpus grew a second hand-worked section
+
+`tests/test_dates_corpus.py` § 8 (builder) and § 9 (audit) are hand-worked
+cases with the weekday arithmetic written above each row, cross-checked
+against a second oracle shaped differently from the implementation — a sorted
+list of open days with `bisect` rather than a day-at-a-time loop — so an
+off-by-one shows up as a disagreement rather than as agreement by shared
+construction. § 9 covers what § 8 does not reach: a backward count landing on
+a Monday holiday (where rolling the wrong way is four days wrong, not one), a
+backward count spanning Thanksgiving, a backward count across a leap day, `+3`
+mail days from a Friday onto a Monday holiday, `business_days` across both
+Christmas and New Year in an observed-on-Friday year, and the backward `n=0`
+degenerate case — which must *not* answer what the forward one answers, since
+the direction of the roll is the only reason there are two functions.
