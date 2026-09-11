@@ -25,7 +25,7 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 
 ### Added
 
-* backward counting, mail days, business days, and a rule table for court deadlines ([#54](https://github.com/homestead-affairs/homestead/issues/54)) ([f2be3f8](https://github.com/homestead-affairs/homestead/commit/f2be3f875b1ec3c26780820eea66e27f79a680ce))
+* backward counting, mail days, business days, district-state holidays ([90bf4ca](https://github.com/homestead-affairs/homestead/commit/90bf4ca2c57c8351868a6410162816e35e0f6bae))
 
 
 ### Fixed
