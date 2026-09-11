@@ -340,7 +340,7 @@ subkey, AES-256-GCM, a fresh 96-bit `os.urandom` nonce per line, AAD bound to
 `prev`, and an **HMAC** (never a bare SHA) for the `hash` field that rides in
 the clear — was re-derived independently and is ruled sound as described.
 author: the build seat
-verified_by: the audit seat, 2026-09-11
+verified_by: the audit seat, 2026-09-11 (audit fixes: `ff6c374`)
 
 Added by the sibling bite this document promised in §"There is no
 encryption" and item 8 of `docs/PLAN-affairs-face.md`'s open items: "keying
