@@ -115,10 +115,24 @@ loose regex missed, is caught. An unknown reporter misses a cite; it never match
 an address — the safe direction. With it, ~~**every invariant this project's pending
 file ever held red is built and green** (`UNBUILT` is empty)~~ — true until
 2026-09-11, when `tests/test_invariants_pending.py` was reseeded with the sync and
-fleet wave: `keep.sync`, `keep.household`, `keep.fleet_cli` and `app.reveal` are
-red again, and six invariants (I-37…I-40, I-32, I-33) are claims rather than code.
+fleet wave: ~~`keep.sync`, `keep.household`,~~ `keep.fleet_cli` and `app.reveal` are
+red~~, and six invariants (I-37…I-40, I-32, I-33) are claims rather than code~~
+(corrected 2026-09-11, same day, `E4-sync-core`: `keep.sync` and
+`keep.household` landed and I-37/I-38/I-40 promoted to
+`tests/test_invariants_sync.py`, unmarked; `keep.fleet_cli` and `app.reveal`
+are still red, and I-39/I-32/I-33 still claims rather than code).
 Everything that file ever held **before** that date is built and green. Nothing here
 is installable by anyone who is not building it.
+
+The **household now syncs its own record to its own fleet store** (`keep/sync`,
+`keep/household`, `Purpose.SYNC`, decision 5): an operator-named `SyncScope`
+composes into one frozen, content-addressed envelope, delivered by
+`egress.send` or an `O_EXCL` file drop under an explicit per-call confirm —
+never a schedule, never a default. A row above the scope's own ceiling is
+dropped, not derived; a delivery is ledgered exactly once, references only.
+See `docs/DECISION-sync-envelope-and-consent.md` (proposed; `verified_by:`
+blank) for why, and what the fleet-side ingest (`E4-postgres-fleet`) still
+does not exist to receive.
 
 ## The method
 

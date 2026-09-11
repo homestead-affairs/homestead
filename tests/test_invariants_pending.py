@@ -15,7 +15,6 @@ from __future__ import annotations
 import ast
 import importlib
 import importlib.util
-import json
 from pathlib import Path
 
 import pytest
@@ -120,8 +119,15 @@ UNBUILT = {
     # These invariant numbers are themselves provisional (I-37…I-40; the plan's
     # Decision 10) until an audit ratifies them alongside the code that builds
     # each module — the reason string on every one of these five tests says so.
-    "homestead.keep.sync": "Wave 4 (E4-sync-core)",
-    "homestead.keep.household": "Wave 4 (E4-sync-core)",
+    #
+    # 2026-09-11 — E4-sync-core built `homestead.keep.sync` and
+    # `homestead.keep.household`. Their three tests (I-37, I-38, I-40) moved to
+    # tests/test_invariants_sync.py, unmarked — the fifth occasion of this same
+    # promotion (dates, surfaces, record, cover, now sync/household).
+    # `test_pending_liveness` failed the moment the two modules existed and
+    # would not go green again until they were moved and struck from this
+    # dict. `homestead.keep.fleet_cli` (I-39, `E4-postgres-fleet`) and
+    # `homestead.app.reveal` (I-32/I-33, a later UI wave) are still unbuilt.
     "homestead.keep.fleet_cli": "Wave 4 (E4-postgres-fleet)",
     "homestead.app.reveal": "a later UI wave (I-32/I-33)",
 }
@@ -198,137 +204,18 @@ def test_pending_liveness():
 # caught by `xfail(strict=True)`, and goes XPASS-strict — a build failure, on
 # purpose — the day the real module makes it pass. That is the promotion signal;
 # the assertions below are what should still be true once it fires.
-
-
-def _lines(path):
-    """Every JSON line at `path`, or `[]` if it does not exist yet — the shape
-    `test_invariants_export.py` reads `IntegrityLog` with, reused here because
-    `IntegrityLog` deliberately has no public `read()` (see `keep/logs.py`)."""
-    if not path.exists():
-        return []
-    return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
-
-
-def _keys(obj):
-    """Every mapping key anywhere inside a decoded JSON value.
-
-    A ledger entry is a tree, so `"value" not in entry` only ever asked about
-    its first level — and a nested row carrying a payload sat one level below
-    that, unseen. This walks the whole thing."""
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            yield k
-            yield from _keys(v)
-    elif isinstance(obj, (list, tuple)):
-        for v in obj:
-            yield from _keys(v)
-
-
-@pending(
-    "homestead.keep.sync",
-    "I-37 (provisional): sync is an operator-authored act, never background — "
-    "a refused confirm ledgers nothing",
-)
-def test_i37_a_sync_is_an_operator_authored_act(tmp_path, monkeypatch):
-    """The failure this guards against: a sync that fires without an operator
-    confirming exactly what will leave — F-3's shape, egress that acts *for*
-    someone rather than *at their direction*. `keep.egress.send` already
-    refuses with no `confirm`; Decision 5 says the sync act inherits that same
-    refusal rather than re-deciding it, so `sync.deliver(envelope, confirm=None)`
-    must raise the identical `EgressRefused` — and because a refused act is not
-    an act, it must not touch either log and must leave nothing at the
-    destination: no `IntegrityLog` entry, no `VisibleLog` line, no file drop.
-
-    **A destination is supplied on purpose**, and the audit is why. Called with
-    neither `url=` nor `drop_dir=`, a wholly I-37-compliant `deliver` that
-    validates its destination before its confirmation raises `ValueError`, not
-    `EgressRefused` — and this test then stays red for a reason that has nothing
-    to do with the invariant, forever, which is exactly the R-6 trap this file's
-    own `UNBUILT` comment describes. Reproduced against a simulated
-    `keep/sync.py` during the E1-pending audit. With `drop_dir=` given, the only
-    thing missing from the call is the operator's act, so a refusal can only
-    mean the one thing this test is about.
-
-    Provisional I-37 (the plan's Decision 10, ratified by audit alongside the
-    code). Promotes to tests/test_invariants_sync.py when Wave 4's
-    E4-sync-core builds `homestead.keep.sync`.
-    """
-    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
-    from homestead.keep import logs, sync
-    from homestead.keep.egress import EgressRefused
-    from homestead.keep.rungs import Classified, Rung
-    from homestead.keep.store import Sidecar
-
-    Sidecar().put("custody", "deadline", "primary.hearing", Classified(Rung.L1, "2026-10-06"))
-    scope = sync.SyncScope(matters=("custody",), item_types=None, ceiling=Rung.L3, tables=("sidecar",))
-    envelope = sync.compose({"sidecar": Sidecar()}, scope)
-
-    drop = tmp_path / "drop"
-    with pytest.raises(EgressRefused):
-        sync.deliver(envelope, confirm=None, drop_dir=drop)
-
-    assert _lines(logs.IntegrityLog().path) == [], "a refused sync writes no integrity entry"
-    assert logs.VisibleLog().read() == [], "a refused sync writes no visible line"
-    assert not (drop.exists() and any(drop.iterdir())), (
-        "a refused sync leaves nothing at the destination either — the act did "
-        "not happen, so no envelope was dropped"
-    )
-
-
-@pending(
-    "homestead.keep.sync",
-    "I-38 (provisional): an envelope is ledgered once, with references only",
-)
-def test_i38_an_envelope_is_ledgered_once_with_references_only(tmp_path, monkeypatch):
-    """The failure this guards against: F-4's shape landing on the sync path — a
-    served value (here, a court date an adversary should not get for free out of
-    an audit trail) copied into the very `IntegrityLog` entry that exists to
-    *prove the act happened*, not to hold a second copy of the record. One
-    delivery must write exactly one integrity entry, naming the act by
-    reference (`act`, `household`, `envelope`, `purpose`, `scope`, `rows`,
-    `destination`) and carrying none of `value`/`payload`/`derived`, nor any
-    substring of a served value; and exactly one `VisibleLog` line
-    (`RECORD_SYNCED`) whose `ref` is `(household, envelope_id)` — a reference an
-    operator can look up, never the content.
-
-    Provisional I-38. Promotes to tests/test_invariants_sync.py alongside I-37.
-    """
-    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
-    from homestead.keep import logs, sync
-    from homestead.keep.rungs import Classified, Rung
-    from homestead.keep.store import Sidecar
-
-    SECRET_DATE = "2026-10-06"
-    Sidecar().put("custody", "deadline", "primary.hearing", Classified(Rung.L1, SECRET_DATE))
-    scope = sync.SyncScope(matters=("custody",), item_types=None, ceiling=Rung.L3, tables=("sidecar",))
-    envelope = sync.compose({"sidecar": Sidecar()}, scope)
-
-    sync.deliver(envelope, confirm=lambda wire: True, drop_dir=tmp_path / "drop")
-
-    entries = _lines(logs.IntegrityLog().path)
-    assert len(entries) == 1, "exactly one integrity entry per delivered envelope"
-    (entry,) = entries
-    assert entry["act"] == "record_synced"
-    for field in ("household", "envelope", "purpose", "scope", "rows", "destination"):
-        assert field in entry, f"missing {field!r} — the entry must name the act by reference"
-    # Checked at **every** depth, not just the top level. A top-level-only check
-    # passed an entry whose `rows` field held the envelope's whole row list, each
-    # row carrying its own `"value"` — reproduced against a simulated
-    # `keep/sync.py` during the E1-pending audit. Only the substring check below
-    # caught it, and that one is blind to a leaked *derived* form, which is
-    # content too (I-15 bans the value, not one spelling of it).
-    keys = set(_keys(entry))
-    for banned in ("value", "payload", "derived"):
-        assert banned not in keys, f"the ledger carries references, never content ({banned!r})"
-    raw = json.dumps(entry)
-    assert SECRET_DATE not in raw, "no served value may appear in the ledger (I-15)"
-    assert entry["household"] == envelope.household
-    assert entry["envelope"] == envelope.envelope_id
-
-    (visible,) = logs.VisibleLog().read()
-    assert visible["event"] == logs.Event.RECORD_SYNCED.value
-    assert visible["ref"] == f"{envelope.household}/{envelope.envelope_id}"
-    assert SECRET_DATE not in json.dumps(visible)
+#
+# I-37 (`homestead.keep.sync` — sync is an operator-authored act, a refused
+# confirm ledgers nothing) and I-38 (an envelope is ledgered once, references
+# only) and I-40 (an unnamed scope syncs nothing) were promoted to
+# tests/test_invariants_sync.py, unmarked, when E4-sync-core built
+# `homestead.keep.sync` and `homestead.keep.household` — the fifth occasion of
+# this same promotion mechanism (dates, surfaces, record, cover, now sync).
+# That file also carries the rest of the audit checklist for those two
+# modules: the full `SyncScope` refusal table, the scope-ceiling drop (not
+# derive), which `_CEILING` cell governs a synced `L4` row, envelope
+# stability and tamper refusal, and the delivery contract's duplicate and
+# destination handling.
 
 
 @pending(
@@ -408,55 +295,6 @@ def test_i39_the_fleet_ingest_never_listens_and_lazy_imports_psycopg():
     assert pg_class is not None, "store.py must declare PostgresAdapter"
     assert not offenders(pg_class), "PostgresAdapter must never listen (I-30)"
     assert not toplevel_psycopg(store_tree), "psycopg must be lazy in store.py too (I-27)"
-
-
-@pending(
-    "homestead.keep.sync",
-    "I-40 (provisional): an unnamed scope syncs nothing",
-)
-def test_i40_an_unnamed_scope_syncs_nothing(tmp_path, monkeypatch):
-    """The failure this guards against: `--matters all` — a scope that syncs
-    whatever exists rather than what the operator named, which turns a new
-    matter added next month into something that leaves the machine the next
-    time sync runs, with no act authorizing *that* matter. A `SyncScope` with
-    no matters, and one whose `ceiling` is `L5` (an explicit invitation to the
-    one rung `serve()` never crosses), must both refuse at construction — not
-    compose an envelope with nothing or everything in it.
-
-    **The positive control is load-bearing.** Two refusals and nothing else is a
-    test any number of non-implementations satisfy, and the audit built both:
-    a `SyncScope` that validates *nothing* but spells its parameters differently
-    raises `TypeError` twice and passes; so does one whose constructor raises
-    unconditionally. Either would XPASS-strict and be promoted out of this file
-    as a green test that had never once exercised the invariant — the R-6 trap,
-    landed. So a named scope within the ceiling must construct first, and a
-    refusal that is a `TypeError` is rejected by name: a changed signature is
-    not a refusal, it is a different function.
-
-    Provisional I-40. Promotes to tests/test_invariants_sync.py alongside
-    I-37/I-38.
-    """
-    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
-    from homestead.keep import sync
-    from homestead.keep.rungs import Rung
-
-    named = sync.SyncScope(
-        matters=("custody",), item_types=None, ceiling=Rung.L3, tables=("sidecar",)
-    )
-    assert named is not None, "a scope the operator named, under the ceiling, is allowed"
-
-    for kwargs, why in (
-        (dict(matters=(), item_types=None, ceiling=Rung.L3, tables=("sidecar",)),
-         "a scope naming no matters"),
-        (dict(matters=("custody",), item_types=None, ceiling=Rung.L5, tables=("sidecar",)),
-         "a scope whose ceiling is L5"),
-    ):
-        with pytest.raises(Exception) as caught:
-            sync.SyncScope(**kwargs)
-        assert not isinstance(caught.value, TypeError), (
-            f"{why} was refused with a TypeError — that is what a changed "
-            "constructor signature raises, not a scope declining to sync"
-        )
 
 
 @pending(
