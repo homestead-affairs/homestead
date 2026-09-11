@@ -20,6 +20,18 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.6.0](https://github.com/homestead-affairs/homestead/compare/v0.5.0...v0.6.0) (2026-09-11)
+
+
+### Added
+
+* US-NM and US-OR join the deadline rule table ([4f28f78](https://github.com/homestead-affairs/homestead/commit/4f28f78c1a9c62e82a0885f21d2dd4fc0f761ce3))
+
+
+### Fixed
+
+* audit E1-dates-b — a state court reads its own state's holidays ([c4c9b3e](https://github.com/homestead-affairs/homestead/commit/c4c9b3e0547aee5248d70fe5c993acbaf7915adb))
+
 ## [0.5.0](https://github.com/homestead-affairs/homestead/compare/v0.4.0...v0.5.0) (2026-09-11)
 
 
