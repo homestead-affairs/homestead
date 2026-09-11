@@ -20,6 +20,13 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.4.0](https://github.com/homestead-affairs/homestead/compare/v0.3.0...v0.4.0) (2026-09-11)
+
+
+### Added
+
+* a SYNC purpose, for copying the household's own record to its fleet store ([#51](https://github.com/homestead-affairs/homestead/issues/51)) ([41b32d7](https://github.com/homestead-affairs/homestead/commit/41b32d7d5cff25da95ee19dcd8f2d7b278fbc69a))
+
 ## [0.3.0](https://github.com/homestead-affairs/homestead/compare/v0.2.3...v0.3.0) (2026-09-11)
 
 
