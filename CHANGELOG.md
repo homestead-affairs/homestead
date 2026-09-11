@@ -20,6 +20,18 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.7.0](https://github.com/homestead-affairs/homestead/compare/v0.6.0...v0.7.0) (2026-09-11)
+
+
+### Added
+
+* cover_counts takes an optional per-matter distribution (I-31) ([9120e50](https://github.com/homestead-affairs/homestead/commit/9120e5023e3f8864318fd8c9c289540f2c0bb6a9))
+
+
+### Fixed
+
+* the cover refuses a distribution it cannot check, and reads the roster as a set (I-31) ([61e5b20](https://github.com/homestead-affairs/homestead/commit/61e5b202d9d154ab2650577f3e76c34e72fe2e04))
+
 ## [0.6.0](https://github.com/homestead-affairs/homestead/compare/v0.5.0...v0.6.0) (2026-09-11)
 
 
