@@ -25,7 +25,7 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 
 ### Added
 
-* a SYNC purpose, for copying the household's own record to its fleet store ([#51](https://github.com/homestead-affairs/homestead/issues/51)) ([41b32d7](https://github.com/homestead-affairs/homestead/commit/41b32d7d5cff25da95ee19dcd8f2d7b278fbc69a))
+* add Purpose.SYNC as an eighth member ([6d9230d](https://github.com/homestead-affairs/homestead/commit/6d9230db8f2bcf2fce4eaf9a748ff660e7424d7e))
 
 ## [0.3.0](https://github.com/homestead-affairs/homestead/compare/v0.2.3...v0.3.0) (2026-09-11)
 
