@@ -14,7 +14,7 @@ position, both fail `verify()`'s default (decrypting) pass while the
 chain-only pass is shown to be fooled by exactly the residual the DECISION
 doc names ("chain verified, contents not authenticated"); a truncated
 sealed tail fails against the anchor; the sealed boundary row is written
-once and skipped by `_entries()`; unsealed and keyed-only logs are
+once and skipped by `read_entries()`; unsealed and keyed-only logs are
 byte-identical to before this bite; 10,000 sealed lines carry 10,000
 distinct nonces; `sync._already_delivered` and `export.ledger()` both work
 against a sealed log; the CLI never prints key material or a sealed line's
@@ -189,7 +189,7 @@ def test_round_trip_append_entries_verify(keep, home):
     log.append({"kind": "secret", "ref": "s1"})
     log.append({"kind": "secret", "ref": "s2"})
 
-    entries = list(log._entries())
+    entries = list(log.read_entries())
     assert [e["ref"] for e in entries] == ["p1", "s1", "s2"]
     assert all(e.get("act") not in (keep.BOUNDARY_ACT, keep.SEAL_BOUNDARY_ACT) for e in entries)
     assert log.verify() is True
@@ -349,7 +349,7 @@ def test_10000_sealed_lines_carry_10000_distinct_nonces(keep, home):
     assert len(nonces) == 10_000
 
 
-# ── readers: sync and export go through _entries(), not a bare json.loads ──
+# ── readers: sync and export go through read_entries(), not a bare json.loads ──
 
 def test_sync_already_delivered_finds_a_prior_delivery_on_a_sealed_log(keep, home):
     pytest.importorskip("cryptography")
@@ -377,8 +377,134 @@ def test_export_ledger_works_sealed(keep, home):
     assert log.sealed is True
     log.append({"act": "exported", "ref": "custody/deadline/primary"})
     assert log.verify() is True
-    refs = [e["ref"] for e in log._entries() if e.get("act") == "exported"]
+    refs = [e["ref"] for e in log.read_entries() if e.get("act") == "exported"]
     assert refs == ["custody/deadline/primary"]
+
+
+# ── E7: read_entries() — the public reader that never returns short ────────
+#
+# `_entries()` had every one of these properties already; this bite gave it
+# a public name (`read_entries`) and, in the same stroke, closed the one gap
+# a public name could not be allowed to inherit: `decrypt=False` used to
+# walk past a sealed line with a bare `continue`, so it quietly returned the
+# plaintext prefix and dropped the rest — a short answer offered as if it
+# were the whole log. These tests are `test_sealed_log_has_no_public_read_
+# method`'s narrowed property, made concrete against the real reader.
+
+def test_read_entries_on_a_sealed_log_yields_every_row_with_key_and_extra(keep, home):
+    pytest.importorskip("cryptography")
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.append({"kind": "plain", "ref": "p1"})
+    log.seal()
+    log.append({"kind": "secret", "ref": "s1"})
+    log.append({"kind": "secret", "ref": "s2"})
+
+    refs = [e["ref"] for e in log.read_entries()]
+    assert refs == ["p1", "s1", "s2"]
+
+
+def test_read_entries_on_a_sealed_log_without_the_key_refuses_by_name(keep, home):
+    pytest.importorskip("cryptography")
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.seal()
+    log.append({"kind": "secret", "ref": "s1"})
+
+    (home / "anchors" / "integrity.key").unlink()
+    reopened = keep.IntegrityLog()          # construction itself needs no key
+    with pytest.raises(keep.IntegritySealError, match="key"):
+        list(reopened.read_entries())
+
+
+def test_read_entries_on_a_sealed_log_without_the_extra_refuses_by_name(keep, home, monkeypatch):
+    pytest.importorskip("cryptography")
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.seal()
+    log.append({"kind": "secret", "ref": "s1"})
+
+    _block_cryptography(monkeypatch)
+    reopened = keep.IntegrityLog()          # construction itself needs no extra
+    with pytest.raises(keep.IntegritySealError, match="sealed"):
+        list(reopened.read_entries())
+
+
+def test_read_entries_on_a_truncated_sealed_tail_raises_never_returns_short(keep, home):
+    """The pin: `list(log.read_entries())` raises, and does not return a
+    short list. Entries before the corrupted line are yielded first (a
+    generator, so the intact prefix is real work already done) — but the
+    caller iterating it (here, `list()`) never gets a completed result back
+    to mistake for the whole log; the exception is what it gets instead."""
+    pytest.importorskip("cryptography")
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.append({"kind": "plain", "ref": "p1"})
+    log.seal()
+    log.append({"kind": "secret", "ref": "s1"})
+    log.append({"kind": "secret", "ref": "s2"})
+
+    lines = [json.loads(x) for x in log.path.read_text(encoding="utf-8").splitlines()]
+    tail = lines[-1]
+    assert tail.get("sealed") == 1
+    tail["ct"] = ("0" if tail["ct"][0] != "0" else "1") + tail["ct"][1:]   # flip a ciphertext byte
+    _write_lines(log.path, lines)
+
+    from homestead.keep.sealed import SealTamperError
+
+    reopened = keep.IntegrityLog()
+    got = []
+    with pytest.raises(SealTamperError):
+        for entry in reopened.read_entries():
+            got.append(entry)
+    assert [e["ref"] for e in got] == ["p1", "s1"]     # exactly the intact prefix
+
+    with pytest.raises(SealTamperError):
+        list(keep.IntegrityLog().read_entries())       # never returns, on retry either
+
+
+def test_read_entries_decrypt_false_on_a_sealed_log_refuses_before_yielding(keep, home):
+    """The gap this bite closes. Before E7, `decrypt=False` walked past a
+    sealed line with a bare `continue` and returned the plaintext prefix —
+    a short, honest-looking answer that was in fact missing every sealed
+    row. `read_entries(decrypt=False)` on a log this instance considers
+    sealed now refuses immediately, before a single entry is yielded, so a
+    caller cannot iterate partway and stop believing it saw everything."""
+    pytest.importorskip("cryptography")
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.append({"kind": "plain", "ref": "p1"})
+    log.seal()
+    log.append({"kind": "secret", "ref": "s1"})
+
+    gen = log.read_entries(decrypt=False)
+    with pytest.raises(keep.IntegritySealError, match="decrypt"):
+        next(gen)                          # not even the plaintext prefix comes out
+
+
+def test_read_entries_decrypt_false_on_an_unsealed_or_keyed_only_log_is_unchanged(keep, home):
+    """No sealed lines exist, so there is nothing for `decrypt` to differ
+    over — `decrypt=False` behaves exactly like the default."""
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.append({"kind": "keyed-only", "ref": "k1"})
+    log.append({"kind": "keyed-only", "ref": "k2"})
+
+    assert [e["ref"] for e in log.read_entries(decrypt=False)] == \
+        [e["ref"] for e in log.read_entries(decrypt=True)] == ["k1", "k2"]
+
+
+def test_entries_alias_warns_once_and_yields_identically(keep, home):
+    """`_entries()` stays for one minor, unchanged in behaviour, so nothing
+    outside this checkout breaks on the rename without warning first."""
+    log = keep.IntegrityLog()
+    log.append({"kind": "a", "ref": "r1"})
+    log.append({"kind": "b", "ref": "r2"})
+
+    with pytest.warns(DeprecationWarning, match="read_entries"):
+        via_alias = list(log._entries())
+    via_public = list(log.read_entries())
+    assert via_alias == via_public
 
 
 # ── the CLI: `seal`, and never a key or a sealed line's plaintext ──────────
@@ -529,7 +655,7 @@ def test_verify_rejects_a_plaintext_line_after_the_sealed_boundary(keep, home):
 def test_sync_on_a_sealed_log_without_the_extra_refuses_by_name(keep, home, monkeypatch):
     """The answer that must never come back is `False` — "this envelope was
     not delivered" — for a log whose delivery row is simply unreadable here.
-    `_already_delivered` routes through `_entries()`, so the missing extra
+    `_already_delivered` routes through `read_entries()`, so the missing extra
     surfaces as `IntegritySealError` (I-11) and `deliver` cannot send a
     second copy on the strength of a read that never happened."""
     pytest.importorskip("cryptography")

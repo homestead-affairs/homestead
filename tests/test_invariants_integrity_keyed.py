@@ -455,7 +455,8 @@ def test_i27_no_new_dependency_and_only_stdlib_backs_the_key_machinery():
     assert declared_block.group(1).strip().strip(",").strip() == '"holidays>=0.102,<1.0"'
 
     stdlib = {"hashlib", "hmac", "json", "os", "secrets", "threading", "fcntl",
-              "datetime", "enum", "pathlib", "typing", "__future__"}
+              "datetime", "enum", "pathlib", "typing", "__future__",
+              "warnings"}   # E7: `_entries()`'s deprecated-alias warning
     tree = ast.parse((ROOT / "homestead" / "keep" / "logs.py").read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

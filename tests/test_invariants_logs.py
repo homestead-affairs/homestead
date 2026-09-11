@@ -11,10 +11,15 @@ Note → log → prompt, and the log was one keystroke from the screen.
 """
 from __future__ import annotations
 
+import ast
 import json
 import threading
+from pathlib import Path
 
 import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+PACKAGE = ROOT / "homestead"
 
 
 @pytest.fixture()
@@ -186,16 +191,87 @@ def test_sealed_log_detects_tampering(keep):
 
 
 def test_sealed_log_has_no_public_read_method(keep):
-    """A naming convention, not a control — `_lines()` returns everything and
-    `.path` is public. This shapes the app's own habits and stops nobody with
-    filesystem access. See the module docstring; the threat model is the one
-    open decision in docs/PHASE0-REMEDIATION.md."""
+    """Narrowed 2026-09-11 (E7, proposed by the H6 audit): the property this
+    test protects was never "no public reader" — `_entries()` was already a
+    public-in-practice reader every in-package caller depended on under a
+    leading underscore, and `read_entries()` (this bite) gives it the name
+    honestly. What must still never exist is a reader spelled with one of
+    these bare names, because none of them carries anywhere to put a
+    refusal in its own signature — `read()`/`render()`/`tail()`/`show()`/a
+    bare `entries()` all promise "here is the log," full stop, with no way
+    to say "except I can't tell you that part." `read_entries` is allowed
+    because its keyword argument is exactly that place; `_lines()` staying
+    unfiltered and undecrypted, and `.path` staying public, are the same
+    naming-convention residual as before this bite — see the module
+    docstring's own account of what changed here and what did not."""
     log = keep.IntegrityLog()
     for forbidden in ("read", "render", "tail", "entries", "all", "show"):
         assert not hasattr(log, forbidden), (
             f"IntegrityLog.{forbidden}() would hand the audit trail to whoever "
             "opens the app — which is the reader F-6 is protecting against"
         )
+    assert hasattr(log, "read_entries"), (
+        "read_entries() is the one door this bite names publicly — its "
+        "keyword argument is where a sealed log's refusal lives, which is "
+        "the property this guard actually cares about"
+    )
+
+
+def _ast_calls_named(tree: ast.AST, name: str) -> list[ast.Call]:
+    return [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and (
+            (isinstance(node.func, ast.Attribute) and node.func.attr == name)
+            or (isinstance(node.func, ast.Name) and node.func.id == name)
+        )
+    ]
+
+
+def _entries_calls_outside_its_own_definition(package_root: Path) -> list[str]:
+    """Every call to `_entries(` under `package_root`, except the alias's
+    own body (`return self.read_entries(...)` inside `def _entries`, which
+    calls `read_entries`, never `_entries`, so it never matches anyway —
+    there is nothing to except in practice, which is the point: after this
+    bite, zero in-package call sites should still spell the deprecated
+    name)."""
+    hits = []
+    for path in sorted(package_root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for call in _ast_calls_named(tree, "_entries"):
+            hits.append(f"{path.relative_to(package_root.parent)}:{call.lineno}")
+    return hits
+
+
+def test_no_in_package_caller_still_spells_the_deprecated_entries_alias():
+    """A scan that has never fired has not been shown to check anything —
+    so this plants the violation it exists to catch (below) as well as
+    running clean against the tree. `sync._already_delivered` was the one
+    real caller (E6); this bite moved it to `read_entries()`, and nothing
+    else in `homestead/` may reach for the deprecated name going forward."""
+    hits = _entries_calls_outside_its_own_definition(PACKAGE)
+    assert hits == [], (
+        "these call sites still spell the deprecated IntegrityLog._entries() "
+        f"alias instead of read_entries(): {hits}"
+    )
+
+
+def test_entries_alias_scan_fires_on_a_planted_violation(tmp_path):
+    """The scan above has never fired against the real tree (it is clean),
+    which proves nothing about whether it *can* fire — so a fake package is
+    built here with exactly the violation it exists to catch."""
+    fake_pkg = tmp_path / "fake_homestead"
+    (fake_pkg / "keep").mkdir(parents=True)
+    (fake_pkg / "__init__.py").write_text("", encoding="utf-8")
+    (fake_pkg / "keep" / "__init__.py").write_text("", encoding="utf-8")
+    (fake_pkg / "keep" / "offender.py").write_text(
+        "def f(log):\n"
+        "    for entry in log._entries():\n"
+        "        pass\n",
+        encoding="utf-8",
+    )
+    hits = _entries_calls_outside_its_own_definition(fake_pkg)
+    assert len(hits) == 1 and hits[0].endswith("offender.py:2")
 
 
 def test_sealed_log_verify_does_not_return_content(keep):
