@@ -870,20 +870,22 @@ class IntegrityLog:
         see `tests/test_invariants_logs.py::test_entries_alias_warns_once_
         and_yields_identically`.
 
-        **Removed in 0.13.0.** This bite cuts 0.12.0, "one minor" is the
-        next one, and a removal date nobody wrote down is a removal that
-        never happens — so the version is named here, in
-        `docs/DECISION-integrity-key-management.md` §9, and in
+        **Removed in 0.14.0.** ~~Removed in 0.13.0. This bite cuts 0.12.0,
+        "one minor" is the next one~~ — E7b cut 0.13.0 within the hour of
+        0.12.0, so "the next minor" gave callers no window at all; the
+        removal moved to 0.14.0 (2026-09-11). A removal date nobody wrote
+        down is a removal that never happens — so the version is named here,
+        in `docs/DECISION-integrity-key-management.md` §9, and in
         `tests/test_invariants_logs.py::test_the_entries_alias_is_gone_by_
         its_named_removal_version`, which starts failing the moment the
-        changelog's top entry reaches 0.13.0 and this method still exists.
+        changelog's top entry reaches 0.14.0 and this method still exists.
         Not a generator: the `warnings.warn` fires when the caller *calls*
         it, not when they first iterate what it returned, so `stacklevel=2`
         names the caller's own line.
         """
         warnings.warn(
             "IntegrityLog._entries() is a deprecated alias for "
-            "read_entries() and will be removed in 0.13.0",
+            "read_entries() and will be removed in 0.14.0",
             DeprecationWarning,
             stacklevel=2,
         )
