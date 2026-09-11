@@ -25,7 +25,13 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 
 ### Added
 
-* IntegrityLog takes an optional HMAC-SHA256 key ([#64](https://github.com/homestead-affairs/homestead/issues/64)) ([f41cbce](https://github.com/homestead-affairs/homestead/commit/f41cbcefbb45f0bac7f0fbbf8620c229dff2d582))
+* IntegrityLog takes an optional HMAC-SHA256 key ([da74a93](https://github.com/homestead-affairs/homestead/commit/da74a937c7a73a2026dc24b10f40a09d4016e23a))
+
+
+### Fixed
+
+* a marker line this did not write cannot crash verify() ([6c4a862](https://github.com/homestead-affairs/homestead/commit/6c4a8629342d2f83a70cad994914ca524ecb1a10))
+* a keyed log cannot be downgraded by deleting its boundary row ([ae960c9](https://github.com/homestead-affairs/homestead/commit/ae960c9bdee7628fface6bb7938aa0cba276d5a0))
 
 ## [0.9.0](https://github.com/homestead-affairs/homestead/compare/v0.8.0...v0.9.0) (2026-09-11)
 
