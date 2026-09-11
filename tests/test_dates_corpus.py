@@ -52,7 +52,7 @@ this file consults the real clock.
 from __future__ import annotations
 
 import ast
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -1121,3 +1121,220 @@ def test_district_state_holiday_extends_a_forward_count_only():
     # `district_state` parameter on `court_days_before` to apply it with.
     import inspect
     assert "district_state" not in inspect.signature(court_days_before).parameters
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 9 · Audit pass — the cases section 8 does not reach
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Every case below was re-derived by hand from the weekday anchors already
+# established in this file (2026-01-01 Thu, 2026-08-04 Tue, 2026-09-07 Labor
+# Day/Mon, 2026-11-26 Thanksgiving/Thu, 2026-12-25 Christmas/Fri, 2027-01-01
+# New Year/Fri, 2028-02-29 leap day/Tue) and then cross-checked against a
+# second, independently shaped oracle — a sorted list of OPEN days with
+# `bisect`, rather than a day-at-a-time loop — so an off-by-one in either
+# formulation shows up as a disagreement rather than as agreement by shared
+# construction.
+#
+# What section 8 leaves untested, and each of these therefore exists for:
+#
+#   * a backward count whose last day is a **Monday holiday** — the case where
+#     rolling the wrong way is not one day wrong but four,
+#   * a backward count **spanning Thanksgiving**, where the closure is
+#     intermediate and must cost nothing (6(a)(1)(B) does not change with
+#     direction),
+#   * `+3` mail days from a **Friday onto a Monday holiday**, the shape where
+#     the re-roll is load-bearing rather than a no-op,
+#   * `business_days` **across Christmas and New Year** in both a
+#     holiday-falls-on-a-weekday year and a holiday-observed-on-a-Friday year,
+#   * a backward count **across a leap day**, where "a year" is 366 days.
+
+
+@pytest.mark.parametrize("end,n,expected,why", [
+    # Mon 2026-09-14 minus 7 = Mon 2026-09-07, Labor Day. Rolling BACKWARD
+    # passes Sun 9/6 and Sat 9/5 to land on Fri 2026-09-04. A forward roll
+    # would answer 2026-09-08 — four days later than the rule allows, on a
+    # filing the litigant must already have made.
+    ("2026-09-14", 7, "2026-09-04", "Labor Day Monday: back to the Friday, not forward to the Tuesday"),
+    # Mon 2026-01-26 minus 7 = Mon 2026-01-19, Martin Luther King Jr. Day.
+    ("2026-01-26", 7, "2026-01-16", "MLK Monday: back over the weekend to Fri 1/16"),
+    # Mon 2026-02-23 minus 7 = Mon 2026-02-16, Washington's Birthday.
+    ("2026-02-23", 7, "2026-02-13", "Washington's Birthday Monday: back to Fri 2/13"),
+    # Mon 2026-10-19 minus 7 = Mon 2026-10-12, Columbus Day.
+    ("2026-10-19", 7, "2026-10-09", "Columbus Day Monday: back to Fri 10/9"),
+    # Mon 2026-05-... the same shape at the other end of the year: Tue
+    # 2026-06-01 minus 7 = Mon 2026-05-25, Memorial Day -> Fri 2026-05-22.
+    ("2026-06-01", 7, "2026-05-22", "Memorial Day Monday: back to Fri 5/22"),
+])
+def test_backward_count_onto_a_monday_holiday_rolls_back_to_the_friday(end, n, expected, why):
+    """FRCP 6(a)(5) / FRBP 9006(a)(5), at its sharpest. Every federal holiday
+    that is pinned to a Monday puts three consecutive closed days in front of
+    it, so a backward count landing on one is where a wrong-direction roll
+    stops being an off-by-one and becomes an off-by-four — and it lands *after*
+    the day the rule allows, which for a "file at least N days before" period
+    means the filing is late."""
+    assert court_days_before(end, n).iso == expected, why
+
+
+@pytest.mark.parametrize("end,n,expected,why", [
+    # Tue 2026-12-01 minus 7 = Tue 2026-11-24, an open day. Thanksgiving
+    # (Thu 2026-11-26) and the weekend of 11/28-11/29 are all strictly INSIDE
+    # the span and are counted like any other day: 6(a)(1)(B) does not change
+    # with the direction of the count. A business-day counter answers
+    # 2026-11-19 here and is five days early.
+    ("2026-12-01", 7, "2026-11-24", "Thanksgiving is intermediate: counted, not skipped"),
+    # Mon 2026-11-30 minus 4 = Thu 2026-11-26, Thanksgiving itself -> back one
+    # day to Wed 2026-11-25 (open; the Wednesday before Thanksgiving is not a
+    # federal holiday).
+    ("2026-11-30", 4, "2026-11-25", "lands ON Thanksgiving -> back to the Wednesday"),
+    # Wed 2026-12-02 minus 10 = Sun 2026-11-22 -> back over Sat 2026-11-21 to
+    # Fri 2026-11-20. The span crosses Thanksgiving AND the landing is closed,
+    # so both halves of the rule are exercised at once.
+    ("2026-12-02", 10, "2026-11-20", "spans Thanksgiving and still rolls back off a Sunday"),
+])
+def test_backward_count_spanning_thanksgiving(end, n, expected, why):
+    """6(a)(1)(B) applied backward. An intermediate closure costs nothing; only
+    the last day counted is special. This is the property that separates
+    `court_days_before` from `business_days` run in reverse."""
+    assert court_days_before(end, n).iso == expected, why
+
+
+@pytest.mark.parametrize("end,n,expected,why", [
+    # Tue 2028-03-07 minus 7 = Tue 2028-02-29 — the leap day itself, an open
+    # Tuesday, returned untouched.
+    ("2028-03-07", 7, "2028-02-29", "lands exactly on the leap day, which is open"),
+    # Wed 2028-03-01 minus 366 = Mon 2027-03-01. 366, not 365, because
+    # 2028-02-29 lies inside the span: "one year back" is a different number of
+    # days depending on which year it is.
+    ("2028-03-01", 366, "2027-03-01", "a leap year is 366 days back to the same date"),
+    # The control, one year earlier and one day shorter: Mon 2027-03-01 minus
+    # 365 = Sun 2026-03-01 -> back over Sat 2026-02-28 to Fri 2026-02-27.
+    ("2027-03-01", 365, "2026-02-27", "no leap day: 365 days, and the landing rolls back"),
+    # A period longer than the distance to the leap day, counted through it:
+    # Mon 2028-03-06 minus 30 = Sat 2028-02-05 -> back to Fri 2028-02-04.
+    ("2028-03-06", 30, "2028-02-04", "counts back through 2028-02-29 and rolls off a Saturday"),
+])
+def test_backward_count_across_a_leap_day(end, n, expected, why):
+    """February is the one month where "N days before" and "N days before"
+    differ by a year, and a backward count is where that lands in a direction
+    nobody checks. `court_days` has a leap-year block (section 5); this is its
+    missing mirror."""
+    assert court_days_before(end, n).iso == expected, why
+
+
+@pytest.mark.parametrize("end,expected,why", [
+    # FRCP 6(d)/FRBP 9006(f) from a Friday: +3 raw days is always the following
+    # Monday (Fri -> Sat -> Sun -> Mon), so a Monday federal holiday makes the
+    # re-roll the whole answer. Fri 2026-09-04 + 3 = Mon 2026-09-07, Labor Day
+    # -> Tue 2026-09-08.
+    ("2026-09-04", "2026-09-08", "Labor Day Monday -> Tuesday"),
+    ("2026-01-16", "2026-01-20", "MLK Monday -> Tuesday"),
+    ("2026-02-13", "2026-02-17", "Washington's Birthday Monday -> Tuesday"),
+    ("2026-05-22", "2026-05-26", "Memorial Day Monday -> Tuesday"),
+    ("2026-10-09", "2026-10-13", "Columbus Day Monday -> Tuesday"),
+])
+def test_mail_days_from_a_friday_onto_a_monday_holiday(end, expected, why):
+    """The 2005 committee-note posture, pinned where it actually matters. All
+    five of section 8's mail cases either land open or land on a weekend; none
+    of them lands on a *holiday*, so an implementation that rolled only off
+    Saturdays and Sundays would pass every one of them and be a day short here
+    — on the mail rule, whose entire purpose is to give a served party more
+    time, not less."""
+    assert add_mail_days(parse_deadline(end)).iso == expected, why
+
+
+def test_a_fourteen_day_period_and_its_mail_days_compose():
+    """The two rules in the order a real deadline uses them, with the roll
+    landing on a holiday at the end rather than in the middle.
+
+    Fri 2026-08-21 + 14 = Fri 2026-09-04, open, so 6(a)/9006(a) leaves it
+    alone. The 3 mail days then attach to *that* end — not to the raw
+    arithmetic, and not folded into the 14 — and land on Labor Day Monday
+    2026-09-07, which rolls to Tue 2026-09-08. Folding the mail days into the
+    period instead (17 days from 8/21) gives Mon 2026-09-07 rolled to Tue
+    2026-09-08 as well, which is why this case needs the third assertion: the
+    two are not always equal, and section 8 never shows them apart.
+    """
+    end = court_days("2026-08-21", 14)
+    assert end.iso == "2026-09-04"
+    assert add_mail_days(end).iso == "2026-09-08"
+
+    # Where the two orders genuinely disagree: Thu 2026-12-24 + 14 raw is Thu
+    # 2027-01-07, open -> +3 = Sun 2027-01-10 -> Mon 2027-01-11. Folding the
+    # mail days in first is 17 days from 12/24 = Sun 2027-01-10 -> Mon
+    # 2027-01-11 too. Use a period whose (a) roll actually moves: Sun
+    # 2026-12-20 + 5 = Fri 2026-12-25, Christmas -> rolled to Mon 2026-12-28,
+    # then +3 = Thu 2026-12-31 (open). Folding instead gives 8 days from
+    # 12/20 = Mon 2026-12-28 — three days earlier, and wrong.
+    rolled = court_days("2026-12-20", 5)
+    assert rolled.iso == "2026-12-28"
+    assert add_mail_days(rolled).iso == "2026-12-31"
+    assert court_days("2026-12-20", 8).iso == "2026-12-28"
+
+
+@pytest.mark.parametrize("start,n,expected,why", [
+    # Wed 2026-12-23 + 5 OPEN days: Thu 24 (1), Fri 25 Christmas (skip),
+    # Sat/Sun (skip), Mon 28 (2), Tue 29 (3), Wed 30 (4), Thu 31 (5).
+    # 2026-12-31 is a Thursday and NOT a holiday — only 2027-12-31 is, and
+    # only because New Year's Day 2028 falls on a Saturday.
+    ("2026-12-23", 5, "2026-12-31", "across Christmas, stopping short of New Year"),
+    # Thu 2026-12-24 + 5 OPEN days: Fri 25 (skip), Sat/Sun (skip), Mon 28 (1),
+    # Tue 29 (2), Wed 30 (3), Thu 31 (4), Fri 2027-01-01 New Year (skip),
+    # Sat/Sun (skip), Mon 2027-01-04 (5).
+    ("2026-12-24", 5, "2027-01-04", "across BOTH Christmas and New Year, and the year boundary"),
+    # Wed 2027-12-22 + 4 OPEN days, the year where Christmas falls on a
+    # Saturday and is observed on Fri 2027-12-24: Thu 23 (1), Fri 24 observed
+    # (skip), Sat/Sun (skip), Mon 27 (2), Tue 28 (3), Wed 29 (4).
+    ("2027-12-22", 4, "2027-12-29", "the OBSERVED Christmas Friday is skipped while counting"),
+    # Wed 2027-12-29 + 2 OPEN days: Thu 30 (1), Fri 31 New Year's Day 2028
+    # observed (skip), Sat 2028-01-01 (skip), Sun (skip), Mon 2028-01-03 (2).
+    ("2027-12-29", 2, "2028-01-03", "the OBSERVED New Year Friday is skipped too"),
+])
+def test_business_days_across_christmas_and_new_year(start, n, expected, why):
+    """The densest holiday cluster in the calendar, counted the other way.
+    Section 8's business-day cases each skip one holiday; these skip two, and
+    two of them skip an *observed* Friday, which a hardcoded "December 25"
+    calendar treats as an ordinary working day."""
+    assert business_days(start, n).iso == expected, why
+
+
+@pytest.mark.parametrize("start,expected,why", [
+    ("2026-08-04", "2026-08-04", "a Tuesday — the event day itself, nothing to roll"),
+    ("2026-08-08", "2026-08-07", "a Saturday — rolls BACK to Friday"),
+    ("2026-08-09", "2026-08-07", "a Sunday — back over Saturday to Friday"),
+    ("2026-12-25", "2026-12-24", "Christmas Friday — back to the Thursday"),
+    ("2026-07-04", "2026-07-02", "July 4 Saturday, and July 3 is the observed holiday"),
+    ("2027-01-01", "2026-12-31", "New Year's Day — back across the year boundary"),
+])
+def test_a_backward_period_of_zero(start, expected, why):
+    """`court_days_before(end, 0)` is the mirror of section 5's `n=0` block:
+    the last day counted is `end` itself, and the roll still applies — but
+    backward. Section 5 pins the forward degenerate case and calls it "the case
+    a `do…while` gets wrong … reachable the moment any rule table contains a
+    0"; the backward one is reachable the same moment and had no case at all.
+
+    The two must not agree: `court_days("2026-12-25", 0)` is 2026-12-28 and
+    `court_days_before("2026-12-25", 0)` is 2026-12-24. If they agree, the roll
+    has no direction and there was never any reason to have two functions.
+    """
+    assert court_days_before(start, 0).iso == expected, why
+    forward = court_days(start, 0).iso
+    if start != expected:                       # i.e. the start day was closed
+        assert forward != expected, (
+            f"court_days and court_days_before both answer {expected!r} for "
+            f"{start!r}; the backward roll is not going backward"
+        )
+
+
+def test_the_audit_section_has_not_been_hollowed_out():
+    """Section 7's guard, extended to section 9: these tables are the only
+    coverage of the Monday-holiday roll, the leap-day backward count and the
+    two-holiday business-day run, so a table trimmed back to one row takes all
+    of it with it."""
+    import inspect
+    source = inspect.getsource(inspect.getmodule(test_a_backward_period_of_zero))
+    section = source.split("# 9 · Audit pass", 1)[1]
+    assert section.count('("20') >= 25, (
+        "section 9's hand-worked tables have shrunk; each row is a case with a "
+        "derivation written above it and none of them is redundant"
+    )
