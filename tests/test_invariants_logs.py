@@ -352,7 +352,7 @@ def test_both_logs_live_under_the_root(keep, tmp_path):
 #: that never happens, so the version is here, in the method's own docstring,
 #: and in `docs/DECISION-integrity-key-management.md` §9 — and the test below
 #: starts failing the moment the changelog says it has arrived.
-ENTRIES_ALIAS_REMOVED_IN = (0, 13, 0)
+ENTRIES_ALIAS_REMOVED_IN = (0, 14, 0)
 
 
 def _latest_released_version(text: str | None = None) -> tuple[int, int, int]:
@@ -402,7 +402,10 @@ def test_the_changelog_version_reader_fires_on_a_planted_changelog():
 
 def test_the_entries_alias_is_gone_by_its_named_removal_version():
     """The reminder. `_entries()` is a `DeprecationWarning` alias kept for
-    one minor; `DeprecationWarning` is silent by default, so nothing else in
+    one *released* minor of breathing room: E7 cut 0.12.0 and named 0.13.0,
+    and E7b cut 0.13.0 the same hour, which would have closed the window
+    before any caller saw a warning — so the removal is 0.14.0 (2026-09-11).
+    `DeprecationWarning` is silent by default, so nothing else in
     this repo or any module downstream will ever *notice* that the minor has
     passed. This fails on the first release at or past the named version
     while the alias is still there."""
