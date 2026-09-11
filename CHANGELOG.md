@@ -20,6 +20,13 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.4.0](https://github.com/homestead-affairs/homestead/compare/v0.3.0...v0.4.0) (2026-09-11)
+
+
+### Added
+
+* add Purpose.SYNC as an eighth member ([6d9230d](https://github.com/homestead-affairs/homestead/commit/6d9230db8f2bcf2fce4eaf9a748ff660e7424d7e))
+
 ## [0.3.0](https://github.com/homestead-affairs/homestead/compare/v0.2.3...v0.3.0) (2026-09-11)
 
 
