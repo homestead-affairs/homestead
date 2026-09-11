@@ -256,8 +256,12 @@ def _recorded_boundary(path: Path) -> str | None:
     if not marker.exists():
         return None
     tag = _log_tag(path)
-    for raw in marker.read_text(encoding="utf-8").splitlines():
-        head, _, recorded = raw.strip().partition(" ")
+    for raw in marker.read_text(encoding="utf-8", errors="replace").splitlines():
+        raw = raw.strip()
+        if not raw.isascii():
+            continue        # `compare_digest` on str is ASCII-only; a line we
+            #                 did not write is not a line about this log
+        head, _, recorded = raw.partition(" ")
         if head and hmac.compare_digest(head, tag):
             return recorded or None
     return None
