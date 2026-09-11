@@ -1,8 +1,11 @@
 # Phase 1 — dates
 
 `homestead/keep/dates.py`, the one place in this package that turns text into a
-date. **Suite: 406 passed / 10 xfailed**, up from 30/13 at the end of Phase 0
-remediation.
+date. ~~**Suite: 406 passed / 10 xfailed**~~ **Suite: 2166 passed / 9 skipped /
+7 xfailed** (2026-09-11, whole engine on `claude/dates-nm-or-jurisdictions`
+merged with `main` at 0.5.0), up from 30/13 at the end of Phase 0 remediation.
+The struck figure was this file's count when Phase 1 landed and had not been
+touched since; it is kept struck rather than deleted so the growth is legible.
 
 Written by **two hands that did not read each other**: the corpus
 (`tests/test_dates_corpus.py`, 341 cases) and the implementation were produced
@@ -202,3 +205,104 @@ mail days from a Friday onto a Monday holiday, `business_days` across both
 Christmas and New Year in an observed-on-Friday year, and the backward `n=0`
 degenerate case — which must *not* answer what the forward one answers, since
 the direction of the roll is the only reason there are two functions.
+
+---
+
+## US-NM and US-OR — 2026-09-11 (E1-dates-b)
+
+`RULES` grew to three rows: `JURISDICTIONS == ("US-federal", "US-NM",
+"US-OR")`, still `tuple(RULES)`. `CountingRule` grew from one `status` per
+row to four independent `(status, source)` pairs — forward, short-period,
+backward, mail — because a state's forward-counting rule can be corroborated
+while its backward and mail rules are not stated in anything read here. The
+federal row was refactored to the same shape, all four branches `VERIFIED`;
+its computed answers are byte-identical (the unchanged federal corpus still
+passes with no value changed).
+
+Every URL below was tried on 2026-09-11 and every one is refused by the
+egress proxy (`EGRESS_BLOCKED`) before the request leaves the box:
+`supremecourt.nmcourts.gov/…/Rule-1-006-NMRA.pdf`, `law.justia.com/codes/
+new-mexico/…/section-12-2a-7/`, `nmonesource.com/nmos/nmra/…`, `oregon.
+public.law/rules-of-civil-procedure/orcp-10-time/`.
+
+| jurisdiction | forward (≥ threshold) | short period | backward | mail |
+|---|---|---|---|---|
+| `US-NM` | Rule 1-006(A) NMRA (eff. 2024-11-01) — VERIFIED-secondary, ≥ 11 days | `short_period_max=11` — **UNCERTAIN** | **UNCERTAIN** | 3 days recorded, **UNCERTAIN** |
+| `US-OR` | ORCP 10 A — VERIFIED-secondary, ≥ 7 days | `short_period_max=7` — VERIFIED-secondary | **UNCERTAIN** | 3 days recorded (ORCP 10 C, letter UNCERTAIN), **UNCERTAIN** |
+
+Calendars: `US-federal` = `holidays.US()` (plus one state's, forward-only,
+under `district_state=`); `US-NM` = `holidays.US(subdiv="NM")`; `US-OR` =
+`holidays.US(subdiv="OR")`. The state rows are the subdivision list alone —
+see the third bullet below. The subdivision data and the source comments
+around it in `holidays` 0.104 are the (secondary) basis for the two days that
+distinguish them; NMSA 12-5-2 and ORS 187.010 themselves are EGRESS_BLOCKED
+from here like everything else in this table.
+
+The *Harvey v. Christie* reference in `RULES["US-OR"].mail_days_source` is
+deliberately name-and-year only: no reporter citation was confirmed from here,
+and the string says so rather than inventing one. It is cited as the reason
+the mail branch is **UNCERTAIN**, not as authority for a computed date.
+
+Three things worth knowing before touching this table again:
+
+* The short-period shape is `business_days`'s loop (`_count_open_days`), not
+  a second copy of it — `court_days` picks it whenever `n` is strictly below
+  `RULES[jurisdiction].short_period_max`, so the two can never drift apart.
+* A `holiday_calendar` override replaces the calendar, never which shape
+  runs: `short_period_max` still comes from `RULES[jurisdiction]` even when
+  the caller supplies their own calendar — see
+  `test_a_holiday_calendar_override_keeps_the_jurisdictions_counting_rule`
+  (demonstrated on `US-OR`, whose short branch is VERIFIED).
+  ~~It bypasses the `RULES` status check.~~ **Corrected on audit,
+  2026-09-11:** it bypasses the *ordinary* branch's status check only. On
+  the short branch the rule is still doing the work — the threshold, and
+  "exclude intermediate closures while counting" — and neither arrives with
+  the caller's calendar, so `court_days(…, 3, jurisdiction="US-NM",
+  holiday_calendar=…)` now **refuses** instead of returning a date computed
+  under NM's own admittedly-unguessable boundary. `business_days(start, n,
+  holiday_calendar=…)` is the escape hatch the refusal names: the same
+  arithmetic with no jurisdiction's short-period rule claimed for it. Same
+  reasoning `add_mail_days` already used for its figure
+  (`test_an_override_does_not_buy_out_an_uncertain_short_period_branch`).
+* ~~`"US-federal"` + `district_state="NM"` and `"US-NM"` read the identical
+  union calendar and agree exactly at or above NM's 11-day threshold~~ —
+  **corrected on audit, 2026-09-11: they read *different* calendars.**
+  `"US-federal"` + `district_state="NM"` is a federal case pending in the
+  District of New Mexico and reads federal ∪ NM (FRBP 9006(a)(6)(C));
+  `"US-NM"` is a New Mexico state district court and reads New Mexico's
+  legal holidays alone. They agree on a stretch containing no day the two
+  lists disagree about, and differ on the third Monday in February — a
+  federal holiday New Mexico does not observe. Below NM's 11-day threshold
+  they differ again and in kind: the federal call still computes (federal
+  law has no short-period concept) while `"US-NM"` refuses. Confusing the
+  two jurisdictions produces a confident wrong answer, not a refusal, which
+  is why they stay separate rows
+  (`test_us_federal_with_district_state_nm_and_us_nm_agree_on_long_forward_
+  periods_and_differ_on_short`).
+* **A state rule reads its own state's holidays. Nothing is unioned.**
+  `US-NM` is `holidays.US(subdiv="NM")` (NMSA 1978 § 12-5-2) and `US-OR` is
+  `holidays.US(subdiv="OR")` (ORS 187.010/.020) — *not* unioned with the
+  federal list, which has no standing in a state court. As shipped, both
+  rows were unioned with the federal calendar; that closed 2027-02-15 for
+  New Mexico (which keeps Presidents' Day on the Friday after Thanksgiving
+  and observes no February Monday) and 2026-10-12 for Oregon (ORS 187.010
+  does not list Columbus Day). Both errors ran the same direction — a
+  spurious closure computes a deadline that is too **late**, i.e. missed.
+  Checked against an independent open-days/bisect oracle over 2024–2032:
+  0 mismatches on the state calendars, 1,422 on the union ones.
+  `test_nm_and_or_calendars_are_the_states_own_not_a_union_with_the_federal_
+  one` pins both days and plants the union.
+* **`district_state=` is refused on a state jurisdiction.**
+  6(a)(6)(C)/9006(a)(6)(C) adds the holidays of the state where a *federal*
+  district court sits; Rule 1-006 NMRA and ORCP 10 have no counterpart, and
+  as shipped `court_days(..., jurisdiction="US-NM", district_state="OR")`
+  silently unioned a second sovereign's calendar into a New Mexico court's.
+  `CountingRule.district_state_source` is `None` on both state rows and the
+  refusal names `US-federal` as what the caller probably meant
+  (`test_district_state_is_refused_on_a_state_jurisdiction`).
+
+`test_nm_short_period_excludes_weekends_and_holidays_when_verified` is
+`xfail(strict=True)`: it asserts the answer this module would compute if
+NM's short-period branch were `VERIFIED`. The day someone reads Rule 1-006
+NMRA's short-period text and flips `short_period_status`, this assertion
+starts passing and `strict=True` fails the suite until the marker is removed.
