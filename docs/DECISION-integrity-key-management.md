@@ -519,13 +519,16 @@ short answer or a plaintext fallback for a sealed log. `read`, `render`,
 a signature that could say what it refused. `read_entries` is allowed
 because its keyword argument is exactly that place.
 
-**The alias is removed in 0.13.0.** This bite cuts 0.12.0 and "one minor"
-is the next one; a removal nobody wrote a date on is a removal that never
-happens. The number is in three places that are checked against each other
+**The alias is removed in 0.14.0.** ~~The alias is removed in 0.13.0. This
+bite cuts 0.12.0 and "one minor" is the next one~~ — E7b cut 0.13.0 within
+the hour of 0.12.0, so the named window closed before any caller could have
+seen a warning, and the release PR for 0.13.0 failed on the reminder test
+itself; the removal moved to 0.14.0 (2026-09-11). A removal nobody wrote a
+date on is a removal that never happens. The number is in three places that are checked against each other
 — `IntegrityLog._entries()`'s docstring, this paragraph, and
 `tests/test_invariants_logs.py::test_the_entries_alias_is_gone_by_its_named_
 removal_version`, which reads the changelog's top release heading and starts
-failing the moment it reaches 0.13.0 with the alias still present.
+failing the moment it reaches 0.14.0 with the alias still present.
 `DeprecationWarning` is silent by default, so nothing would otherwise ever
 notice the window had closed. Checked while ratifying: none of the four
 repos turns warnings into errors (no `filterwarnings = error`, no `-W
