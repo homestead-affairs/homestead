@@ -314,6 +314,14 @@ upsert on `sidecar`.
    `fleet_cli.MAX_VALUE_TEXT` is 64 KiB, declared at the fleet's own door
    and named in the refusal. The envelope side is unchanged; if a bound
    belongs there too, that is `keep/sync.py`'s bite, not this one.
+5. **A depth cap, because the interpreter's is not a rule.** The audit
+   caught a structure nested past the recursion limit as a `RecursionError`
+   and refused it by name — and CI on Python 3.12 showed that plant reaching
+   the dial instead: 3.12 stopped counting the json encoder's C recursion
+   against `sys.getrecursionlimit()`, so a 2000-deep list serializes there.
+   `fleet_cli.MAX_VALUE_DEPTH` (32) is measured iteratively before any
+   serializer sees the value and refused by name on every interpreter; the
+   `RecursionError` catch stays as a backstop (CI finding, 2026-09-11).
 
 **The ledger's own floor.** `homestead-ledger`'s `test_the_fleet_refuses_a_
 structured_pair_value_by_name` (G5-sync) is written against the *old*

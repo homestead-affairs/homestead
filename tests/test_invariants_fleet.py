@@ -903,14 +903,17 @@ def test_ingest_refuses_a_hostile_value_by_name_never_by_traceback(value, hint):
 
 
 def test_ingest_refuses_a_nested_value_by_name_rather_than_a_recursion_error():
-    """The `RecursionError` half, kept separate because building the plant
-    is what the test is about: 2000-deep nesting is not something
-    `json.dumps` refuses, it is something it runs out of stack on."""
+    """A value nested past `MAX_VALUE_DEPTH` is refused by name before any
+    serializer sees it. The plant is deliberately shallow enough to
+    serialize on every interpreter: on 3.10/3.11 a 2000-deep list raised
+    `RecursionError` inside `json.dumps`, on 3.12 it does not (the C
+    encoder's recursion is no longer counted), and CI showed the old plant
+    reaching the dial there. The depth bound is the fleet's, not Python's."""
     from homestead.keep import fleet_cli
     from homestead.keep import sync as sync_mod
 
     planted: object = []
-    for _ in range(2000):
+    for _ in range(fleet_cli.MAX_VALUE_DEPTH + 8):
         planted = [planted]
     env = sync_mod.Envelope(
         schema=sync_mod.SCHEMA, household="hh-0123456789abcdef",
@@ -921,7 +924,27 @@ def test_ingest_refuses_a_nested_value_by_name_rather_than_a_recursion_error():
     )
     with pytest.raises(fleet_cli.IngestRefused) as e:
         fleet_cli.ingest(env, "postgresql://x/y")
-    assert "serialize" in str(e.value)
+    assert "nested deeper than" in str(e.value)
+    assert "[" not in str(e.value)
+
+
+def test_a_value_at_the_depth_cap_still_crosses():
+    """The cap is a bound, not a fear of nesting: exactly `MAX_VALUE_DEPTH`
+    levels validates (a real ledger row is two deep at most)."""
+    from homestead.keep import fleet_cli
+    from homestead.keep import sync as sync_mod
+
+    planted: object = "leaf"
+    for _ in range(fleet_cli.MAX_VALUE_DEPTH - 1):
+        planted = [planted]
+    env = sync_mod.Envelope(
+        schema=sync_mod.SCHEMA, household="hh-0123456789abcdef",
+        composed_at="2026-01-01T00:00:00+00:00", head="genesis",
+        scope={"matters": ["custody"], "item_types": None,
+               "ceiling": "L3", "tables": ["sidecar"]},
+        rows=(_row(value=planted),), count=1, envelope_id="not-checked-by-ingest",
+    )
+    fleet_cli._validate_rows(env)
 
 
 def test_canonical_value_text_is_the_encoder_the_envelope_is_frozen_with():

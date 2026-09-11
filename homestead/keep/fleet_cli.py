@@ -80,7 +80,7 @@ from .sync import SCHEMA, Envelope, TamperedEnvelope
 
 __all__ = [
     "main", "ensure_schema", "ingest", "IngestRefused", "IngestResult",
-    "decode_value", "Decoded", "MAX_VALUE_TEXT",
+    "decode_value", "Decoded", "MAX_VALUE_TEXT", "MAX_VALUE_DEPTH",
 ]
 
 _TABLES = (CANONICAL, SIDECAR)
@@ -91,6 +91,32 @@ _READABLE_RUNGS = {"L1", "L2", "L3", "L4"}   # L5, or anything else, is refused
 #: `serve()` hands it — so the bound is declared here, at the fleet's own
 #: door, and named in the refusal (E7b audit, 2026-09-11).
 MAX_VALUE_TEXT = 64 * 1024
+
+#: How deep a served value may nest. Python 3.12 stopped counting the json
+#: encoder's C recursion against `sys.getrecursionlimit()`, so a 2000-deep
+#: list that raised `RecursionError` on 3.10/3.11 serializes on 3.12 and
+#: would have reached the dial. The bound is the fleet's own, named in the
+#: refusal, and does not depend on which interpreter runs the ingest
+#: (E7b, CI finding 2026-09-11). No module serves anything nested past two.
+MAX_VALUE_DEPTH = 32
+
+
+def _depth(value: Any) -> int:
+    """Nesting depth of a JSON-shaped value, iteratively (so measuring a
+    hostile value never recurses)."""
+    deepest = 0
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    while stack:
+        node, level = stack.pop()
+        if level > deepest:
+            deepest = level
+        if level > MAX_VALUE_DEPTH:
+            return level
+        if isinstance(node, dict):
+            stack.extend((child, level + 1) for child in node.values())
+        elif isinstance(node, (list, tuple)):
+            stack.extend((child, level + 1) for child in node)
+    return deepest
 
 
 class IngestRefused(ValueError):
@@ -267,9 +293,16 @@ def _validate_rows(envelope: Envelope) -> None:
         # Beyond that: anything `json.dumps` cannot turn into text at all —
         # a `bytes` or a `set` (`TypeError`), a circular reference
         # (`ValueError`), a structure nested past the interpreter's limit
-        # (`RecursionError`). Only a hand-built `Envelope` can carry one,
+        # (`RecursionError`, a backstop: the depth cap above refuses first,
+        # since 3.12 no longer raises it). Only a hand-built `Envelope` can carry one,
         # and each came out of here as a bare traceback (not the middle two
         # only) until the E7b audit.
+        if _depth(value) > MAX_VALUE_DEPTH:
+            raise IngestRefused(
+                f"row {row.get('item_id')!r} carries a value nested deeper "
+                f"than {MAX_VALUE_DEPTH} levels — refused by name, and the "
+                "value itself is not echoed (I-15)"
+            )
         try:
             text = canonical_value_text(value)
         except (TypeError, ValueError, RecursionError) as e:
