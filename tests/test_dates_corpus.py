@@ -1358,19 +1358,25 @@ def test_the_audit_section_has_not_been_hollowed_out():
 
 
 @pytest.mark.parametrize("start,n,expected,why", [
-    # Rule 1-006(A) NMRA, calendar: federal UNION NM. Fri 2026-11-13 + 11 raw
-    # days = Tue 2026-11-24, an ordinary Tuesday in both calendars -- 11 is
-    # NOT less than short_period_max=11, so this is the ordinary (>=11-day)
-    # branch, not the short one.
+    # Rule 1-006(A) NMRA, calendar: NEW MEXICO's own legal holidays (NMSA
+    # 12-5-2, holidays.US(subdiv="NM")) -- NOT the federal list, and not a
+    # union with it; see the note above `_nm_calendar`. Fri 2026-11-13 + 11
+    # raw days = Tue 2026-11-24, an ordinary Tuesday -- 11 is NOT less than
+    # short_period_max=11, so this is the ordinary (>=11-day) branch.
     ("2026-11-13", 11, "2026-11-24", "Rule 1-006(A) NMRA, >=11 days: nothing closed, no roll"),
-    # Same rule, calendar: federal UNION NM. Thu 2026-11-05 + 12 raw days =
-    # Tue 2026-11-17 -- open in both calendars, no roll.
+    # Same rule and calendar. Thu 2026-11-05 + 12 raw days = Tue 2026-11-17,
+    # open, no roll.
     ("2026-11-05", 12, "2026-11-17", "Rule 1-006(A) NMRA, >=11 days: a plain Tuesday landing"),
     # Same rule. Wed 2026-11-12 + 14 raw days = Thu 2026-11-26, Thanksgiving
-    # in every calendar -> rolls forward to Fri 2026-11-27, which is ALSO
-    # closed under the NM calendar (NM's own Presidents' Day) -> rolls again
-    # across the weekend to Mon 2026-11-30.
+    # (an NM legal holiday) -> rolls forward to Fri 2026-11-27, which is ALSO
+    # closed in NM (NM's own Presidents' Day, the Friday after Thanksgiving)
+    # -> rolls again across the weekend to Mon 2026-11-30.
     ("2026-11-12", 14, "2026-11-30", "Rule 1-006(A) NMRA: rolls twice, off Thanksgiving then NM's own Presidents' Day"),
+    # Same rule. Mon 2027-02-01 + 14 raw days = Mon 2027-02-15, the third
+    # Monday in February -- a FEDERAL holiday (Washington's Birthday) that
+    # New Mexico does NOT observe, so nothing rolls and the answer is that
+    # Monday itself. The federal answer for the same period is 2027-02-16.
+    ("2027-02-01", 14, "2027-02-15", "Rule 1-006(A) NMRA: NM courts are open on the federal February Monday"),
     # Same rule. Mon 2026-01-05 + 14 raw days = Mon 2026-01-19, Martin Luther
     # King Jr. Day (federal, and NM does not drop it) -> rolls to Tue 1/20.
     ("2026-01-05", 14, "2026-01-20", "Rule 1-006(A) NMRA: rolls off a federal Monday holiday NM also observes"),
@@ -1384,11 +1390,18 @@ def test_nm_ordinary_forward_hand_worked(start, n, expected, why):
     # Tue 2026-12-01, spanning Thanksgiving (Thu 11/26) as an INTERMEDIATE
     # day -- counted, not skipped -- landing on an open Tuesday.
     ("2026-11-24", 7, "2026-12-01", "ORCP 10 A, >=7 days: Thanksgiving is intermediate, counted not skipped"),
-    # Same rule. Fri 2026-10-09 (Columbus Day, a Friday -- OR drops it, but
-    # federal keeps it, and the union calendar closes it) + 7 raw days =
-    # Fri 2026-10-16, open in both -- no roll, and Columbus Day itself,
-    # being the START day, is excluded from the count either way.
-    ("2026-10-09", 7, "2026-10-16", "ORCP 10 A, >=7 days: Columbus Day as the excluded start day"),
+    # Same rule. Fri 2026-10-09 + 7 raw days = Fri 2026-10-16, open -- no
+    # roll. Columbus Day (Mon 2026-10-12) falls inside the period; it is a
+    # federal holiday that ORS 187.010 does not list, so it is neither a
+    # closure nor even an intermediate exclusion here.
+    ("2026-10-09", 7, "2026-10-16", "ORCP 10 A, >=7 days: the federal Columbus Day is not an Oregon closure"),
+    # Same rule. Thu 2026-10-01 + 11 raw days = Mon 2026-10-12, Columbus
+    # Day -- CLOSED in a federal district court, OPEN in an Oregon circuit
+    # court (ORS 187.010 does not list it), so the period ends on that
+    # Monday and does NOT roll to the Tuesday the federal rule would give.
+    # This row fails if `_or_calendar` is ever unioned with the federal
+    # calendar again.
+    ("2026-10-01", 11, "2026-10-12", "ORCP 10 A: Oregon courts are open on the federal Columbus Day"),
     # Same rule. Wed 2026-12-16 + 9 raw days = Fri 2026-12-25, Christmas ->
     # rolls forward through the weekend to Mon 2026-12-28.
     ("2026-12-16", 9, "2026-12-28", "ORCP 10 A, >=7 days: rolls off Christmas Friday across the weekend"),
@@ -1403,21 +1416,29 @@ def test_or_ordinary_forward_hand_worked(start, n, expected, why):
     # Wed 25 (1), [Thu 26 Thanksgiving skip], Fri 27 (2), [Sat/Sun skip],
     # Mon 30 (3), Tue Dec 1 (4), Wed Dec 2 (5), Thu Dec 3 (6).
     ("2026-11-24", 6, "2026-12-03", "ORCP 10 A, <7 days: excludes Thanksgiving while counting"),
-    # Same rule. Fri 2026-10-09 + 5 OPEN days, calendar federal UNION OR:
-    # [Sat 10, Sun 11 skip], [Mon 12 Columbus Day skip -- closed under the
-    # UNION calendar even though OR's own subdivision list drops it], Tue 13
-    # (1), Wed 14 (2), Thu 15 (3), Fri 16 (4), [Sat 17, Sun 18 skip], Mon 19
-    # (5) -> landing 2026-10-19, four calendar days later than the raw +5.
-    ("2026-10-09", 5, "2026-10-19", "ORCP 10 A, <7 days: excludes the UNION calendar's Columbus Day"),
+    # Same rule. Fri 2026-10-09 + 5 OPEN days on OREGON's calendar:
+    # [Sat 10, Sun 11 skip], Mon 12 (1 -- Columbus Day is a FEDERAL holiday
+    # ORS 187.010 does not list, so an Oregon circuit court is open and it
+    # counts), Tue 13 (2), Wed 14 (3), Thu 15 (4), Fri 16 (5) -> landing
+    # 2026-10-16. Under a federal-union calendar this would have been
+    # 2026-10-19 -- three days too late, which is a missed deadline, not a
+    # rounding error.
+    ("2026-10-09", 5, "2026-10-16", "ORCP 10 A, <7 days: Columbus Day is open in Oregon and counts"),
+    # Same rule. Wed 2027-02-10 + 4 OPEN days: Thu 11 (1), Fri 12 (2),
+    # [Sat/Sun skip], [Mon 2027-02-15 skip -- Presidents Day IS an Oregon
+    # legal holiday, on its ordinary third-Monday date], Tue 16 (3),
+    # Wed 17 (4) -> landing 2027-02-17.
+    ("2027-02-10", 4, "2027-02-17", "ORCP 10 A, <7 days: excludes Oregon's own February Presidents Day"),
 ])
 def test_or_short_period_hand_worked(start, n, expected, why):
     assert court_days(start, n, jurisdiction="US-OR").iso == expected, why
 
 
 def test_or_presidents_day_hand_worked():
-    """Oregon keeps Washington's Birthday on its ordinary third-Monday-in-
-    February date (unlike New Mexico's Friday-after-Thanksgiving version);
-    ORCP 10 A, calendar federal UNION OR. Wed 2026-02-04 + 8 raw days = Thu
+    """Oregon keeps Presidents Day on its ordinary third-Monday-in-February
+    date (unlike New Mexico's Friday-after-Thanksgiving version), on its OWN
+    ORS 187.010 list — no federal union is needed to close it, and none is
+    applied; ORCP 10 A, calendar `holidays.US(subdiv="OR")`. Wed 2026-02-04 + 8 raw days = Thu
     2026-02-12, open -- the CONTROL, and >=7 days so the ordinary (not
     short-period) branch. Mon 2026-02-09 + 7 raw days = Mon 2026-02-16,
     Washington's Birthday -> rolls to Tue 2026-02-17."""
@@ -1441,31 +1462,53 @@ def test_nm_and_or_backward_and_mail_refuse_uncertain():
 
 
 def test_district_state_nm_and_us_nm_agree_forward_differ_short():
-    """The jurisdiction-confusion attack: `"US-federal"` with
-    `district_state="NM"` and `"US-NM"` read the identical UNION calendar,
-    but only `"US-NM"` has a short-period branch at all. At or above NM's
-    11-day boundary the two agree exactly; below it, `"US-federal"` (which
-    has no short-period concept) still computes an ordinary answer while
-    `"US-NM"` refuses (its short branch is UNCERTAIN)."""
+    """The jurisdiction-confusion attack. `"US-federal"` with
+    `district_state="NM"` (a federal case in the District of New Mexico)
+    and `"US-NM"` (a New Mexico state district court) are two different
+    courts, and this corpus pins that they are not interchangeable in
+    either direction:
+
+    * they read different calendars — the federal side is federal ∪ NM,
+      the state side is NM alone, so they disagree on the third Monday in
+      February, which NM does not observe and the federal courts do;
+    * only `"US-NM"` has a short-period branch at all, so below 11 days
+      the federal side still computes an ordinary answer while `"US-NM"`
+      refuses (its short branch is UNCERTAIN).
+
+    On a stretch that touches neither difference they agree exactly, which
+    is the third case below and the reason the first two are worth
+    pinning."""
     for n in (11, 14, 21):
         a = court_days("2026-11-02", n, district_state="NM")
         b = court_days("2026-11-02", n, jurisdiction="US-NM")
         assert a.iso == b.iso, (n, a.iso, b.iso)
+
+    # The February Monday: same period, same start, different court.
+    assert court_days("2027-02-01", 14, district_state="NM").iso == "2027-02-16"
+    assert court_days("2027-02-01", 14, jurisdiction="US-NM").iso == "2027-02-15"
 
     assert court_days("2026-11-16", 5, district_state="NM").iso == "2026-11-23"
     with pytest.raises(UnparseableDate):
         court_days("2026-11-16", 5, jurisdiction="US-NM")
 
 
-def test_holiday_calendar_override_keeps_nms_short_period_shape():
+def test_holiday_calendar_override_keeps_ors_short_period_shape():
     """`holiday_calendar` replaces which days are closed, never which
-    counting shape runs. `US-NM`'s short branch is UNCERTAIN and refuses
-    alone; supplied a calendar, `short_period_max=11` from `RULES["US-NM"]`
-    still selects the short (exclude-while-counting) shape rather than the
-    ordinary roll-only one — see the invariants test of the same name for
-    the full worked arithmetic."""
+    counting shape runs: supplied a calendar, `short_period_max=7` from
+    `RULES["US-OR"]` still selects the short (exclude-while-counting) shape
+    rather than the ordinary roll-only one.
+
+    Mon 2026-11-16, `n=3`, with one artificial weekday closure on
+    2026-11-18: short shape → Tue 17 (1), [Wed 18 skipped], Thu 19 (2),
+    Fri 20 (3) = 2026-11-20. Ordinary shape would give 2026-11-19, which is
+    not closed by the override and would stand. The two differ, so which
+    ran is observable.
+
+    Run on `US-OR`, whose short branch is VERIFIED — `US-NM`'s is not, and
+    an override does **not** buy that status out (see
+    `test_an_override_does_not_buy_out_an_uncertain_short_period_branch`)."""
     closed = frozenset({date(2026, 11, 18)})
-    got = court_days("2026-11-16", 3, jurisdiction="US-NM", holiday_calendar=closed)
+    got = court_days("2026-11-16", 3, jurisdiction="US-OR", holiday_calendar=closed)
     assert got.iso == "2026-11-20"
 
 

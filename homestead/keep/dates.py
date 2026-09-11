@@ -428,6 +428,16 @@ class CountingRule:
     * `mail_days` / `mail_days_source` / `mail_status` — FRCP 6(d) / FRBP
       9006(f), added to an already-rolled end.
 
+    `district_state_source` is not a branch and carries no status: it is the
+    citation for FRCP 6(a)(6)(C) / FRBP 9006(a)(6)(C)'s *state-where-the-
+    court-sits* addition, and it is `None` for a jurisdiction that has no
+    such rule. Adding one state's holidays to another sovereign's court
+    calendar is a **federal** rule about **federal** district courts; a state
+    court applies its own state's holidays and nothing else (see the note
+    above `_nm_calendar`). So `court_days`/`add_mail_days` refuse
+    `district_state=` on any row whose `district_state_source` is `None`,
+    rather than silently unioning a calendar no rule authorizes.
+
     A row may be `VERIFIED` on some branches and `UNCERTAIN` on others; each
     counting function below checks only the branch(es) it needs.
     """
@@ -443,6 +453,7 @@ class CountingRule:
     mail_days: int | None
     mail_days_source: str
     mail_status: RuleStatus
+    district_state_source: str | None
     calendar: Callable[[], Container]
 
 
@@ -495,25 +506,61 @@ def _state_calendar(state: str) -> Container:
         ) from None
 
 
+# ── a state court's calendar is the STATE's holidays, not a union ───────────
+#
+# `US-NM` and `US-OR` are **state** counting rules — Rule 1-006 NMRA and
+# ORCP 10 — so "legal holiday" in them means the *state's* legal holidays
+# (NMSA 1978 § 12-5-2; ORS 187.010/.020), and nothing else. The federal list
+# has no standing in a state district court.
+#
+# The union with the federal calendar belongs to exactly one place and it is
+# not here: FRBP 9006(a)(6)(C) / FRCP 6(a)(6)(C), where a **federal** court
+# sitting in a state adds *that state's* holidays to the federal ones for a
+# period measured after an event. That is `_district_calendar`, reached by
+# `court_days(..., district_state="NM")`, and it stays a union.
+#
+# Unioning here instead would close days the state courts are open on, and a
+# spurious closure computes a deadline that is too LATE — see `court_days`'s
+# "Both directions of calendar error cause harm" paragraph. Concretely, on
+# the `holidays` 0.104 data this module reads:
+#
+# * New Mexico is named in that library's Washington's-Birthday exclusion
+#   set (`_populate_subdiv_holidays`: subdiv "NM" gets no third-Monday-in-
+#   February holiday at all) and `_populate_subdiv_nm_public_holidays` adds
+#   "Presidents' Day" one day past the fourth Thursday of November instead.
+#   NM courts are therefore OPEN on 2027-02-15 and CLOSED on 2026-11-27.
+#   A union re-closes that February Monday from the federal side.
+# * Oregon is absent from that library's Columbus Day subdivision list, so
+#   OR courts are OPEN on Columbus Day (2026-10-12); ORS 187.010 does not
+#   list it. A union re-closes it. Oregon *does* keep the February Monday,
+#   under its own name ("Presidents Day", 3rd Mon of Feb), so that day is
+#   closed on the state list itself and needs no help from the union.
+#
+# PROVENANCE, 2026-09-11: the statutes themselves (NMSA 12-5-2, ORS 187.010)
+# could not be read from this environment — every host tried is EGRESS_BLOCKED,
+# see `RULES` below. What *was* read, and is asserted by
+# `test_nm_and_or_calendars_are_the_states_own_not_a_union_with_the_federal_
+# one`, is the `holidays` package's own subdivision data and the source
+# comments around it, which cite ORS 187 for Oregon. That is a secondary
+# basis of the same class as the rest of this table, and it is the calendar
+# mechanism the plan named (`holidays.US(subdiv=…)`). Confirm against the
+# court's own published calendar before relying on a computed date — that
+# instruction is in `court_days`'s docstring and it is not decoration.
+
+
 @lru_cache(maxsize=8)
 def _nm_calendar() -> Container:
-    """`holidays.US(subdiv="NM")` **unioned with** the federal calendar, built
-    once — see the module-level union note below `_or_calendar` for why the
-    union, not the subdivision alone, is the jurisdiction's calendar."""
-    return _MergedCalendar(_federal_calendar(), _state_calendar("NM"))
+    """`holidays.US(subdiv="NM")` — New Mexico's own legal holidays, built
+    once. **Not** unioned with the federal calendar; see the note above for
+    why a state court's rule reads the state's list alone."""
+    return _state_calendar("NM")
 
 
 @lru_cache(maxsize=8)
 def _or_calendar() -> Container:
-    """`holidays.US(subdiv="OR")` **unioned with** the federal calendar, built
-    once. `holidays.US(subdiv=...)` is not a superset of `holidays.US()` —
-    New Mexico drops Washington's Birthday for its own Presidents' Day (the
-    Friday after Thanksgiving; see `test_i41_a_district_state_calendar_may_
-    only_add_closures_never_remove_one`) and Oregon drops Columbus Day — so a
-    jurisdiction's own calendar is pinned as the union here, the same
-    `_MergedCalendar` shape `_district_calendar` already uses for FRBP
-    9006(a)(6)(C), rather than the subdivision calendar substituted alone."""
-    return _MergedCalendar(_federal_calendar(), _state_calendar("OR"))
+    """`holidays.US(subdiv="OR")` — Oregon's own legal holidays, built once.
+    **Not** unioned with the federal calendar; see the note above."""
+    return _state_calendar("OR")
 
 
 #: One row per implemented jurisdiction. `JURISDICTIONS` below is *derived*
@@ -607,6 +654,19 @@ RULES: dict[str, CountingRule] = {
             "being claimed on."
         ),
         mail_status=RuleStatus.VERIFIED,
+        district_state_source=(
+            "FRCP 6(a)(6)(C) / FRBP 9006(a)(6)(C): 'legal holiday' includes "
+            "'for periods that are measured after an event, any other day "
+            "declared a holiday by the state where the district court is "
+            "located' — a federal rule about a federal district court "
+            "sitting in a state, and forward-only (hence no district_state "
+            "on court_days_before). PROVENANCE, 2026-09-11: the same "
+            "converging-secondary-restatement basis as `source` above, and "
+            "unreachable here for the same reason — law.cornell.edu, "
+            "uscourts.gov, govinfo.gov, uscode.house.gov and "
+            "supremecourt.gov are all refused by this environment's egress "
+            "proxy."
+        ),
         calendar=_federal_calendar,
     ),
     "US-NM": CountingRule(
@@ -627,8 +687,15 @@ RULES: dict[str, CountingRule] = {
             "new-mexico/2021/chapter-12/article-2a/section-12-2a-7/ and "
             "nmonesource.com/nmos/nmra/en/item/5661/index.do — each refused "
             "by this environment's egress proxy (EGRESS_BLOCKED) before the "
-            "request left the box. VERIFIED-secondary is claimed for this "
-            "≥11-day forward branch only: multiple independent secondary "
+            "request left the box. 'Legal holiday' here means NEW MEXICO's "
+            "legal holidays (NMSA 1978 § 12-5-2), read from "
+            "`holidays.US(subdiv=\"NM\")` alone and NOT unioned with the "
+            "federal list — see the note above `_nm_calendar`. New Mexico "
+            "keeps Presidents' Day on the Friday after Thanksgiving and "
+            "observes no third-Monday-in-February holiday, so a federal "
+            "union would close a day its district courts are open on. "
+            "VERIFIED-secondary is claimed for this ≥11-day forward branch "
+            "only: multiple independent secondary "
             "summaries of the 2024-11-01 amendment agree, clause for "
             "clause, that periods of 11 days or more now count every day "
             "and roll forward off a closed last day — the post-2009 federal "
@@ -685,6 +752,11 @@ RULES: dict[str, CountingRule] = {
             "which calendar or roll direction governs it."
         ),
         mail_status=RuleStatus.UNCERTAIN,
+        # Rule 1-006 NMRA states no counterpart to FRBP 9006(a)(6)(C): a New
+        # Mexico district court reads New Mexico's legal holidays and no
+        # other sovereign's. A federal case pending IN the District of New
+        # Mexico is `US-federal` with district_state="NM", not this row.
+        district_state_source=None,
         calendar=_nm_calendar,
     ),
     "US-OR": CountingRule(
@@ -699,7 +771,13 @@ RULES: dict[str, CountingRule] = {
             "the last day, unless it is a Saturday, Sunday or legal "
             "holiday, in which case the period runs until the next day "
             "that is none of those. ORS 187.010 and 187.020 define "
-            "Oregon's legal holidays. PROVENANCE, 2026-09-11: tried "
+            "Oregon's legal holidays, and that list — read from "
+            "`holidays.US(subdiv=\"OR\")` alone, NOT unioned with the "
+            "federal list (see the note above `_or_calendar`) — does not "
+            "include Columbus Day, so Oregon's courts are open on the "
+            "second Monday in October even though the federal courts are "
+            "not. Oregon does keep the third Monday in February, under its "
+            "own name. PROVENANCE, 2026-09-11: tried "
             "oregon.public.law/rules-of-civil-procedure/orcp-10-time/, "
             "refused by this environment's egress proxy (EGRESS_BLOCKED) "
             "before the request left the box. VERIFIED-secondary on "
@@ -757,6 +835,11 @@ RULES: dict[str, CountingRule] = {
             "VERIFIED."
         ),
         mail_status=RuleStatus.UNCERTAIN,
+        # ORCP 10 states no counterpart to FRCP 6(a)(6)(C): an Oregon circuit
+        # court reads Oregon's legal holidays and no other sovereign's. A
+        # federal case pending IN the District of Oregon is `US-federal`
+        # with district_state="OR", not this row.
+        district_state_source=None,
         calendar=_or_calendar,
     ),
 }
@@ -835,6 +918,30 @@ def _short_period_max_for(jurisdiction: Any) -> int | None:
     """
     rule = RULES.get(jurisdiction) if isinstance(jurisdiction, str) else None
     return rule.short_period_max if rule is not None else None
+
+
+def _require_district_state_rule(rule: CountingRule) -> None:
+    """Refuse `district_state=` on a jurisdiction that has no such rule.
+
+    Called **before** the branch status check, not after: whether a caller
+    may pass this argument at all is a question about the jurisdiction, not
+    about how well-read its counting text is, and answering "UNCERTAIN: the
+    added-mail-days rule for US-NM…" to someone who passed a meaningless
+    argument sends them to read a rule that was never their problem.
+    """
+    if rule.district_state_source is None:
+        raise UnparseableDate(
+            f"{rule.jurisdiction} has no district-state rule: "
+            "6(a)(6)(C)/9006(a)(6)(C) is a FEDERAL rule about a FEDERAL "
+            "district court sitting in a state, and adds that state's "
+            f"holidays to the federal ones. {rule.jurisdiction} is a state "
+            "court's own counting rule and reads its own state's legal "
+            "holidays only, so there is no second sovereign's calendar to "
+            "add. If you meant a federal case pending in that district, "
+            "pass jurisdiction='US-federal' with district_state=; if you "
+            "meant a local closure, pass holiday_calendar= and own the "
+            "answer."
+        )
 
 
 def _district_calendar(rule: CountingRule, district_state: Any) -> Container:
@@ -936,7 +1043,15 @@ def court_days(
     rather than silently picking one, since the explicit calendar already
     decides what is closed. `court_days_before` accepts no `district_state`
     at all — see its docstring for why a state holiday must never reach a
-    backward count.
+    backward count. It is also refused on a **state** jurisdiction
+    (`US-NM`, `US-OR`): 6(a)(6)(C) is a federal rule about a federal
+    district court sitting in a state, and a state court reads its own
+    state's legal holidays alone — see `CountingRule.district_state_source`
+    and the note above `_nm_calendar`. A federal case pending in the
+    District of New Mexico is `jurisdiction="US-federal",
+    district_state="NM"`, not `jurisdiction="US-NM"`; the two are different
+    courts with different calendars and different counting rules, and this
+    module will not let one stand in for the other.
 
     **The calendar is a national holiday list, not a court calendar, and the
     answer is a computed suggestion — not an authority.** Individual
@@ -953,17 +1068,30 @@ def court_days(
     `tuple` is re-read through this module's parser, so a list of ISO strings
     works and a list of unparseable ones is refused rather than silently
     matching nothing. When it is supplied it **replaces** the jurisdiction's
-    calendar and bypasses the `RULES` status check — but it does **not**
-    replace which counting *shape* applies. `short_period_max` still comes
-    from `RULES[jurisdiction]` when the jurisdiction is known, so
-    `court_days("...", 5, jurisdiction="US-NM", holiday_calendar=my_cal)`
-    still excludes intermediate closures while counting (NM's short-period
-    shape, `short_period_max=11`) even though NM's short-period branch is
-    otherwise `UNCERTAIN` — the caller supplied the calendar, not the
-    counting rule, and the counting rule is not in question here. Only for a
-    jurisdiction with **no** row in `RULES` at all (a label the caller
-    invented, e.g. `"US-County"`) is there no shape to preserve, and the
-    ordinary shape is used.
+    calendar and bypasses the *ordinary* branch's `RULES` status check — but
+    it does **not** replace which counting *shape* applies.
+    `short_period_max` still comes from `RULES[jurisdiction]` when the
+    jurisdiction is known, so `court_days("...", 5, jurisdiction="US-OR",
+    holiday_calendar=my_cal)` excludes intermediate closures while counting
+    (OR's short-period shape, `short_period_max=7`) rather than counting
+    them and rolling once. Only for a jurisdiction with **no** row in
+    `RULES` at all (a label the caller invented, e.g. `"US-County"`) is
+    there no shape to preserve, and the ordinary shape is used.
+
+    **The short-period branch's status is the one thing an override does not
+    buy out**, and the reason is `add_mail_days`'s reason. On the ordinary
+    branch a caller supplying both `n` and the calendar has left nothing of
+    the rule in the answer, so the status has nothing to say. On the short
+    branch the rule is still doing the work — the threshold itself, and
+    "exclude intermediate Saturdays, Sundays and legal holidays while
+    counting" — so `court_days("...", 5, jurisdiction="US-NM",
+    holiday_calendar=my_cal)` **refuses** while NM's `short_period_status`
+    is `UNCERTAIN`: NM's own citation says it is "refusing rather than
+    guessing at the exact boundary and exclusion set," and a supplied
+    calendar supplies neither of those. A caller who genuinely owns that
+    answer wants `business_days(start, n, holiday_calendar=…)` — the
+    identical arithmetic, with no jurisdiction's short-period rule claimed
+    for it. Fail closed (I-11) beats seam symmetry, in both places.
 
     What it does **not** replace is Saturday and Sunday. 6(a)(1)(C) names
     "a Saturday, a Sunday, or a legal holiday" as three separate things, and
@@ -1005,8 +1133,27 @@ def court_days(
             )
         calendar = _closed_set(holiday_calendar)
         short_max = _short_period_max_for(jurisdiction)
+        if short_max is not None and n < short_max:
+            # The one status check an override does NOT buy out, and the
+            # reason is `add_mail_days`'s: a caller who hands over a calendar
+            # has supplied the closed days, not the *rule*. Here the rule is
+            # still doing the work — `short_max` itself, and "exclude
+            # intermediate closures while counting" — so if that branch is
+            # UNCERTAIN, an unverified rule is being applied to a verified
+            # calendar. Fail closed (I-11). `business_days(start, n,
+            # holiday_calendar=…)` is the same arithmetic with no
+            # jurisdiction's short-period rule claimed for it, and is what a
+            # caller who genuinely owns the answer should call.
+            short_rule = RULES[jurisdiction]      # non-None short_max ⇒ present
+            _require_verified(
+                short_rule, needs="short-period counting",
+                status=short_rule.short_period_status,
+                source=short_rule.short_period_source,
+            )
     else:
         rule = _rule_for(jurisdiction)
+        if district_state is not None:
+            _require_district_state_rule(rule)
         short_max = rule.short_period_max
         if short_max is not None and n < short_max:
             _require_verified(
@@ -1163,6 +1310,8 @@ def add_mail_days(
     `RuleStatus.VERIFIED`, regardless of whether its forward, short-period or
     backward branch is — and refuses if the rule records no figure at all
     (`mail_days is None`); a verified "there is no mail rule" is not a number
+    to add.
+
     **`holiday_calendar` is a narrower seam here than on the other three
     functions, and the difference is deliberate.** Supplied, it replaces the
     calendar the re-roll reads — but it does **not** bypass the `RULES` status
@@ -1184,7 +1333,9 @@ def add_mail_days(
     of New Mexico is shut: 2026-11-24 + 3 is Friday 2026-11-27, which is a
     federal working day and an NM court holiday (New Mexico keeps
     Presidents' Day on the Friday after Thanksgiving). Pass the same
-    `district_state` you passed to `court_days`.
+    `district_state` you passed to `court_days` — and, as there, it is
+    refused on a state jurisdiction whose `district_state_source` is
+    `None`.
 
     This stays forward-only by construction: mail days are always *added*, so
     there is no direction to get wrong here the way there would be on
@@ -1201,6 +1352,8 @@ def add_mail_days(
         raise UnparseableDate("jurisdiction must be a non-empty string")
 
     rule = _rule_for(jurisdiction)
+    if district_state is not None and holiday_calendar is None:
+        _require_district_state_rule(rule)
     _require_verified(
         rule, needs="the added-mail-days rule",
         status=rule.mail_status, source=rule.mail_days_source,
