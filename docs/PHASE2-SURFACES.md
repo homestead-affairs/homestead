@@ -59,7 +59,7 @@ changed, and both changes are declared below rather than absorbed.
 | `AmbientRow` / `ambient_rows` | The list pane's render path. A rung and a line of text, and no third field. |
 | `context_rung(items)` | I-12 pointed at a prompt: the `max` of the whole window, retrieved neighbours included. |
 | `classify_schema(schema)` | I-11's build half. Refuses, and names every offending field. |
-| `Purpose` | *(2026-08-05)* The closed set — six as ratified, seven once `COMPELLED_DISCLOSURE` was authorised the same day. `purpose=None` is still no purpose and still not an error. |
+| `Purpose` | *(2026-08-05)* The closed set — six as ratified, seven once `COMPELLED_DISCLOSURE` was authorised the same day. `purpose=None` is still no purpose and still not an error. *(Annotated 2026-09-11, X7-drift: an eighth member, `SYNC`, was ratified separately — `docs/DECISION-purpose-sync.md` — on the same reasoning; zero cells of `_CEILING` moved.)* |
 | `UndeclaredPurpose` | *(2026-08-05)* A `TypeError` for anything in the purpose slot that is neither `None` nor a member — including a bare string that spells one. |
 
 ### The one design decision worth arguing about
@@ -671,6 +671,21 @@ diff nobody notices — a seventh member is one more call site that can unlock
 > the count were renamed off it; a title asserting a number is a title that goes
 > false every time the thing it guards legitimately changes.
 > `DECISION-compelled-disclosure.md`.
+>
+> **Annotated 2026-09-11 (X7-drift).** Two things this section still says
+> present-tense are out of date. First, the pin named two paragraphs up,
+> `test_the_purpose_enum_is_the_six_that_were_published`, is the renamed
+> test's old name — "the tests named for the count were renamed off it,"
+> immediately above, is what did it — and it now lives at
+> `tests/test_invariants_surfaces.py:647` as
+> `test_the_purpose_enum_is_the_set_that_was_ratified` (already cited by that
+> name at this file's own § 7 table, `PHASE2-SURFACES.md:223`). Left standing
+> here rather than edited, per the same rule the rest of this section states:
+> it is what the pin was called when this paragraph was written. Second, an
+> **eighth** member, `SYNC`, was ratified 2026-09-11
+> (`docs/DECISION-purpose-sync.md`), on the `SUBJECT_ACCESS`/`COMPELLED_
+> DISCLOSURE` precedent this section already describes — zero cells of
+> `_CEILING` moved, the same measurement, a different candidate.
 
 **No member is ranked above another**, and that is a separate property from
 validating the set. The ceiling table has two columns, not seven, and this

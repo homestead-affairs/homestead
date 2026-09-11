@@ -177,10 +177,34 @@ findings; `docs/PHASE0-REMEDIATION.md` holds what changed.*
 | | |
 |---|---|
 | **I-19 / I-20** | One resolver, one spelling. `keep/paths.py` is the only module that may reach a home directory, and `expanduser()` is banned outright — it is invisible to the store's vault-leak linter, so the identical path in that spelling vanishes from the report. |
-| **I-22 / I-15** | Two logs, and a writer for them. `VisibleLog` takes a **closed `Event` enum** and a reference tuple — there is no free-text parameter in any position. `IntegrityLog` is hash-chained, locked against concurrent appends, and anchored: truncation and tail rewrites are caught. An **export** (`keep/export`) is the first thing to write either — one integrity entry and one visible act per export, both references, never content. The head anchor is held off the log's own tree (`anchors/`) and returned to the operator to record off the machine. It is **not** encrypted and does **not** withstand someone who edits both the log and its anchor; the docstring says so and a test asserts it. |
+| **I-22 / I-15** | Two logs, and a writer for them. `VisibleLog` takes a **closed `Event` enum** and a reference tuple — there is no free-text parameter in any position. `IntegrityLog` is hash-chained, locked against concurrent appends, and anchored: truncation and tail rewrites are caught. An **export** (`keep/export`) is the first thing to write either — one integrity entry and one visible act per export, both references, never content. The head anchor is held off the log's own tree (`anchors/`) and returned to the operator to record off the machine. ~~It is **not** encrypted and does **not** withstand someone who edits both the log and its anchor; the docstring says so and a test asserts it.~~ **Corrected 2026-09-11 (X7-drift):** stale since two phases landed — an optional HMAC-SHA256 key (0.10.0, `E5-integrity-keyed`) closes the "edits both" gap for a log that opts in, and optional AES-256-GCM sealing (0.11.0, `E6-integrity-encrypt`) closes the "not encrypted" gap for a log that turns it on. Neither is the default; an unkeyed, unsealed log keeps exactly the gap this row used to describe unconditionally. See `keep/logs.py`'s own module docstring for the full, dated account, and § *Engine capabilities* below for what shipped when. |
 | **I-30 / I-26** | Nothing imports the network and nothing listens. The self-contained shape removes the problem rather than managing it. |
 | **I-14** | A rung is a string. `L3`, never `3` — trust runs the other direction, and `if level >= 3` reads perfectly either way while being right on one scale and catastrophic on the other. |
 | **I-27 / I-28** | Declared dependencies are true (there are none), and bare `pytest -q` works. |
+
+## Engine capabilities, and what shipped them
+
+*Added 2026-09-11, X7-drift-engine — the affairs build-out plan's Wave 7. One
+row per capability the build-out plan added on top of Phase 0-2's base, the
+release that shipped it, and the module(s) it lives in. `tests/test_readme_
+capabilities.py` asserts every `homestead/keep/*.py` and `homestead/app/*.py`
+module is named in this table (by path, in backticks) or in that test's own
+explicit exclusion tuple — the Phase 0–2 foundations this table does not
+re-describe, each with a one-line reason. A module in neither list fails the
+build, planted and proven to fire.*
+
+| capability | shipped by | module(s) |
+|---|---|---|
+| Dates & jurisdictions — forward/backward/mail/business-day counting for `US-federal`, `US-NM`, `US-OR` | 0.5.0 (`E1-dates-a`), 0.6.0 (`E1-dates-b`) | `keep/dates.py` |
+| Sync — an operator-authored envelope, composed and delivered under a per-call confirm | 0.8.0 (`E4-sync-core`) | `keep/sync.py`, `keep/household.py` |
+| Fleet ingest — a Postgres adapter and a CLI that dials out and never listens | 0.9.0 (`E4-postgres-fleet`) | `keep/fleet_cli.py`, `keep/store.py` |
+| Keyed integrity — an optional HMAC-SHA256 chain, closing the forged-chain-plus-anchor gap for a log that opts in | 0.10.0 (`E5-integrity-keyed`) | `keep/logs.py` |
+| Sealing — optional AES-256-GCM per line, keyed by HKDF from the same key | 0.11.0 (`E6-integrity-encrypt`) | `keep/sealed.py`, `keep/logs.py` |
+| Public reader — `read_entries()`, the one door that decrypts, skips boundary rows and refuses a short or incomplete answer by name | 0.12.0 (`E7-public-log-reader`) | `keep/logs.py` |
+| Cover distribution — the resting cover's k≥2 gate over *which* matters contributed, not just how many | 0.7.0 (`E4-cover-distribution`) | `app/cover.py` |
+
+`docs/PLAN-affairs-face.md` carries the PR number behind every release named
+above.
 
 ## Design
 

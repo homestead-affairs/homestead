@@ -155,11 +155,15 @@ PRECONDITIONS   -- all three MUST hold before any Nestor call in this process
     handed it. Nestor's own contract: "an explicit argument always wins over
     the global."
 
-3.  NESTOR IS PINNED TO A TAG.
+3.  NESTOR IS PINNED, NEVER A BRANCH.
 
-    `v0.2.0`, never a branch on anything that ships (fleet rule R14). Never
-    vendored: vendored source gets read and edited, a wheel in site-packages
-    does not. See `pyproject.toml`'s `entity` extra.
+    `nestor-meaning>=0.11.0,<1.0` on PyPI — bumped 2026-09-11 from the VCS tag
+    `v0.2.0` this seam was originally written against (see the module
+    docstring above). Fleet rule R14 forbids a branch on anything that ships;
+    a tag and a bounded release range both name an exact, reviewable
+    reference, so either satisfies it. Never vendored: vendored source gets
+    read and edited, a wheel in site-packages does not. See
+    `pyproject.toml`'s `entity` extra.
 
 ===========================================================================
 VOCABULARY
