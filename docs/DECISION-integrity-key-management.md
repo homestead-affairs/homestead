@@ -484,7 +484,7 @@ branch before ratifying (see "The two short answers this section first
 missed", below). The shape stands: one public reader, the refusal in its
 signature, the old name kept for one minor.
 author: the build seat
-verified_by: the audit seat, 2026-09-11
+verified_by: the audit seat, 2026-09-11 (audit fixes: `94c3459`)
 
 Raised by the H6 audit (2026-09-11): `homestead_health`'s `LivingLane.
 replacements()` read `living.jsonl` with a bare `json.loads`, so a sealed
