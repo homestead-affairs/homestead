@@ -178,22 +178,29 @@ def test_the_members_are_exactly_those_that_were_ratified():
     is what "an edit somebody has to make on purpose" is supposed to feel like.
     Renamed off the count at the same time — `..._the_six_members_are_exactly_the_six...`
     would now be a title asserting a number the body contradicts, which is the
-    defect this suite renamed `test_the_ceiling_table_did_not_move` for.
+    defect this suite renamed `test_the_ceiling_table_did_not_move` for. **It
+    became eight later still**, for `SYNC` (docs/DECISION-purpose-sync.md), by
+    the identical measurement and the identical four-file pin — the count in
+    this docstring is now stale on purpose, annotated rather than rewritten, so
+    a reader can see the pin doing its job a second time.
 
     It sits next to `FILING` rather than at the end, because it exists to be told
     apart from `FILING` — the two describe the same operation and differ only in
     who set it in motion, and adjacency is the cheapest way to make a reader see
-    that. docs/DECISION-compelled-disclosure.md.
+    that. docs/DECISION-compelled-disclosure.md. `SYNC` sits at the end instead,
+    because it is not adjacent to anything it must be told apart from by
+    placement — the ledger row `keep/sync.py` writes is what carries that
+    distinction, not where the member sits in the list.
     """
     assert [p.name for p in Purpose] == [
         "DRAFTING", "FILING", "COMPELLED_DISCLOSURE", "EXPORT",
-        "SUBJECT_ACCESS", "REDISCLOSURE", "ANSWERING",
+        "SUBJECT_ACCESS", "REDISCLOSURE", "ANSWERING", "SYNC",
     ]
     assert [p.value for p in Purpose] == [
         "drafting", "filing", "compelled_disclosure", "export",
-        "subject_access", "redisclosure", "answering",
+        "subject_access", "redisclosure", "answering", "sync",
     ]
-    assert len({p.value for p in Purpose}) == 7, (
+    assert len({p.value for p in Purpose}) == 8, (
         "two members sharing a value are one member with two names, and any "
         "table keyed on it silently loses a row"
     )
@@ -631,6 +638,39 @@ def test_all_members_are_interchangeable_at_the_decision_function():
     )
 
 
+@pytest.mark.parametrize("surface", list(Surface), ids=[s.name for s in Surface])
+@pytest.mark.parametrize("rung", LADDER, ids=[r.name for r in LADDER])
+def test_sync_lifts_exactly_what_export_lifts_on_s4_and_nothing_elsewhere(rung, surface):
+    """`SYNC` measured against its nearest neighbour, cell by cell, rather than
+    trusted to `test_all_members_are_interchangeable_at_the_decision_function`'s
+    whole-table sweep alone.
+
+    `test_all_members_...` proves every member answers alike; it does not by
+    itself say *which* answer, and a reader asking specifically "did `SYNC`
+    change anything `EXPORT` did not" deserves a test that names `EXPORT` and
+    answers exactly that — the same discipline
+    `docs/DECISION-compelled-disclosure.md` § 1 applied by diffing
+    `COMPELLED_DISCLOSURE` against `FILING` cell by cell rather than citing the
+    whole-table property and stopping.
+
+    `SYNC` is not `EXPORT` under a new name — `EXPORT` is the operator taking
+    their own record out; `SYNC` is the household's record going to its own
+    fleet store — but at this gate the two are indistinguishable by
+    construction: `_declared` reads *whether*, never *which*. So the assertion
+    is not "SYNC does nothing" — no member does nothing, an unused member
+    with a truthful occasion is not dead weight, `docs/DECISION-redisclosure.md`
+    settles that — it is "SYNC moves no cell EXPORT did not already move",
+    which is `docs/DECISION-purpose-sync.md`'s central measurement, pinned.
+    """
+    assert decide(rung, surface, purpose=Purpose.SYNC) == decide(
+        rung, surface, purpose=Purpose.EXPORT
+    ), (
+        f"decide({rung.name}, {surface.name}, purpose=SYNC) disagrees with "
+        "purpose=EXPORT — a seemingly interchangeable member just stopped "
+        "being interchangeable"
+    )
+
+
 @pytest.mark.parametrize("purpose", VALID_PURPOSES, ids=[_pid(p) for p in VALID_PURPOSES])
 @pytest.mark.parametrize("surface", list(Surface), ids=[s.name for s in Surface])
 @pytest.mark.parametrize("rung", LADDER, ids=[r.name for r in LADDER])
@@ -997,8 +1037,8 @@ def test_this_corpus_has_not_been_hollowed_out():
     """Table sizes, asserted, because a table trimmed to two rows is the
     cheapest way for a scan to stop scanning — which is what Phase 0's audit
     found twice."""
-    assert len(Purpose) == 7   # six ratified 2026-08-05, +COMPELLED_DISCLOSURE same day
-    assert len(VALID_PURPOSES) == 8   # the members, and None for "nobody declared one"
+    assert len(Purpose) == 8   # six ratified 2026-08-05, +COMPELLED_DISCLOSURE same day, +SYNC later
+    assert len(VALID_PURPOSES) == 9   # the members, and None for "nobody declared one"
     assert len(LADDER) == 5
     assert len(Surface) == 5
     assert len(INERT_SURFACES) == 4   # was 3 until S3's column closed, 2026-08-05

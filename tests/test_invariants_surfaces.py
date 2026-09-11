@@ -684,6 +684,12 @@ def test_the_purpose_enum_is_the_set_that_was_ratified():
     `"operator opened the record"` is a *surface act* — it belongs to
     `S1_DETAIL`, which already carries it. Free text let all three kinds of
     thing into one slot and could not tell them apart.
+
+    **`SYNC` added later still, by the identical measurement**
+    (docs/DECISION-purpose-sync.md): zero cells of `_CEILING` move. The
+    docstring above still says "seven" in places — annotated, not rewritten,
+    because it is a dated record of what was true at ratification and the pin
+    below is what stays current.
     """
     assert {p.name: p.value for p in Purpose} == {
         "DRAFTING": "drafting",
@@ -693,6 +699,7 @@ def test_the_purpose_enum_is_the_set_that_was_ratified():
         "SUBJECT_ACCESS": "subject_access",
         "REDISCLOSURE": "redisclosure",
         "ANSWERING": "answering",
+        "SYNC": "sync",   # docs/DECISION-purpose-sync.md
     }
     assert issubclass(Purpose, str), "so a ledger line reads as itself (I-14)"
     for name in ("Purpose", "UndeclaredPurpose"):

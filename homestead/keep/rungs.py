@@ -235,6 +235,21 @@ class Purpose(str, Enum):
     product question about whether these households field discovery. Note that
     the set already individuates by posture elsewhere — `SUBJECT_ACCESS` is an
     `EXPORT` with a statute behind it, and gets its own member for that alone.
+
+    **An eighth member, `SYNC`, added by a separate ratification
+    (docs/DECISION-purpose-sync.md).** Measured the same way `COMPELLED_DISCLOSURE`
+    was: zero cells of `_CEILING` move — a purpose lifts on `S4_EGRESS` alone, and
+    `SYNC` lifts it exactly as far as every other member. It is not `EXPORT`
+    wearing a new name: `EXPORT` is *"the operator taking their own record out"* —
+    a file the operator carries — and `SYNC` is the household's own record going
+    to its own fleet store, an act the operator authored but not one that hands
+    them a copy. The distinction is the same shape as `SUBJECT_ACCESS` versus
+    `EXPORT`: a posture the destination sets, not a difference `may_render` can
+    see or ever needs to. Composing a synced envelope, ledgering it once, and
+    delivering it under a per-call confirm is `keep/sync.py`'s job (Wave 4,
+    unbuilt) — this member's whole meaning lives in the ledger row that module
+    will write, exactly as `COMPELLED_DISCLOSURE`'s meaning waits on Phase 3.
+    See docs/DECISION-connection-consent.md for why a sync is never background.
     """
 
     DRAFTING = "drafting"                # preparing a document the operator will file
@@ -244,6 +259,7 @@ class Purpose(str, Enum):
     SUBJECT_ACCESS = "subject_access"    # a statutory subject-access request
     REDISCLOSURE = "redisclosure"        # passing on a record received under a permission
     ANSWERING = "answering"              # an agent answering a question the operator asked
+    SYNC = "sync"                        # copying the household's own record to its fleet store, as an act the operator authored (DECISION-purpose-sync)
 
 
 def _check_the_str_enums_cannot_be_confused() -> None:
