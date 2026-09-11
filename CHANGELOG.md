@@ -25,7 +25,6 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 
 ### Added
 
-* a Postgres adapter and a non-listening fleet ingest behind the fleet extra ([#62](https://github.com/homestead-affairs/homestead/issues/62)) ([991b899](https://github.com/homestead-affairs/homestead/commit/991b89951587c2d8d80ef7020ed4e59b7023ba35))
 * the fleet's own Postgres adapter and a never-listening ingest (E4-postgres-fleet) ([b95475b](https://github.com/homestead-affairs/homestead/commit/b95475b5ca2285a507f2bcd7781b47296606b221))
 
 
