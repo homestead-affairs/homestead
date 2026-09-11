@@ -480,15 +480,21 @@ def _declared(purpose: Any) -> bool:
     `str` enum, so `Purpose.DRAFTING == "drafting"` is `True` and a membership
     test written as `purpose in {p.value for p in Purpose}` — or as
     `Purpose(purpose)`, which coerces — would accept the bare spellings of the
-    six members while refusing every other string. That is not a smaller hole
-    than free text, it is a *stranger* one: six magic strings instead of none.
-    `Surface` had exactly this shape at Phase 2.
+    members while refusing every other string. That is not a smaller hole
+    than free text, it is a *stranger* one: one magic string per member instead
+    of none. `Surface` had exactly this shape at Phase 2.
 
     Nothing here reads *which* member it is, and nothing downstream does either.
     The decision turns on whether a purpose was declared; the ceiling table has
-    two columns, not seven. No member is more of a declaration than another —
-    validating the set is not the same as ranking it, and ranking is what a
-    trust tier and a ledger are for, neither of which this module has.
+    two columns, not one per member. No member is more of a declaration than
+    another — validating the set is not the same as ranking it, and ranking is
+    what a trust tier and a ledger are for, neither of which this module has.
+
+    (The counts in this paragraph were literal — "the six members", "six magic
+    strings", "two columns, not seven" — until `SYNC`'s ratification found them
+    two members out of date and named them for the property instead, which is
+    the fix `docs/DECISION-compelled-disclosure.md` prescribed for a claim that
+    goes false every time the thing it describes legitimately changes.)
     """
     if purpose is None:
         return False
@@ -627,8 +633,8 @@ def may_render(rung: Any, surface: Any, *, purpose: Any = None) -> bool:
     detail pane a purpose is inert — the act of opening the pane is the
     declaration — but it is still *checked*: the type check is unconditional,
     because a check that only ran where the argument mattered would let a
-    call site build the habit of passing rubbish on three surfaces and then
-    carry it to the two where it lifts.
+    call site build the habit of passing rubbish on the surfaces where a
+    purpose is inert and then carry it to the one where it lifts.
 
     **Per-call, never per-session.** This function holds nothing between calls.
     A purpose declared here is spent here; the next call starts undeclared.

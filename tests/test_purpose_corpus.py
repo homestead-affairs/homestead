@@ -72,11 +72,13 @@ S4_EGRESS  (L2, L4)   lifts — the only surface where a purpose changes an answ
 """
 from __future__ import annotations
 
+import ast
 import inspect
 import itertools
 import random
 import re
 import string
+from pathlib import Path
 
 import pytest
 
@@ -85,6 +87,9 @@ from homestead.keep.rungs import (Classified, Disposition, Purpose, Rung,
                                   UnknownSurface, classify_schema, compose,
                                   decide, may_render, serve, serve_all)
 from homestead.keep.surfaces import Surface
+
+ROOT = Path(__file__).resolve().parent.parent
+PACKAGE = ROOT / "homestead"
 
 LADDER = (Rung.L1, Rung.L2, Rung.L3, Rung.L4, Rung.L5)
 MEMBERS = tuple(Purpose)
@@ -204,6 +209,86 @@ def test_the_members_are_exactly_those_that_were_ratified():
         "two members sharing a value are one member with two names, and any "
         "table keyed on it silently loses a row"
     )
+
+
+def _hardcoded_purpose_enumerations(root) -> list[str]:
+    """Every list/set/tuple literal under `root` that spells the set out.
+
+    Scanned, not imported, because the defect is in the source rather than in
+    any answer: `("drafting", "filing", …)` typed out by hand is correct on the
+    day it is written and silently short by one the day a member is ratified.
+    """
+    offenders: list[str] = []
+    values = {p.value for p in Purpose}
+    for module in sorted(Path(root).rglob("*.py")):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.List, ast.Set, ast.Tuple)):
+                continue
+            spelled = [
+                element.value for element in node.elts
+                if isinstance(element, ast.Constant)
+                and isinstance(element.value, str)
+            ]
+            if len(spelled) >= 2 and set(spelled) <= values:
+                offenders.append(f"{module.name}:{node.lineno}: "
+                                 f"{ast.unparse(node)}")
+    return offenders
+
+
+def test_no_module_hardcodes_a_list_of_purpose_values():
+    """What "adding a member migrates nothing" actually rests on, measured
+    rather than asserted.
+
+    `docs/DECISION-purpose-sync.md` proposed to rest it on *"no call to
+    `may_render`, `decide`, `serve`, `serve_all` or `ambient_rows` exists
+    anywhere in `homestead/` outside `rungs.py`"*, inherited from
+    `docs/DECISION-compelled-disclosure.md`, which measured it in a tree where
+    it was true and where it stopped being true at `371bfb2` — the chokepoint
+    wiring. `serve()` has callers now, and will have more, and that is the
+    design rather than a problem: none of them is made wrong by a new member,
+    because none of them enumerates the members.
+
+    A hand-typed list of purpose values is the thing that would be. It is
+    correct on the day it is written, it goes one short the day a member is
+    ratified, and nothing fails — the code keeps working, against a set that is
+    no longer the set. That is I-23's shape ("the registry is the only
+    enumeration") pointed at this enum, and it is why the one enumeration in
+    `homestead/` — `export.py`'s refusal text — is the comprehension
+    `[p.value for p in Purpose]` and not a literal.
+
+    `Purpose.SYNC` named in `keep/sync.py` (Wave 4) is *not* what this forbids:
+    naming one member is a call site, and call sites are what the set is for.
+    """
+    offenders = _hardcoded_purpose_enumerations(PACKAGE)
+    assert not offenders, (
+        "the purpose set is spelled out by hand in the package, so the day a "
+        "member is ratified this literal is silently one short and nothing "
+        f"fails: {offenders}. Derive it from `Purpose`."
+    )
+
+
+def test_the_hardcoded_purpose_scan_catches_a_planted_enumeration(tmp_path):
+    """A scan that has never fired has not been shown to check anything.
+
+    Two members' values in a literal, in a module the scan has never seen, and
+    the scan has to name it — otherwise the test above is a green light that
+    means nothing, which is the Phase 0 finding this corpus exists downstream
+    of.
+    """
+    (tmp_path / "planted.py").write_text(
+        "ALLOWED = ['drafting', 'filing', 'export']\n", encoding="utf-8"
+    )
+    (tmp_path / "innocent.py").write_text(
+        "from homestead.keep.rungs import Purpose\n"
+        "ALLOWED = [p.value for p in Purpose]\n"
+        "ONE_MEMBER = Purpose.EXPORT\n"
+        "UNRELATED = ['a', 'b']\n",
+        encoding="utf-8",
+    )
+    caught = _hardcoded_purpose_enumerations(tmp_path)
+    assert len(caught) == 1, caught
+    assert caught[0].startswith("planted.py:1:"), caught
 
 
 def test_a_purpose_is_a_string_and_is_not_an_integer():
@@ -488,14 +573,15 @@ def test_the_chokepoint_family_refuses_a_bad_purpose_at_every_door():
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 4 · Inert on three surfaces, lifting on two — and both halves matter
+# 4 · Inert on every surface but egress, lifting on egress — both halves matter
 # ═════════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize("purpose", MEMBERS, ids=[p.name for p in MEMBERS])
 @pytest.mark.parametrize("surface", sorted(INERT_SURFACES, key=lambda s: s.name),
                          ids=lambda s: s.name)
 def test_a_purpose_changes_no_answer_on_an_inert_surface(surface, purpose):
-    """The three surfaces whose ceilings are equal with and without a purpose.
+    """The surfaces whose ceilings are equal with and without a purpose —
+    `INERT_SURFACES` above, which is derived rather than counted out here.
 
     `S1_LIST` is inert because the threat is ambient exposure — someone walking
     past thirty seconds later — and a declaration does not change who is
@@ -503,7 +589,10 @@ def test_a_purpose_changes_no_answer_on_an_inert_surface(surface, purpose):
     the pane is the declaration*, decided 2026-08-04 by widget rather than by
     dialog, so a person in crisis pays no ceremony tax. `S2_PROMPT` is inert
     because of I-13's first hard stop: if a local model needs the diagnosis to
-    do its job, that is a signal the job is wrong.
+    do its job, that is a signal the job is wrong. `S3_AGENT` joined them on
+    2026-08-05 when its column closed (docs/DECISION-agent-retrieval.md) —
+    which is why this docstring no longer counts them, and why the parameter
+    list reads `INERT_SURFACES` instead.
 
     Inert means **identical**, rung by rung — not "mostly the same", and not
     "the same except at `L4`".
@@ -706,7 +795,7 @@ def test_the_parameter_is_still_accepted_on_all_five_surfaces():
 
     The corpus's most valuable sweep passes every purpose to every surface to
     prove that nothing unlocks `L5` anywhere. A signature that refuses the
-    argument on three of five surfaces destroys that sweep to prevent a lesser
+    argument on the surfaces where it is inert destroys that sweep to prevent a lesser
     error — an inert argument passed hopefully — which is a bad trade. So the
     argument is accepted everywhere and inert on three, and the enum plus the
     inertness test carry the weight instead.

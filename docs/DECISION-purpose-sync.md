@@ -1,8 +1,24 @@
 # An eighth member, `SYNC` — decision brief
 
-Status: **Proposed; ratified by the audit of this bite.**
+Status: **Ratified, 2026-09-11.** `Purpose.SYNC = "sync"` is a member; the four
+pins are updated; zero cells of `_CEILING` move, measured and pinned. Every
+measurement in this brief was re-run independently at ratification and every
+one holds exactly — baseline **1885 passed / 9 skipped**, **+83** sweep pickups
+with no test rewritten, **+25** from the new test, **29 mutants · 1
+pre-existing survivor**. **Four** of its non-measured claims did not hold and
+were corrected rather than ratified, and one argument was incomplete and is
+finished; all five are marked **Corrected at ratification** or **added at
+ratification** where they stand, and listed in § *What the ratification
+changed*.
 author: the build seat
-verified_by:
+verified_by: the audit seat, 2026-09-11
+
+*Status as proposed, kept:* **Proposed; ratified by the audit of this bite.** —
+which is the proposing hand writing the outcome of a ratification it is not
+allowed to perform. `verified_by ≠ author` is not a form to fill in after the
+fact; a brief that states its own verdict has already spent the thing the rule
+protects. Left standing rather than deleted, because it is what the document
+said when it was handed over.
 
 This follows `docs/DECISION-compelled-disclosure.md`'s method exactly — measure
 the same four questions it measured, for a different candidate member — because
@@ -10,7 +26,11 @@ that brief is the precedent this repo already ratified for how a purpose member
 gets added: measure the crossing, find every pin, rename what a count-named
 test would otherwise break, and say what the addition costs before proposing it.
 
-Raised by Wave 1 of `docs/PLAN-affairs-face.md` (decision 5): sync is an
+Raised by Wave 1 of the affairs build plan (decision 5). The plan lands in this
+repo as `docs/PLAN-affairs-face.md` in Wave 7 and is **not** here yet, so the
+two citations of it below are forward references rather than links a reader can
+follow today — noted at ratification, because a brief that cites a document
+nobody can open is asking to be taken on trust. Sync is an
 operator act, never background, and it needs a word in the ledger vocabulary
 before `keep/sync.py` (Wave 4) writes the first line that uses it — the same
 shape `COMPELLED_DISCLOSURE` was in before Phase 3's ledger existed.
@@ -109,14 +129,33 @@ A sync is that shape. It is:
   design refuses that shape structurally — `deliver(envelope, *, confirm, ...)`
   ledgers nothing on a refused confirm (I-37, provisional) — and the purpose
   member's whole value is naming that this is the act being confirmed.
+- **revocable forward only — added at ratification.** The posture quoted above
+  is *operator-authored, scoped, **and revocable***, and the brief as proposed
+  argued the first two and let the third go by. The third does not transfer
+  whole, and saying so is the point: a sync grant is revocable in the only
+  sense a copy can be — the operator can stop syncing, narrow a `SyncScope`, or
+  withdraw it before the next envelope — but a **delivered envelope is not
+  recallable**. The row is in the fleet store and the household side, which by
+  design never holds the DSN (§ Open items 7 of the build plan), cannot reach
+  in and unwrite it. That asymmetry is the honest reason the confirm is
+  per-call rather than per-grant, and it is an argument *for* the member rather
+  than against it: the ledger row `SYNC` will carry is the only record the
+  household keeps of a copy it can no longer retrieve.
 
 ## Why it is not `EXPORT`
 
 `EXPORT`'s comment is `# the operator taking their own record out` — a file the
 operator carries. A sync does not hand the operator anything; it puts a copy of
 the household's own record into a store the operator does not open by hand
-afterward, on a schedule the operator set once and revisits, not once per
-file. The destination is a **store**, not a file the operator carries away.
+afterward. The destination is a **store**, not a file the operator carries away.
+
+> **Corrected at ratification.** As proposed, that sentence went on: *"~~on a
+> schedule the operator set once and revisits, not once per file~~"*. Struck. A
+> schedule the operator sets once is precisely the unattended act the bullet
+> above refuses and the one decision 5 forbids in as many words — *sync is an
+> operator act, never background*. There is no schedule. Every envelope is
+> confirmed on the call that delivers it, and the sentence as written would
+> have been the first citation anybody reached for when proposing a daemon.
 
 That is the identical distinction the compelled-disclosure brief drew between
 `FILING` and `COMPELLED_DISCLOSURE` — same operation, different party in
@@ -221,17 +260,82 @@ the dated record it is; a new paragraph naming `SYNC` and this document is
 appended after it rather than folded into the old count. Same treatment
 `docs/DECISION-compelled-disclosure.md` gave the eleven `PHASE2-SURFACES.md`
 lines that said "six" — they are the operator's or the ratifying hand's to
-annotate, not this bite's to rewrite, and none of them live in this repo's
-scope for this bite beyond `rungs.py` itself, where the new member's own
-comment and one new docstring paragraph are the addition.
+annotate, not this bite's to rewrite.
 
-### Callers
+> **Corrected at ratification.** The sentence that followed — *"~~none of them
+> live in this repo's scope for this bite beyond `rungs.py` itself~~"* — is
+> wrong, and the distinction it missed is the one this whole method turns on. A
+> **dated narrative** ("the set was six, and became seven the same day") stays
+> as written, because it records what was believed on a date. A **present-tense
+> claim about how the thing works now** is not a dated record; it is either true
+> or false. **Twelve** of them were false, in live docstrings and banners that
+> no test reads.
+>
+> Five are about the size of this set, and this bite made each of them two
+> members out of date rather than one:
+>
+> | site | said | now |
+> |---|---|---|
+> | `homestead/keep/rungs.py` (`_declared`) | "the bare spellings of the **six** members", "**six** magic strings instead of none" | named for the property |
+> | `homestead/keep/rungs.py` (`_declared`) | "the ceiling table has two columns, not **seven**" | "two columns, not one per member" |
+> | `tests/test_invariants_surfaces.py` ×2 | "two columns rather than **seven**", "Two columns, not **seven**" | same |
+> | `tests/test_surfaces_corpus.py` | "the cell sweep is smaller than it was (**7** purposes, not 12)" | counted from the enum, not spelled out |
+>
+> The other seven are about how many surfaces a purpose is inert on, and they
+> were **already false before this bite** — they went stale on 2026-08-05 when
+> S3's column closed, and neither that bite nor `COMPELLED_DISCLOSURE`'s caught
+> them, which is the cost the precedent predicted arriving exactly where it
+> said it would:
+>
+> | site | said | now |
+> |---|---|---|
+> | `tests/test_purpose_corpus.py` § 4 banner | "Inert on **three** surfaces, lifting on **two**" | named for `INERT_SURFACES` / `LIFTING_SURFACES` |
+> | `tests/test_purpose_corpus.py` (`..._on_an_inert_surface`) | "The **three** surfaces whose ceilings are equal" | same, plus the S3 sentence that was missing |
+> | `tests/test_purpose_corpus.py` (`..._accepted_on_all_five_surfaces`) | "on **three** of five surfaces" | "the surfaces where it is inert" |
+> | `tests/test_invariants_surfaces.py` (`test_the_detail_pane_needs_no_purpose...`) | "inert on **three**" | "inert on every surface but `S4_EGRESS`" — the next function in the same file is named `..._and_inert_on_four`, so the file contradicted itself |
+> | `tests/test_invariants_surfaces.py` (`..._raises_even_where_a_purpose_is_inert`) | "the **two** surfaces where a purpose lifts ... the **three** where it does not" | named for the property |
+> | `tests/test_surfaces_corpus.py` module docstring | "the **three** surfaces whose ceilings are equal" | same |
+> | `homestead/keep/rungs.py` (`may_render`) | "passing rubbish on **three** surfaces and then carry it to the **two** where it lifts" | named for the property |
+>
+> All twelve are fixed the way the
+> precedent prescribes: *"the fix for a title that lies about a count is not
+> renaming it again next time, it is naming it for the property once,
+> permanently."* Rewriting a live false sentence is not a breach of
+> annotate-don't-rewrite; leaving it standing would have been a breach of
+> something worse.
+>
+> Not fixed, deliberately, and left for `X7-drift-homestead`: a grep guard that
+> would keep a count-word out of a live claim about this set. It cannot be
+> written without also firing on the dated narratives it must not touch, and
+> telling those apart is the drift bite's problem, not this one's.
 
-**There are none**, verified the same way the prior brief verified it for
-`COMPELLED_DISCLOSURE`: no call to `may_render`, `decide`, `serve`,
-`serve_all` or `ambient_rows` exists anywhere in `homestead/` outside
-`rungs.py`. `keep/sync.py` does not exist. This bite adds only the enum
-member and its tests.
+### Callers — **Corrected at ratification**
+
+As proposed this section read: *"~~**There are none**, verified the same way
+the prior brief verified it for `COMPELLED_DISCLOSURE`: no call to
+`may_render`, `decide`, `serve`, `serve_all` or `ambient_rows` exists anywhere
+in `homestead/` outside `rungs.py`.~~"* That is false in this tree, and it was
+inherited rather than measured: the prior brief measured it on 2026-08-05, when
+it was true, and it stopped being true at `371bfb2` — *"wire the chokepoint —
+one door to a payload"*. Measured here, `serve()` has four callers:
+`homestead/app/window.py:112` and `:128`, `homestead/keep/store.py:332`,
+`homestead/keep/export.py:196`.
+
+**The conclusion survives; only the evidence was wrong**, and the replacement
+is narrower and is the thing that was actually load-bearing all along: **no
+module in `homestead/` enumerates the purpose set.** `export.py` imports the
+*type* and renders `[p.value for p in Purpose]` into its refusal text — both
+derived from the enum, both still true the day it grows. No call site spells
+the members out, so a new member cannot make one of them silently short. That
+is the claim, and it is now a test with a planted violation rather than a
+sentence:
+`tests/test_purpose_corpus.py::test_no_module_hardcodes_a_list_of_purpose_values`
+and `::test_the_hardcoded_purpose_scan_catches_a_planted_enumeration`.
+
+`keep/sync.py` — the first module that will *name* a member — does not exist.
+Naming one member is a call site and is what the set is for; the guard above is
+careful not to forbid it. This bite adds the enum member, its tests, and (at
+ratification) that guard.
 
 ---
 
@@ -257,3 +361,40 @@ member and its tests.
   an authority `rungs.py:444` already refuses to invent for any member.
 - **No change to any `_CEILING` cell.** Measured at zero moves (§ 1); this
   bite is not a crossing decision and does not propose to become one.
+
+---
+
+## What the ratification changed
+
+Read by the audit seat against `docs/DECISION-compelled-disclosure.md` as the
+precedent, on a cold venv, 2026-09-11.
+
+**Re-measured and holding, independently:**
+
+| claim | re-measured |
+|---|---|
+| baseline 1885 passed / 9 skipped | 1885 / 9, at `f121b1e` |
+| +83 from the sweeps, no test rewritten | 1968 / 9 with the new test deselected; 1968 − 1885 = **83** |
+| +25 from the new dedicated test → 1993 / 9 | 25 collected, **1993 / 9** total |
+| zero `_CEILING` cells move | pinned by `test_the_ceiling_table_matches_an_independent_transcription`, which sweeps `SYNC`; a planted `S3_AGENT: (L2, L4)` fails 43 cases |
+| 29 mutants · 1 pre-existing survivor | identical, `docs/audits/purpose_corpus_mutate.py` |
+| the four pins are the only membership pins | confirmed by grep; no test *name* asserts a purpose count (the precedent's rename did that job) |
+| `"sync"` passes `_check_the_str_enums_cannot_be_confused` | disjoint from `L1`–`L5` and `S1_LIST`–`S4_EGRESS` |
+| `"sync"` passes `test_there_is_no_catch_all_purpose` | `SYNC` matches no banned stem, and names an act rather than a category, a surface or an instrument |
+| `VALID_PURPOSES` is 9 | `(None,) + tuple(Purpose)` — the ninth is `None`, "nobody declared one", which is not an error and is the reason the sweep is complete |
+
+The new test is not a never-fired guard: planting `if purpose is Purpose.SYNC:
+return False` in `_declared` fails it at `[L3-S4_EGRESS]` and `[L4-S4_EGRESS]`.
+
+**Corrected rather than ratified:** the status line (a brief may not record its
+own verdict); § *Callers* (false, and inherited rather than measured — replaced
+with the narrower claim that was load-bearing, now a test with a plant); the
+`EXPORT` section's "a schedule the operator set once" (contradicts decision 5
+and this brief's own *never background* bullet); and § *Doc sites*'s claim that
+no live count outside `rungs.py` was stale — twelve were (two of them inside
+`rungs.py`), five about the size of this set and seven about the surfaces, the
+latter already false since 2026-08-05.
+
+**Added rather than corrected:** the *revocable forward only* bullet. The
+posture this brief borrows from `docs/DECISION-connection-consent.md` has three
+parts and the brief argued two.
