@@ -47,6 +47,7 @@ def _integrity_main(argv: list[str]) -> int:
         IntegrityKeyError,
         IntegrityLog,
         IntegritySealError,
+        describe_verification,
         init_key,
     )
 
@@ -95,7 +96,12 @@ def _integrity_main(argv: list[str]) -> int:
         print(f"homestead integrity verify: refused — {exc}", file=sys.stderr)
         return 3
     kind = "sealed" if log.sealed else ("keyed" if log.keyed else "unkeyed")
-    print(f"homestead: {kind} — verify: {'ok' if ok else 'FAILED'}")
+    # The CLI always authenticates (`decrypt=True`, `verify()`'s default), so
+    # this never prints the weaker "chain verified, contents not authenticated"
+    # answer — but it is `describe_verification` that says so, rather than this
+    # surface re-deriving the wording and being free to drift from it.
+    print(f"homestead: {kind} — verify: "
+          f"{describe_verification(ok, sealed=log.sealed, decrypt=True)}")
     return 0 if ok else 1
 
 

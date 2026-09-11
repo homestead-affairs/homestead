@@ -110,7 +110,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .logs import IntegritySealError, _canonical, line_hash
+from .logs import KEY_BYTES, IntegritySealError, _canonical, line_hash
 
 __all__ = [
     "seal_line", "unseal_line", "derive_subkey", "require_available",
@@ -166,6 +166,30 @@ def require_available() -> None:
     _require_cryptography()
 
 
+def _require_key(key: Any) -> bytes:
+    """The raw integrity key, or refuse by name.
+
+    Pinned by the E6 audit, because a `None` or short key here is not a
+    crash, it is an **oracle**. `line_hash(entry, None)` is a bare SHA-256
+    over the plaintext, and a sealed line's `hash` field rides beside the
+    ciphertext in the clear — so a line sealed with no key would publish a
+    public digest of a low-entropy row (`{"act":"record_synced",...}` shapes
+    are guessable) that a dictionary attack recovers the plaintext from,
+    defeating the encryption entirely without touching AES. Keyed, the same
+    field is an HMAC and tells an attacker without the key nothing.
+    `IntegrityLog` never calls `seal_line` without a key
+    (`_require_sealing_ready` refuses first); this is the rule stated where
+    the hash is actually computed, so a future caller cannot reach past it.
+    """
+    if not isinstance(key, (bytes, bytearray)) or len(key) != KEY_BYTES:
+        raise IntegritySealError(
+            f"sealing requires the {KEY_BYTES}-byte integrity key; a sealed "
+            "line's hash field is an HMAC over its plaintext and would be a "
+            "public digest of it without one"
+        )
+    return bytes(key)
+
+
 def derive_subkey(raw_key: bytes) -> bytes:
     """HKDF-SHA256(raw_key, salt=None, info=HKDF_INFO, length=32) — the AES
     key, independent of the raw key `keep/logs.py` uses directly for HMAC.
@@ -192,6 +216,7 @@ def seal_line(entry: dict[str, Any], *, key: bytes, prev: str) -> dict[str, Any]
     """
     import os
 
+    _require_key(key)
     AESGCM, _, _, _ = _require_cryptography()
     subkey = derive_subkey(key)
     digest = line_hash(entry, key)
@@ -226,6 +251,7 @@ def unseal_line(line: dict[str, Any], *, key: bytes) -> dict[str, Any]:
     """
     import hmac
 
+    _require_key(key)
     AESGCM, _, _, InvalidTag = _require_cryptography()
     try:
         nonce = bytes.fromhex(line["nonce"])

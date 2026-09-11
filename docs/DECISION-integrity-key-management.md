@@ -332,9 +332,15 @@ there.
 
 ## 8 · Sealing (E6, Phase 4)
 
-Status: **Proposed, 2026-09-11.**
+Status: **Proposed, 2026-09-11.** — ~~awaiting ratification~~ **Ratified by
+the audit seat, 2026-09-11**, with three downgrade findings fixed on the
+branch before ratifying (see "The downgrade this section first missed",
+below); the cryptographic construction below — HKDF-SHA256 domain-separated
+subkey, AES-256-GCM, a fresh 96-bit `os.urandom` nonce per line, AAD bound to
+`prev`, and an **HMAC** (never a bare SHA) for the `hash` field that rides in
+the clear — was re-derived independently and is ruled sound as described.
 author: the build seat
-verified_by: _______________, ____________
+verified_by: the audit seat, 2026-09-11
 
 Added by the sibling bite this document promised in §"There is no
 encryption" and item 8 of `docs/PLAN-affairs-face.md`'s open items: "keying
@@ -417,6 +423,29 @@ distinction into words rather than letting the weaker pass read as
 identical to the stronger one — the literal instruction in item 3 of the
 E6 bite: never report a sealed log clean by hashing ciphertext alone
 without saying so.
+
+**The downgrade this section first missed.** Three ways to turn sealing
+*off* again were open when this section was first written, and all three are
+now closed with a planted test each (`tests/test_invariants_sealed.py`):
+
+* `IntegrityLog(path, sealed=False)` on a sealed log appended a plaintext
+  line after the sealed boundary row. It chained correctly, `verify()`
+  returned `True`, and the content was on disk in the clear. `sealed=False`
+  is now a **read-side** escape hatch only: `append()` refuses by name
+  (`IntegritySealError`) on any log carrying the boundary row.
+* Deleting `anchors/integrity.sealed` made auto-detection (`sealed=None`)
+  answer "not sealed", so the next `append()` wrote plaintext. Auto-detection
+  now reads the log's own `{"act": "sealed"}` row as well as the marker —
+  that row is chained and keyed, so removing it needs the key, which is the
+  whole point. Either witness is enough; both must be gone.
+* A plaintext line written straight onto the end by someone holding the key
+  was invisible to `verify()` — it is a perfectly good chain link. `verify()`
+  now reports any non-sealed line after the sealed boundary as `False`. This
+  check needs no key, so it is a finding, never "cannot tell."
+
+The ordering rule underneath all three: **a log only ever turns more sealed,
+never less.** There is no unsealing, and there is no writing plaintext past
+the point where sealing began.
 
 **No escrow, still.** Nothing here changes §3's answer. A lost key was
 already unverifiable-not-recoverable for a keyed log; for a sealed one it is

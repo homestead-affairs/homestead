@@ -450,3 +450,152 @@ def test_smoke_imports_sealed_module_even_without_cryptography(home):
                         env=_cli_env(home))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "sealed-import-check-ok" in r.stdout
+
+
+# ── the downgrade: a plaintext line after the sealed boundary (E6 audit) ────
+#
+# The three tests below were planted by the E6 audit and all three failed
+# before the fix beside them: sealing could be turned off by asking for it
+# (`sealed=False`), by deleting one sidecar file, or by an attacker simply
+# writing a well-chained plaintext line onto the end. Each left the content
+# it appended in the clear on disk and left `verify()` saying "ok".
+
+def test_sealed_false_cannot_append_plaintext_after_the_sealed_boundary(keep, home):
+    """`sealed=False` is a read-side escape hatch for the pre-seal segment,
+    never a licence to write plaintext after the row that says everything
+    from here is ciphertext. Before the fix this appended, the secret hit
+    the disk in the clear, and `verify()` returned `True`."""
+    pytest.importorskip("cryptography")
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.seal()
+    log.append({"kind": "s1"})
+
+    down = keep.IntegrityLog(sealed=False)
+    assert down.sealed is False
+    with pytest.raises(keep.IntegritySealError, match="downgrade"):
+        down.append({"kind": "PLAINTEXT-AFTER-SEAL"})
+    assert "PLAINTEXT-AFTER-SEAL" not in log.path.read_text(encoding="utf-8")
+    assert keep.IntegrityLog().verify() is True
+
+
+def test_deleting_the_sealed_marker_does_not_downgrade_the_log(keep, home):
+    """`anchors/integrity.sealed` is a file on the same machine, so the same
+    hand can delete it. The log's own `{"act": "sealed"}` row is chained and
+    keyed — removing *that* needs the key — so auto-detection reads both and
+    one deletion no longer turns sealing off. Before the fix, `rm` on the
+    marker made the very next `append()` write plaintext."""
+    pytest.importorskip("cryptography")
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.seal()
+    log.append({"kind": "s1"})
+
+    keep.default_sealed_marker_path().unlink()
+    reopened = keep.IntegrityLog()
+    assert reopened.sealed is True, "the log's own boundary row still says sealed"
+    reopened.append({"kind": "STILL-SECRET"})
+    assert "STILL-SECRET" not in log.path.read_text(encoding="utf-8")
+    assert keep.IntegrityLog().verify() is True
+
+
+def test_verify_rejects_a_plaintext_line_after_the_sealed_boundary(keep, home):
+    """The same downgrade written straight onto the file by someone holding
+    the key — correctly chained, matching anchor, and therefore invisible to
+    every other check `verify()` makes. It is a finding (`False`), not
+    "cannot tell", because spotting it needs no key at all."""
+    pytest.importorskip("cryptography")
+    keep.init_key()
+    raw_key = keep.read_key()
+    log = keep.IntegrityLog()
+    log.seal()
+    log.append({"kind": "s1"})
+    assert log.verify() is True
+
+    records = [json.loads(x) for x in log.path.read_text(encoding="utf-8").splitlines()]
+    forged = {"kind": "PLAINTEXT-AFTER-SEAL", "at": "2026-09-11T00:00:00+00:00",
+              "prev": records[-1]["hash"]}
+    records.append(forged)
+    _write_lines(log.path, records)
+    log.anchor_path.write_text(
+        f"hmac:{keep.line_hash(forged, raw_key)}\n", encoding="utf-8")
+
+    assert keep.IntegrityLog().verify() is False
+    assert keep.IntegrityLog().verify(decrypt=False) is False
+
+
+# ── sync, without the extra: refuse by name, never "not delivered" ──────────
+
+def test_sync_on_a_sealed_log_without_the_extra_refuses_by_name(keep, home, monkeypatch):
+    """The answer that must never come back is `False` — "this envelope was
+    not delivered" — for a log whose delivery row is simply unreadable here.
+    `_already_delivered` routes through `_entries()`, so the missing extra
+    surfaces as `IntegritySealError` (I-11) and `deliver` cannot send a
+    second copy on the strength of a read that never happened."""
+    pytest.importorskip("cryptography")
+    from homestead.keep import sync
+
+    keep.init_key()
+    log = keep.IntegrityLog()
+    log.seal()
+    log.append({"act": keep.Event.RECORD_SYNCED.value, "envelope": "env-abc123"})
+    assert sync._already_delivered(log, "env-abc123") is True
+
+    _block_cryptography(monkeypatch)
+    reopened = keep.IntegrityLog()
+    with pytest.raises(keep.IntegritySealError, match="sealed"):
+        sync._already_delivered(reopened, "env-abc123")
+
+
+# ── the sealed line's `hash` field is always an HMAC, never a plain digest ──
+
+def test_seal_line_refuses_a_missing_or_short_key_rather_than_publishing_a_digest(keep, home):
+    """A sealed line's `hash` rides beside the ciphertext in the clear. Keyed
+    it is an HMAC and says nothing; unkeyed it is a public SHA-256 of the
+    plaintext, and ledger rows are low-entropy enough (`{"act":
+    "record_synced", ...}` shapes) that a dictionary attack recovers them —
+    the encryption defeated without touching AES. So the key is required
+    where the hash is computed, not only by `IntegrityLog` upstream."""
+    pytest.importorskip("cryptography")
+    from homestead.keep import sealed
+
+    keep.init_key()
+    raw_key = keep.read_key()
+    entry = {"act": "record_synced", "envelope": "env-abc123", "prev": "genesis"}
+    for bad in (None, b"", b"short", raw_key.hex()):
+        with pytest.raises(keep.IntegritySealError, match="key"):
+            sealed.seal_line(entry, key=bad, prev="genesis")
+        with pytest.raises(keep.IntegritySealError, match="key"):
+            sealed.unseal_line({"nonce": "00" * 12, "ct": "00" * 32,
+                                "prev": "genesis", "hash": ""}, key=bad)
+
+    line = sealed.seal_line(entry, key=raw_key, prev="genesis")
+    assert line["hash"] == keep.line_hash(entry, raw_key)
+    assert line["hash"] != keep.line_hash(entry), "an unkeyed digest is an oracle"
+    assert len(bytes.fromhex(line["nonce"])) == sealed.NONCE_BYTES == 12
+
+
+# ── CI actually runs both legs ──────────────────────────────────────────────
+
+def test_ci_runs_one_leg_with_the_sealed_extra_and_one_without():
+    """A skip leg that never runs proves nothing. `tests/
+    test_invariants_sealed.py` is half `importorskip("cryptography")`, so a
+    CI that installs the extra nowhere would be green on encryption that had
+    never executed — and one that installed it everywhere would never
+    exercise the refusal path. Both legs are asserted to exist, and the
+    aggregate `test` gate is asserted to wait on the new one (a job branch
+    protection does not require is a job that cannot fail a merge)."""
+    yaml = pytest.importorskip("yaml")
+    jobs = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())["jobs"]
+
+    def installs(job) -> str:
+        return " ".join(str(s.get("run", "")) for s in jobs[job].get("steps", []))
+
+    with_extra = [j for j in jobs if "[sealed]" in installs(j)]
+    assert with_extra, "no CI leg installs the sealed extra"
+    assert "sealed" not in installs("invariants"), (
+        "the cold `invariants` matrix is the without-the-extra leg (I-27)"
+    )
+    assert set(with_extra) <= set(jobs["test"]["needs"]), (
+        "a leg the aggregate `test` gate does not need cannot block a merge"
+    )

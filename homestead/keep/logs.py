@@ -527,7 +527,10 @@ class IntegrityLog:
         secret to lose):
 
         * `None` (default) — **auto**. Sealed iff `default_sealed_marker_path()`
-          records this log's sealing boundary. Never refuses at construction
+          records this log's sealing boundary **or** the log itself carries the
+          `{"act": "sealed"}` row (`_has_sealed_boundary`) — either witness is
+          enough, so deleting the marker file does not turn sealing off.
+          Never refuses at construction
           even if the `sealed` extra or the key is missing — a caller that
           only wants `verify(decrypt=False)` (needs the key, via stdlib
           `hmac`, for the keyed scaffolding under any sealing; never the
@@ -541,7 +544,10 @@ class IntegrityLog:
           absent or the `cryptography` extra is not installed — never a
           silent plaintext fallback (I-11).
         * `False` — **force unsealed**, even with a marker present. For a
-          caller with a specific reason to read the pre-seal segment.
+          caller with a specific reason to read the pre-seal segment. It is a
+          *read-side* escape hatch only: `append()` on a log that carries the
+          sealed boundary row refuses by name rather than writing plaintext
+          after it (a downgrade), whatever this flag says.
 
         Unsealing is not offered: nothing in this codebase turns a sealed
         log back to plaintext going forward. See
@@ -565,7 +571,29 @@ class IntegrityLog:
             return True
         # sealed is None: auto — see the constructor docstring for why this
         # branch never raises, unlike the other two.
-        return _recorded_boundary(self.path, marker_path=default_sealed_marker_path()) is not None
+        if _recorded_boundary(self.path, marker_path=default_sealed_marker_path()) is not None:
+            return True
+        # The marker is a file on the same machine, and deleting it must not
+        # be a way to turn sealing off (the E6 audit planted exactly that: with
+        # only the marker consulted, `rm anchors/integrity.sealed` made the very
+        # next `append()` write plaintext after the sealed boundary, and
+        # `verify()` still said ok). The log's own `{"act": "sealed"}` row is
+        # the stronger witness — it is chained and keyed, so removing *it*
+        # needs the key — so auto-detection reads it too and the two must both
+        # be gone before a log stops looking sealed.
+        return self._has_sealed_boundary()
+
+    def _has_sealed_boundary(self) -> bool:
+        """Whether this log's own lines carry the `{"act": "sealed"}` row.
+
+        Defensive on purpose: a log whose tail is a half-written line from a
+        crash must still *construct* (`verify()` is where that becomes a
+        `False`), so an unparseable file answers "no boundary found here"
+        rather than raising out of `__init__`."""
+        try:
+            return _boundary_index(self._lines(), act=SEAL_BOUNDARY_ACT) is not None
+        except (json.JSONDecodeError, OSError):
+            return False
 
     def _require_sealing_ready(self):
         """The key and the `cryptography` extra, both present, or refuse by
@@ -796,6 +824,20 @@ class IntegrityLog:
                     if self.sealed:
                         sealed_mod = self._require_sealing_ready()
                         self._ensure_sealed_boundary(fh)
+                    elif self._has_sealed_boundary():
+                        # A downgrade, refused by name rather than written.
+                        # `IntegrityLog(path, sealed=False)` is a read-side
+                        # escape hatch for the pre-seal segment, never a
+                        # licence to put a plaintext line *after* the row that
+                        # says everything from here is ciphertext — that line
+                        # would chain and verify clean, and the content it
+                        # leaked to disk would be unrecoverable from the file.
+                        raise IntegritySealError(
+                            f"{self.path} carries a sealed boundary; appending "
+                            "a plaintext line after it would downgrade the log "
+                            "— refused (construct without sealed=False, or seal "
+                            "a different log)"
+                        )
                     plain = dict(entry)
                     plain["at"] = _now()
                     plain["prev"] = self.head()   # re-read inside the lock,
@@ -831,7 +873,10 @@ class IntegrityLog:
         forger without the key would do, and it is answered with `False` — a
         finding — not with a clean unkeyed verification. "Cannot tell" stays
         reserved for `IntegrityKeyError`. The sealed boundary row (E6) is
-        checked the identical way, against `default_sealed_marker_path()`.
+        checked the identical way, against `default_sealed_marker_path()`,
+        **and** a plaintext line sitting *after* that row is the same finding:
+        it chains perfectly and nothing else in this walk would notice it, so
+        it is checked for by name.
 
         **`decrypt` (E6, default `True`).** A sealed line's `hash` field
         (`keep/sealed.py`) lets the `prev`/`hash` chain be walked, and
@@ -892,6 +937,12 @@ class IntegrityLog:
             prev_field = entry.get("prev")
             if not isinstance(prev_field, str) or not hmac.compare_digest(prev_field, prev):
                 return False        # missing/wrong-typed prev is a mismatch, not a crash
+            if seal_boundary is not None and i > seal_boundary and entry.get("sealed") != 1:
+                # A plaintext line past the sealing boundary is a downgrade,
+                # and it chains perfectly — nothing else in this walk would
+                # notice it. Found by the E6 audit. `False` (a finding about
+                # the log), never "cannot tell": this needs no key to see.
+                return False
             if decrypt and entry.get("sealed") == 1:
                 if self.key is None:
                     raise IntegritySealError(

@@ -116,6 +116,32 @@ jobs:
         env:
           HOMESTEAD_FLEET_TEST_DSN: postgresql://postgres:homestead-fleet-ci@localhost:5432/fleet
 
+  sealed:
+    # E6-integrity-encrypt: the only job that installs the `sealed` extra.
+    #
+    # Without it every `pytest.importorskip("cryptography")` in
+    # `tests/test_invariants_sealed.py` skips, and CI would be green on a
+    # bite whose encryption had never once run here — the `invariants` matrix
+    # deliberately installs no extras (I-27), so it exercises the
+    # *without*-the-extra leg and nothing exercised the other one. Both legs
+    # now run: this job with `cryptography`, `invariants` without it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install pytest
+      - run: pip install -e ".[sealed]"
+      # The whole suite, not just the sealed file: the extra's presence
+      # changes what every other test sees of `keep.sealed` too.
+      - run: pytest -q
+
   artifact:
     # The Phase 0 deliverable is a *double-clickable artifact*, so CI builds it
     # and runs it. Without this job the first spec shipped a binary that died on
@@ -154,7 +180,7 @@ jobs:
   # mattered. The result is asserted explicitly rather than inferred from this
   # job having run.
   test:
-    needs: [invariants, release-wiring, fleet, artifact]
+    needs: [invariants, release-wiring, fleet, sealed, artifact]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -168,8 +194,9 @@ jobs:
           echo "invariants=${{ needs.invariants.result }}"
           echo "release-wiring=${{ needs.release-wiring.result }}"
           echo "fleet=${{ needs.fleet.result }}"
+          echo "sealed=${{ needs.sealed.result }}"
           echo "artifact=${{ needs.artifact.result }}"
           echo "::error::a required job did not succeed — see the results above"
           exit 1
 
-      - run: echo "invariants, release-wiring, fleet, and the artifact build are green"
+      - run: echo "invariants, release-wiring, fleet, sealed, and the artifact build are green"
