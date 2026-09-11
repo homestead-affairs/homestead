@@ -55,15 +55,28 @@ the number alone pins no matter. That is the whole content of "survives the chec
 
 ## The honest limit — what this file does *not* see
 
-It is handed the aggregate and the roster of matters. **It is not handed the
-per-matter distribution**, so it cannot certify that a survivor is *actually*
+It is handed the aggregate and the roster of matters, and — since I-31 (E4,
+`by_matter`) — optionally the per-matter distribution behind that aggregate.
+Without a distribution it still cannot certify that a survivor is *actually*
 spread across ≥2 matters — only that the number does not *force* a single matter.
 `overdue=2` over two matters passes here even if both items are in one matter,
-because the cover cannot tell (2,0) from (1,1) and the reader cannot either. If a
-later bite wants the stronger guarantee — show a count only when it demonstrably
-spans ≥2 matters — the caller must pass the distribution, and this gate tightens
-to read it. That is a known, deliberate boundary, not an oversight; it is recorded
-in docs/DECISION-cover-re-identification.md, flagged for a second hand to ratify.
+because the cover cannot tell (2,0) from (1,1) and the reader cannot either. That
+was a known, deliberate boundary, recorded in
+`docs/DECISION-cover-re-identification.md`.
+
+**Closing that gap.** `homestead_law`'s own L2c audit (queue readiness for a
+second matter type) found the shape of the gap made concrete: `queue.cover()`
+used to hand this gate the *registered matter types* rather than the matters
+that actually hold a deadline, so a second pack landing was enough on its own to
+satisfy Gate 2 — nothing broke, a number simply started appearing. Law fixed its
+caller to pass the matters that actually hold a deadline, but that still leaves
+this file blind to *how* an aggregate is spread: a roster of two truthfully open
+matters still admits a `(2, 0)` distribution where both items sit in one of
+them, and Gate 2 as written cannot see that. When a caller *can* state the
+distribution, Gate 2 tightens to read it instead of trusting the roster: a
+category survives only when at least `K` distinct matters each contribute at
+least one to it. `(2, 0)` fails that even though the raw count and the matter
+roster both clear the old gates; `(1, 1)` passes. See `by_matter` below.
 
 ## I-29 — the surface calculates nothing beyond this arithmetic
 
@@ -84,7 +97,24 @@ __all__ = ["cover_counts", "K"]
 K = 2
 
 
-def cover_counts(matters: list[str], **counts: int) -> dict[str, int]:
+def _contribution(per_matter: dict[str, int], category: str) -> int:
+    """One matter's share of `category`, or `0` if it contributes nothing there.
+
+    A share that is not a plain non-bool int cannot be reasoned about at all —
+    not "zero", not "ignored" — so it refuses rather than let a stranger value
+    flow into a sum (I-11: an unverified distribution is refused, never guessed)."""
+    value = per_matter.get(category, 0)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"by_matter holds a non-integer share for {category!r}")
+    return value
+
+
+def cover_counts(
+    matters: list[str],
+    *,
+    by_matter: dict[str, dict[str, int]] | None = None,
+    **counts: int,
+) -> dict[str, int]:
     """The counts the resting cover may show, and no more (I-31).
 
     `matters` is the roster of open matters — context for the check, never itself
@@ -99,7 +129,41 @@ def cover_counts(matters: list[str], **counts: int) -> dict[str, int]:
     the count is itself at least `K` (else it is one item in one matter). Anything
     that is not a positive integer at or above `K` fails closed and is dropped —
     the surface renders a survivor, it does not repair a stranger.
+
+    `by_matter` (matter → category → count) is the distribution behind an
+    aggregate, when a caller has one. Passing it does not change any category
+    the caller omits, and passing `None` (the default) is byte-identical to
+    every call this function answered before it existed — this parameter
+    exists because `homestead_law`'s L2c audit found the second gate could be
+    satisfied by the roster's *shape* (a second registered matter type) rather
+    than by the household's actual spread, so a roster of two truthfully open
+    matters still let `(2, 0)` through Gate 2. With `by_matter` supplied, Gate 2
+    tightens: a category survives only when at least `K` *distinct matters in
+    the distribution* each contribute at least one to it — `(2, 0)` across two
+    matters is now dropped, `(1, 1)` still passes. `by_matter`'s matters must be
+    a subset of `matters`, and each category's distributed total must equal the
+    `**counts` value passed for it — a caller whose distribution disagrees with
+    its own aggregate is refused (I-11), never trusted. As everywhere on this
+    surface (I-15), no matter name and no per-matter count is ever emitted, in
+    the result or in any exception this function raises — only category names,
+    which are not identities.
     """
+    if by_matter is not None:
+        if not set(by_matter) <= set(matters):
+            raise ValueError("by_matter names a matter outside the roster it was given")
+        categories = set(counts) | {c for per in by_matter.values() for c in per}
+        for category in categories:
+            claimed = counts.get(category, 0)
+            if isinstance(claimed, bool) or not isinstance(claimed, int):
+                continue  # not a countable total; the fail-closed pass below drops it
+            distributed = sum(
+                _contribution(per, category) for per in by_matter.values()
+            )
+            if distributed != claimed:
+                raise ValueError(
+                    f"by_matter total for {category!r} does not match its count"
+                )
+
     n_matters = len(matters)
     if n_matters < K:
         # A household of one matter is that matter; no count over it is household
@@ -113,6 +177,13 @@ def cover_counts(matters: list[str], **counts: int) -> dict[str, int]:
         # ever reading as a rung-shaped truth by accident (I-14's shape).
         if isinstance(count, bool) or not isinstance(count, int):
             continue
-        if count >= K:
-            shown[category] = count
+        if count < K:
+            continue
+        if by_matter is not None:
+            contributors = sum(
+                1 for per in by_matter.values() if _contribution(per, category) >= 1
+            )
+            if contributors < K:
+                continue
+        shown[category] = count
     return shown

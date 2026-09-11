@@ -392,7 +392,7 @@ from surrounding text rather than quoted from a single named line.
 | I-28 | Bare `pytest -q` works from a cold checkout — no out-of-band install step. | `README.md`'s I-27/I-28 row; `tests/test_invariants_shape.py:1` |
 | I-29 | The surface holds no domain logic — it calculates nothing itself, only asks `serve`. | `homestead/app/__init__.py:1`, `homestead/app/window.py:9` |
 | I-30 | Nothing here listens — no bound port anywhere, including the MCP stdio surface. | `homestead/keep/export.py:8`, `homestead/keep/nestor_seam.py:59` |
-| I-31 | The cover's resting state reveals nothing — a count is shown only after it clears the k≥2 re-identification check on both the count and the matters. | `homestead/app/cover.py:1-15`, `docs/DECISION-cover-re-identification.md` |
+| I-31 | The cover's resting state reveals nothing — a count is shown only after it clears the k≥2 re-identification check on both the count and the matters, and, when a distribution is given, ≥K matters each contribute. | `homestead/app/cover.py:1-15`, `docs/DECISION-cover-re-identification.md` |
 | I-32 | A reveal, once shown, expires back to derived after a timeout — pending, not yet built. | `homestead/app/window.py:23`, `tests/test_surfaces_corpus.py:410` |
 | I-33 | One rung indicator per pane — a list row shows one indicator, not the rung of every field composited into it. | `homestead/app/theme.py:28, 64` |
 | I-34 | **Unknown in this tree.** Zero references anywhere under `homestead/` or `docs/`. | — |

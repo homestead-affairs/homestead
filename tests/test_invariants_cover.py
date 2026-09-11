@@ -16,8 +16,21 @@ otherwise absent. See `homestead/app/cover.py` and
 The one test the pending file pinned is `test_i31_the_cover_survives_re_identification`.
 Everything else here is a hard case the pin does not reach — the two gates fired
 independently, absence-not-zero, and the survivor rendered as its real number.
+
+**E4-cover-distribution** (bottom of the file) adds `by_matter`, an optional
+per-matter distribution. `homestead_law`'s L2c audit found `queue.cover()`
+handing this gate the *registered matter types* — identical on every install —
+so the matters gate was satisfied by the software's shape rather than the
+household's; law now passes the matters that actually hold a deadline, but a
+roster of two truthfully open matters still admits a `(2, 0)` distribution
+where both counts belong to one of them, and the aggregate-only gate cannot see
+that. With `by_matter`, Gate 2 tightens per category to "at least `K` distinct
+matters each contribute >= 1" — `(2, 0)` is dropped, `(1, 1)` still survives.
+`by_matter=None` (the default) is unchanged behaviour for every prior call.
 """
 from __future__ import annotations
+
+import pytest
 
 from homestead.app.cover import K, cover_counts
 
@@ -130,3 +143,128 @@ def test_the_anonymity_floor_is_two():
     """K is the smallest set in which 'which one?' has no answer. Pinned so the
     two gates cannot be loosened to 1 without a test saying so."""
     assert K == 2
+
+
+# ── I-31 + E4-cover-distribution: `by_matter` tightens Gate 2 ────────────────
+#
+# `homestead_law`'s L2c audit found `queue.cover()` handing this gate the
+# *registered matter types* — identical on every install — so Gate 2 was
+# satisfied by the software's shape rather than the household's. Law fixed its
+# caller to pass the matters that actually hold a deadline, but a roster of two
+# truthful matters still admits a (2, 0) distribution where both counts belong
+# to one matter, because this file was never handed the distribution to check.
+# `by_matter` closes that: when given, a category survives only when at least
+# `K` distinct matters in the distribution each contribute >= 1 to it.
+
+
+def test_by_matter_omitted_is_unchanged_for_every_existing_call():
+    """`by_matter=None` (the default) must be indistinguishable from every call
+    this function answered before the parameter existed — every test above
+    calls it with no `by_matter` at all, and this pins the explicit form too."""
+    assert cover_counts(matters=["custody"], overdue=1) == cover_counts(
+        matters=["custody"], by_matter=None, overdue=1
+    )
+    assert cover_counts(
+        matters=["custody", "estate", "tenancy"],
+        due_soon=4,
+        overdue=1,
+        drafts_unsent=2,
+    ) == cover_counts(
+        matters=["custody", "estate", "tenancy"],
+        by_matter=None,
+        due_soon=4,
+        overdue=1,
+        drafts_unsent=2,
+    )
+
+
+def test_two_zero_across_two_matters_is_absent():
+    """The case the old gate could not see: (2, 0) clears both old gates (count
+    >= K, matters >= K) but every item sits in one matter — only one matter
+    contributes at all, so it is absent under the distribution check."""
+    counts = cover_counts(
+        matters=["custody", "estate"],
+        by_matter={"custody": {"overdue": 2}, "estate": {"overdue": 0}},
+        overdue=2,
+    )
+    assert "overdue" not in counts
+
+
+def test_one_one_across_two_matters_survives_with_the_real_total():
+    """The other side: (1, 1) has >= K matters each contributing >= 1, so it
+    survives and renders as the real total, 2 — not either matter's share."""
+    counts = cover_counts(
+        matters=["custody", "estate"],
+        by_matter={"custody": {"overdue": 1}, "estate": {"overdue": 1}},
+        overdue=2,
+    )
+    assert counts == {"overdue": 2}
+
+
+def test_two_zero_zero_across_three_matters_is_absent():
+    """A third matter does not launder it: (2, 0, 0) still has only one matter
+    contributing, so a roster of three does not rescue it either."""
+    counts = cover_counts(
+        matters=["custody", "estate", "tenancy"],
+        by_matter={
+            "custody": {"overdue": 2},
+            "estate": {"overdue": 0},
+            "tenancy": {"overdue": 0},
+        },
+        overdue=2,
+    )
+    assert "overdue" not in counts
+
+
+def test_inconsistent_distribution_totals_are_refused():
+    """A `by_matter` whose per-category totals disagree with the `**counts`
+    aggregate is a caller lying to the gate (I-11) — refused, not reconciled or
+    silently trusted on one side."""
+    with pytest.raises(ValueError):
+        cover_counts(
+            matters=["custody", "estate"],
+            by_matter={"custody": {"overdue": 1}, "estate": {"overdue": 1}},
+            overdue=3,  # distributed total is 2, not 3
+        )
+
+
+def test_by_matter_naming_an_unknown_matter_is_refused():
+    """`by_matter`'s matters must be a subset of `matters` — a distribution over
+    a matter the roster does not contain is refused, not silently accepted."""
+    with pytest.raises(ValueError):
+        cover_counts(
+            matters=["custody", "estate"],
+            by_matter={"custody": {"overdue": 1}, "not-on-the-roster": {"overdue": 1}},
+            overdue=2,
+        )
+
+
+def test_a_planted_matter_name_never_appears_in_result_or_error_text():
+    """I-15: this surface never emits a matter name or a per-matter count, in
+    the result or in any error text it raises. Plant a distinctive matter name
+    in both the success path and each refusal path and grep for it."""
+    planted = "zzz-planted-matter-name-zzz"
+
+    counts = cover_counts(
+        matters=["custody", planted],
+        by_matter={"custody": {"overdue": 1}, planted: {"overdue": 1}},
+        overdue=2,
+    )
+    assert planted not in counts
+    assert planted not in str(counts)
+
+    with pytest.raises(ValueError) as bad_total:
+        cover_counts(
+            matters=["custody", planted],
+            by_matter={"custody": {"overdue": 5}, planted: {"overdue": 5}},
+            overdue=1,
+        )
+    assert planted not in str(bad_total.value)
+
+    with pytest.raises(ValueError) as unknown_matter:
+        cover_counts(
+            matters=["custody"],
+            by_matter={"custody": {"overdue": 1}, planted: {"overdue": 1}},
+            overdue=2,
+        )
+    assert planted not in str(unknown_matter.value)
