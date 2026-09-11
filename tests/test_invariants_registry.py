@@ -22,12 +22,12 @@ build rather than going silently unhandled.
 from __future__ import annotations
 
 import ast
-import re
 import types
 from pathlib import Path
 
 import pytest
 
+from _strikethrough import live
 from homestead.keep import registry as registry_mod
 from homestead.keep.registry import (
     REGISTRY,
@@ -296,21 +296,21 @@ _PACKS_INIT = PKG / "packs" / "__init__.py"
 _REGISTRY_PY = PKG / "keep" / "registry.py"
 
 
-def _strip_struck(text: str) -> str:
-    """Drop every `~~...~~` span before scanning — history stays struck
-    through, never deleted (house style), so a stale claim quoted *inside* a
-    strike is not a live claim and must not trip the guard. `re.DOTALL`
-    because a struck span can wrap several lines."""
-    return re.sub(r"~~.*?~~", "", text, flags=re.DOTALL)
-
-
-def _module_docstring(path: Path) -> str:
-    return ast.get_docstring(ast.parse(path.read_text("utf-8"))) or ""
-
-
 def _live_text_for(path: Path) -> str:
-    text = path.read_text("utf-8") if path == _README else _module_docstring(path)
-    return _strip_struck(text)
+    """Everything the file still asserts: the whole file, struck spans gone,
+    whitespace flattened.
+
+    *Whole file*, not just the module docstring: the registry's stale claim
+    lived in two places — the module docstring and the `#:` comment over
+    `REGISTRY` — and a docstring-only reading polices one of them.
+
+    *Flattened*, because these documents are hard-wrapped and the phrases
+    below are not. The first version of this guard compared against raw text,
+    so "only custody is registered" could never match the README sentence it
+    was written for (wrapped as "Only custody is\\nregistered") — the README
+    leg passed on the very prose it was added to catch.
+    """
+    return live(path.read_text("utf-8"))
 
 
 def _stale_hits(text: str) -> list[str]:
@@ -334,17 +334,23 @@ def test_registry_docs_do_not_claim_only_custody():
     )
 
 
-def test_the_stale_claim_check_fires_on_a_planted_phrase(tmp_path):
-    """A scan that has never fired has not been shown to check anything. The
-    planted counterpart: a stale phrase written live (not struck through) must
-    trip the check, and the same phrase struck through must not."""
-    live = tmp_path / "live.py"
-    live.write_text('"""Only custody is built here."""\n', "utf-8")
-    assert _stale_hits(_module_docstring(live))
+@pytest.mark.parametrize("suffix", [".py", ".md"])
+def test_the_stale_claim_check_fires_on_a_planted_phrase(tmp_path, suffix):
+    """A scan that has never fired has not been shown to check anything.
 
-    struck = tmp_path / "struck.py"
-    struck.write_text('"""~~Only custody is built here.~~ Now two are."""\n', "utf-8")
-    assert not _stale_hits(_strip_struck(_module_docstring(struck)))
+    The plant runs through `_live_text_for` — the same helper the real check
+    calls — rather than re-composing its parts, so a helper that silently
+    strips too much, or reads the wrong part of a file, fails here instead of
+    quietly disarming the check above. Both file kinds the guard scans are
+    planted, and the live phrase is **hard-wrapped**: that is the shape the
+    README leg was blind to."""
+    planted = tmp_path / f"planted{suffix}"
+    planted.write_text("A pack is a pack.\nOnly custody is\nregistered here.\n", "utf-8")
+    assert _stale_hits(_live_text_for(planted)) == ["only custody is registered"]
+
+    struck = tmp_path / f"struck{suffix}"
+    struck.write_text("~~Only custody is\nregistered here.~~ Now two are.\n", "utf-8")
+    assert not _stale_hits(_live_text_for(struck))
 
 
 def test_the_guard_would_catch_the_registry_itself_if_it_were_not_exempt():
