@@ -7,8 +7,10 @@ S4/`Purpose.SYNC` gate call, which `_CEILING` cell governs an `L4` row under
 a sync, envelope stability and tamper refusal, and the delivery contract.
 
 Decision 5 (`docs/PLAN-affairs-face.md`), `docs/DECISION-sync-envelope-and-
-consent.md` (proposed here, `verified_by:` blank), and
+consent.md` (~~proposed here, `verified_by:` blank~~ ratified by the
+E4-sync-core audit, 2026-09-11, with its amendments recorded there) and
 `docs/DECISION-purpose-sync.md` (ratified) are what this file checks against.
+The final section is the audit's own, one test per amendment.
 """
 from __future__ import annotations
 
@@ -519,3 +521,315 @@ def test_household_id_refuses_a_malformed_file_by_name(home, kit):
     (paths.home() / "household.id").write_text("not-an-id\n", encoding="utf-8")
     with pytest.raises(household.MalformedHouseholdId):
         household.household_id()
+
+
+# ── E4-sync-core audit, 2026-09-11 ───────────────────────────────────────────
+# Each test below reproduces something the built module did before the audit.
+
+def _adapters():
+    from homestead.keep.store import FileAdapter, SQLiteAdapter
+
+    return FileAdapter(), SQLiteAdapter()
+
+
+@pytest.mark.parametrize("table", ["sidecar", "canonical"])
+def test_every_rung_by_every_ceiling_cell_on_both_tables(home, kit, table):
+    """The whole (rung × ceiling) grid, on both tables — the audit's item 1.
+
+    `S4_EGRESS` under a declared purpose has ceiling `L4`, so it renders
+    every rung it does not deny and **never** returns `derive`: the scope's
+    own ceiling is the only thing that stops an `L1`-minded operator sending
+    `L4` in full. So each cell asserts exactly which rungs survive, that a
+    survivor is `render` with its real value, and that `L5` is absent at
+    every ceiling including the highest one a scope may name.
+    """
+    sync, Rung = kit["sync"], kit["Rung"]
+    from homestead.keep.rungs import Classified
+    from homestead.keep.store import CANONICAL, Canonical, SIDECAR, Sidecar, _serialize
+    from homestead.keep import store as _store
+
+    order = [Rung.L1, Rung.L2, Rung.L3, Rung.L4, Rung.L5]
+    for rung in order:
+        item = Classified(rung, f"VALUE-{rung.value}",
+                          "a stand-in" if rung in (Rung.L3, Rung.L4) else None)
+        if table == "sidecar":
+            Sidecar().put("custody", "note", rung.value, item)
+        else:
+            _store._default_adapter().write(
+                CANONICAL, ("custody", "note", rung.value), _serialize(item)
+            )
+
+    readers = {SIDECAR: Sidecar(), CANONICAL: Canonical()}
+    for i, ceiling in enumerate([Rung.L1, Rung.L2, Rung.L3, Rung.L4]):
+        envelope = sync.compose(
+            readers,
+            sync.SyncScope(matters=("custody",), item_types=None, ceiling=ceiling,
+                           tables=(table,)),
+        )
+        expected = {r.value for r in order[: i + 1]}
+        assert {row["item_id"] for row in envelope.rows} == expected, (
+            f"{table} at ceiling {ceiling.value}"
+        )
+        assert "L5" not in {row["item_id"] for row in envelope.rows}
+        for row in envelope.rows:
+            assert row["disposition"] == "render"
+            assert row["value"] == f"VALUE-{row['rung']}"
+            assert row["table"] == table
+
+
+def test_the_envelope_id_is_the_same_through_either_store_backing(home, kit):
+    """The failure this guards against: an id addressed by iteration order
+    rather than content. `FileAdapter` sorts `<item_id>.json` filenames and
+    `SQLiteAdapter` sorts `item_id` columns, and they disagree wherever an id
+    holds a `.` or a `-` — so one store composed through two backings gave
+    two ids for identical rows, and `AlreadyDelivered` could not tell the
+    second was the first."""
+    sync, Rung = kit["sync"], kit["Rung"]
+    from homestead.keep.rungs import Classified
+    from homestead.keep.store import Sidecar
+
+    ids = ["b", "a", "a-1", "a.1", "Z", "10"]
+    file_adapter, sqlite_adapter = _adapters()
+    for adapter in (file_adapter, sqlite_adapter):
+        for item_id in ids:
+            Sidecar(adapter).put("custody", "note", item_id, Classified(Rung.L1, f"v-{item_id}"))
+
+    scope = kit["scope"]()
+    composed = [sync.compose({"sidecar": Sidecar(a)}, scope)
+                for a in (file_adapter, sqlite_adapter)]
+    assert composed[0].rows == composed[1].rows
+    assert [r["item_id"] for r in composed[0].rows] == sorted(ids)
+    assert composed[0].envelope_id == composed[1].envelope_id
+
+
+def test_from_bytes_refuses_a_forged_envelope_that_hashes_correctly(home, kit):
+    """A matching id proves nothing was edited after composition; it proves
+    nothing about whether the bytes were ever an envelope. Each forgery below
+    carries a **correct** sha256 of its own contents and was accepted before
+    the audit — the `rows`-as-an-object one silently becoming a one-tuple of a
+    dict key."""
+    import hashlib
+
+    sync, Rung = kit["sync"], kit["Rung"]
+    kit["put"]("custody", "deadline", "d1", Rung.L1, "2026-10-06")
+    envelope = sync.compose({"sidecar": kit["Sidecar"]()}, kit["scope"]())
+
+    def forge(**over):
+        ident = envelope._identity_fields()
+        ident.update(over)
+        raw = json.dumps(ident, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        out = dict(ident, envelope_id=hashlib.sha256(raw.encode()).hexdigest())
+        return json.dumps(out, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=False).encode()
+
+    assert sync.Envelope.from_bytes(forge()) == envelope, "the positive control"
+    for why, over in [
+        ("a count that disagrees with len(rows)", dict(count=99)),
+        ("another schema version", dict(schema="homestead.sync/99")),
+        ("no schema at all", dict(schema=None)),
+        ("rows as an object rather than an array", dict(rows={"table": "sidecar"})),
+    ]:
+        with pytest.raises(sync.TamperedEnvelope):
+            sync.Envelope.from_bytes(forge(**over))
+        assert why
+
+
+def test_only_true_confirms_a_delivery_on_either_leg(home, kit, monkeypatch):
+    """Truthiness is not consent. `lambda w: input("send? [y/N] ")` returns
+    `"n"` — truthy — and sent the envelope before the audit. Both legs now
+    take `True` and nothing else, and the confirm is called exactly **once**
+    per delivery: on the URL leg by `egress.send`, which `deliver` does not
+    pre-confirm behind."""
+    sync, Rung = kit["sync"], kit["Rung"]
+    from homestead.keep.egress import EgressRefused
+    from homestead.keep.store import Sidecar
+
+    monkeypatch.setattr(sync.egress, "_default_transport", lambda wire: "ok")
+    drop = home / "drop"
+
+    def fresh(tag):
+        kit["put"]("custody", "note", tag, Rung.L1, "x")
+        return sync.compose({"sidecar": Sidecar()}, kit["scope"]())
+
+    for i, (why, answer) in enumerate([
+        ("the string a [y/N] prompt returns for 'no'", "n"),
+        ("any other truthy non-bool", 1),
+        ("a truthy container", ["yes"]),
+    ]):
+        for leg in ("file", "url"):
+            with pytest.raises(EgressRefused):
+                sync.deliver(
+                    fresh(f"{i}{leg}"), confirm=lambda w: answer,
+                    **({"drop_dir": drop} if leg == "file" else {"url": "https://x.invalid/i"}),
+                )
+            assert why
+
+    for leg in ("file", "url"):
+        seen = []
+        sync.deliver(
+            fresh(f"ok{leg}"), confirm=lambda w: seen.append(w) or True,
+            **({"drop_dir": drop} if leg == "file" else {"url": "https://x.invalid/i"}),
+        )
+        assert len(seen) == 1, f"{leg}: the confirm is shown once, not twice"
+    assert seen[0].method == "POST", "the URL leg's one confirm is egress.send's own"
+
+
+def test_a_relative_drop_dir_is_refused_and_a_drop_outside_home_stays_refused(home, kit):
+    """The failure this guards against: `paths.ensure` resolves a relative
+    path against `paths.home()` and `open()` resolves it against the cwd, so
+    a relative `drop_dir` created `<home>/relout` and then wrote — or failed
+    to write — into `<cwd>/relout`. The ledger's `destination` is the record
+    of where an envelope went, and only an absolute path is that in every
+    cwd. A drop *outside* `paths.home()` is refused by `paths.ensure`'s own
+    containment rule, which this bite inherits rather than widens."""
+    sync, Rung = kit["sync"], kit["Rung"]
+    kit["put"]("custody", "deadline", "d1", Rung.L1, "2026-10-06")
+    envelope = sync.compose({"sidecar": kit["Sidecar"]()}, kit["scope"]())
+
+    with pytest.raises(ValueError, match="absolute"):
+        sync.deliver(envelope, confirm=lambda w: True, drop_dir=Path("relout"))
+    assert not (home / "relout").exists()
+
+    with pytest.raises(ValueError, match="outside"):
+        sync.deliver(envelope, confirm=lambda w: True, drop_dir=home.parent / "elsewhere")
+
+    receipt = sync.deliver(envelope, confirm=lambda w: True, drop_dir=sync.default_drop_dir())
+    from homestead.keep import paths
+
+    assert Path(receipt.destination).is_absolute()
+    assert receipt.destination.startswith(str(paths.exports_dir() / "sync"))
+    assert _lines(kit["logs"].IntegrityLog().path)[-1]["destination"] == receipt.destination
+
+
+def test_a_refused_confirm_does_not_even_create_the_directory(home, kit):
+    """A refused act leaves nothing behind — the directory included. The
+    drop was `mkdir`-ed before the confirm was shown before the audit."""
+    sync, Rung = kit["sync"], kit["Rung"]
+    from homestead.keep.egress import EgressRefused
+
+    kit["put"]("custody", "deadline", "d1", Rung.L1, "2026-10-06")
+    envelope = sync.compose({"sidecar": kit["Sidecar"]()}, kit["scope"]())
+
+    never = home / "never"
+    for confirm in (None, lambda w: False):
+        with pytest.raises(EgressRefused):
+            sync.deliver(envelope, confirm=confirm, drop_dir=never)
+        assert not never.exists()
+
+
+def test_a_symlink_at_the_target_is_refused_not_followed(home, kit):
+    """`O_EXCL` fails on an existing symlink, so a symlink planted at
+    `<envelope_id>.json` cannot redirect a drop over a file elsewhere."""
+    import os
+
+    sync, Rung = kit["sync"], kit["Rung"]
+    kit["put"]("custody", "deadline", "d1", Rung.L1, "2026-10-06")
+    envelope = sync.compose({"sidecar": kit["Sidecar"]()}, kit["scope"]())
+
+    drop = home / "drop"
+    drop.mkdir()
+    victim = home / "victim.txt"
+    victim.write_text("ORIGINAL", encoding="utf-8")
+    os.symlink(victim, drop / f"{envelope.envelope_id}.json")
+
+    with pytest.raises(sync.AlreadyDelivered):
+        sync.deliver(envelope, confirm=lambda w: True, drop_dir=drop)
+    assert victim.read_text(encoding="utf-8") == "ORIGINAL"
+
+
+def test_the_write_order_is_destination_then_integrity_then_visible(home, kit, monkeypatch):
+    """Pins the order, and with it the crash window ruled on in
+    `docs/DECISION-sync-envelope-and-consent.md` § "The crash window": a
+    crash after the destination and before the `IntegrityLog` leaves an
+    envelope delivered and **unledgered**, never ledgered and unsent. That
+    direction is the one an audit trail can live with, and the file leg's
+    `O_EXCL` closes it structurally on a retry."""
+    sync, logs, Rung = kit["sync"], kit["logs"], kit["Rung"]
+
+    kit["put"]("custody", "deadline", "d1", Rung.L1, "2026-10-06")
+    envelope = sync.compose({"sidecar": kit["Sidecar"]()}, kit["scope"]())
+    drop = home / "drop"
+    target = drop / f"{envelope.envelope_id}.json"
+
+    class Boom(RuntimeError):
+        pass
+
+    class NoLedger(logs.IntegrityLog):
+        def append(self, entry):
+            raise Boom("crashed between the drop and the ledger")
+
+    with pytest.raises(Boom):
+        sync.deliver(envelope, confirm=lambda w: True, drop_dir=drop, integrity=NoLedger())
+    assert target.exists(), "the destination is written first"
+    assert _lines(logs.IntegrityLog().path) == []
+    assert logs.VisibleLog().read() == []
+
+    # ... and a retry of that same envelope is refused by O_EXCL, not re-sent.
+    with pytest.raises(sync.AlreadyDelivered):
+        sync.deliver(envelope, confirm=lambda w: True, drop_dir=drop)
+
+
+def test_an_unreadable_ledger_line_refuses_by_name(home, kit):
+    """A ledger this cannot read cannot be shown not to hold this envelope
+    already, so the act does not happen — refused by name (I-11), never a
+    bare `JSONDecodeError` out of `deliver`, and never a second delivery."""
+    sync, logs, Rung = kit["sync"], kit["logs"], kit["Rung"]
+    from homestead.keep.egress import EgressRefused
+
+    kit["put"]("custody", "deadline", "d1", Rung.L1, "2026-10-06")
+    envelope = sync.compose({"sidecar": kit["Sidecar"]()}, kit["scope"]())
+    sync.deliver(envelope, confirm=lambda w: True, drop_dir=home / "drop")
+
+    # Composed *before* the corruption: `compose()` reads the head through
+    # `IntegrityLog.head()`, whose own behaviour on a half-written final line
+    # is `keep/logs.py`'s to define, not this module's.
+    kit["put"]("custody", "note", "n9", Rung.L1, "x")
+    second = sync.compose({"sidecar": kit["Sidecar"]()}, kit["scope"]())
+
+    path = logs.IntegrityLog().path
+    path.write_text(path.read_text(encoding="utf-8") + '{"act": "record_syn',
+                    encoding="utf-8")
+
+    with pytest.raises(EgressRefused) as caught:
+        sync.deliver(second, confirm=lambda w: True, drop_dir=home / "drop")
+    assert "line" in str(caught.value)
+    assert not (home / "drop" / f"{second.envelope_id}.json").exists()
+
+
+def test_a_unicode_value_and_its_escaped_spelling_do_not_collide(home, kit):
+    """`ensure_ascii=False` is pinned one way: a value holding `é` and a
+    value holding the six characters `\\u00e9` are different records and must
+    hash differently, or an envelope could be swapped for another."""
+    sync = kit["sync"]
+
+    assert sync._canonical_bytes({"x": "héllo"}) == b'{"x":"h\xc3\xa9llo"}'
+    assert sync._envelope_id({"x": "héllo"}) != sync._envelope_id({"x": "h\\u00e9llo"})
+
+
+@pytest.mark.parametrize(
+    "content, ok",
+    [
+        ("hh-0123456789abcdef\n", True),
+        ("hh-0123456789abcdef", True),
+        ("hh-0123456789ABCDEF\n", False),
+        ("hh-0123456789abcde\n", False),
+        ("hh-0123456789abcdef0\n", False),
+        ("hh-0123456789abcdef\nhh-ffffffffffffffff\n", False),
+        ("", False),
+    ],
+)
+def test_the_household_id_file_shape_table(home, kit, content, ok):
+    """Uppercase hex, fifteen, seventeen, a second id on a second line and an
+    empty file are all refused by name; a trailing newline or none is read.
+    A regenerated id would fork a household whose fleet rows are already
+    keyed by the first, which is why none of these regenerate."""
+    household = kit["household"]
+    from homestead.keep import paths
+
+    paths.ensure(paths.home())
+    (paths.home() / "household.id").write_text(content, encoding="utf-8")
+    if ok:
+        assert household.household_id() == "hh-0123456789abcdef"
+    else:
+        with pytest.raises(household.MalformedHouseholdId):
+            household.household_id()

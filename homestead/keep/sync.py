@@ -8,7 +8,8 @@ here, in order, and nowhere else:
 
   * **`SyncScope`** — what the operator named: matters, optionally item
     types, a ceiling, which tables. Empty matters, empty tables, or an `L5`
-    ceiling is refused **at construction** (I-40, provisional) — there is no
+    ceiling is refused **at construction** (I-40, ratified by the E4-sync-core audit,
+    2026-09-11) — there is no
     `"all"` matter.
   * **`compose()`** — scores every candidate on `S4_EGRESS` with
     `Purpose.SYNC`, exactly like `keep/export.py` scores one. A `DENY`
@@ -16,11 +17,15 @@ here, in order, and nowhere else:
     derived** (open item 5, `docs/DECISION-sync-envelope-and-consent.md`) —
     freezing what survives into one `Envelope`.
   * **`deliver()`** — exactly one of a URL (through `keep/egress.send`, same
-    per-call confirm) or an `O_EXCL` file drop under `exports_dir()/sync/`. A
-    refused confirm ledgers nothing (I-37, provisional). A success writes
+    per-call confirm) or an `O_EXCL` file drop into an absolute directory the
+    caller names (`default_drop_dir()` is `exports_dir()/sync/`, the one the
+    plan names — offered, never applied, so no envelope ever lands somewhere
+    nobody chose). A confirm must return `True`, not merely something truthy.
+    A refused confirm ledgers nothing (I-37). A success writes
     **one** `IntegrityLog` row and **one** `VisibleLog` row, both references
     (I-15); a second `deliver` of an already-ledgered envelope is refused
-    (I-38, provisional — "ledgered once").
+    (I-38 — "ledgered once"). I-37/I-38/I-40 were provisional numbers
+    until `docs/DECISION-sync-envelope-and-consent.md` was ratified.
 
 **The chokepoint holds here as it does in `keep/export.py`.** Neither the
 gate nor the store: every candidate is handed to `serve()` and only
@@ -56,6 +61,7 @@ from .store import CANONICAL, SIDECAR, Reader
 __all__ = [
     "SCHEMA", "UnnamedScope", "TamperedEnvelope", "AlreadyDelivered",
     "SyncScope", "Envelope", "Receipt", "compose", "deliver", "ledger",
+    "default_drop_dir",
 ]
 
 SCHEMA = "homestead.sync/1"
@@ -64,7 +70,7 @@ _TABLES = frozenset({SIDECAR, CANONICAL})
 
 class UnnamedScope(ValueError):
     """A `SyncScope` that names too little to sync anything (I-40,
-    provisional): no matters, no tables, an `L5` ceiling, or a table outside
+    ratified): no matters, no tables, an `L5` ceiling, or a table outside
     `{sidecar, canonical}`. A `ValueError`, never a `TypeError` — a scope
     that declines to sync is a refusal on the *value* offered, not a
     malformed call site."""
@@ -77,7 +83,7 @@ class TamperedEnvelope(ValueError):
 
 class AlreadyDelivered(PermissionError):
     """An envelope already ledgered, or a file drop that already exists
-    (I-38, provisional — "ledgered once"). Two mechanisms raise this: the
+    (I-38 — "ledgered once"). Two mechanisms raise this: the
     `IntegrityLog` check before anything is sent, and the file drop's own
     `O_EXCL` create as the structural backstop if two calls race."""
 
@@ -221,6 +227,28 @@ class Envelope:
             raise TamperedEnvelope(
                 "envelope_id does not match its contents — refused rather than trusted (I-11)"
             )
+        # A matching id proves the bytes were not edited *after* composition. It
+        # proves nothing about whether they were ever a `homestead.sync/1`
+        # envelope: an id computed over rubbish matches its rubbish. Forged
+        # envelopes with a correct hash and `count=99` over one row, a `schema`
+        # of `homestead.sync/99`, and `rows` as an object rather than a list all
+        # verified during the E4-sync-core audit (2026-09-11) — the last of them
+        # silently becoming a one-tuple of a dict *key*. So the shape is checked
+        # too, and refused by name (I-11) rather than handed back half-read.
+        if identity["schema"] != SCHEMA:
+            raise TamperedEnvelope(
+                f"envelope declares schema {identity['schema']!r}, and this is "
+                f"the {SCHEMA} reader — refused rather than read as if it were one"
+            )
+        if not isinstance(identity["rows"], list):
+            raise TamperedEnvelope("an envelope's rows must be a JSON array")
+        if identity["count"] != len(identity["rows"]):
+            raise TamperedEnvelope(
+                f"envelope claims {identity['count']!r} rows and carries "
+                f"{len(identity['rows'])} — a count is what the operator is "
+                "shown and what the fleet records, so a disagreeing one is "
+                "refused, not reconciled"
+            )
         return cls(
             schema=identity["schema"], household=identity["household"],
             composed_at=identity["composed_at"], head=identity["head"],
@@ -249,6 +277,18 @@ def ledger() -> IntegrityLog:
         paths.logs_dir() / "integrity.jsonl",
         anchor_path=paths.anchors_dir() / "integrity.head",
     )
+
+
+def default_drop_dir() -> Path:
+    """Where a file drop goes when a caller has no reason to choose otherwise
+    — `exports_dir()/sync/`, named by the plan's decision 5.
+
+    A *default a caller can ask for*, not a default `deliver()` applies: a
+    destination that appeared because none was given is a destination the
+    confirm did not choose and the operator never named. `deliver()` still
+    requires exactly one of `url=`/`drop_dir=`; Wave 5's CLI passes this.
+    """
+    return paths.exports_dir() / "sync"
 
 
 def _within_ceiling(rung: Rung, ceiling: Rung) -> bool:
@@ -306,6 +346,17 @@ def compose(readers: Mapping[str, Reader], scope: SyncScope) -> Envelope:
                     "value": served.value, "derived": classified.derived,
                 })
 
+    # Sorted, so the id is addressed by *content* and nothing else. Row order
+    # was the store's iteration order, which is not one order: `FileAdapter`
+    # sorts `<item_id>.json` filenames and `SQLiteAdapter` sorts `item_id`
+    # columns, and they disagree wherever a `.` or a `-` is in an id — `a`,
+    # `a-1`, `a.1` came back in two different orders during the E4-sync-core
+    # audit (2026-09-11), so one store composed twice through two backings gave
+    # two envelope ids for identical rows, and `AlreadyDelivered` could not see
+    # the second was the first. Scope order stays the operator's: `scope` is
+    # what they named, in the order they named it, and it is consent, not data.
+    rows.sort(key=lambda r: (r["table"], r["matter"], r["item_type"], r["item_id"]))
+
     identity = {
         "schema": SCHEMA, "household": household_id(), "composed_at": _now_iso(),
         "head": ledger().head(), "scope": scope.as_dict(),
@@ -325,10 +376,22 @@ def _already_delivered(log: IntegrityLog, envelope_id: str) -> bool:
     `.payload`; a ledger line is JSON, not a `Classified`."""
     if not log.path.exists():
         return False
-    for raw in log.path.read_text(encoding="utf-8").splitlines():
+    for n, raw in enumerate(log.path.read_text(encoding="utf-8").splitlines(), 1):
         if not raw.strip():
             continue
-        entry = json.loads(raw)
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError as e:
+            # A log this cannot read is a log that cannot be shown not to hold
+            # this envelope already. Fail closed by name (I-11) rather than
+            # letting a `JSONDecodeError` out of `deliver` — `IntegrityLog`
+            # itself takes the same partial-final-line crash seriously
+            # (`verify()` returns False for it). The line number, never the line.
+            raise EgressRefused(
+                f"{log.path} line {n} does not read as a ledger entry, so "
+                "whether this envelope was already synced cannot be "
+                "established — refused rather than delivered twice (I-11, I-38)"
+            ) from e
         if entry.get("act") == Event.RECORD_SYNCED.value and entry.get("envelope") == envelope_id:
             return True
     return False
@@ -355,19 +418,37 @@ def deliver(
     confirm=confirm)` — same per-call confirm, same `EgressRefused` for no
     confirmation or a declined one.
 
-    `drop_dir` (default `exports_dir()/sync/`): shown a `Wire(method="FILE",
-    url=<path>, body=<byte count>)` — the destination and the size, never a
-    row (the content was already composed and is the caller's to have
-    inspected before calling `deliver`). A refused or missing `confirm`
-    raises `EgressRefused` and writes nothing. Approved, the write is
-    `O_EXCL` — `<envelope_id>.json` under `drop_dir` — so a repeat, or a
-    file already at that name, is `AlreadyDelivered` rather than overwritten
-    (I-9's shape, applied to a sync).
+    `drop_dir`: an **absolute** directory — `default_drop_dir()` is the one
+    the plan names, and a caller that wants it passes it. A relative one is a
+    `ValueError`: `paths.ensure` resolves a relative path against
+    `paths.home()` while `open()` resolves it against the process's cwd, so a
+    relative `drop_dir` created one directory and wrote into another (or into
+    nothing) — found by the E4-sync-core audit. The path the ledger records
+    must be the path the bytes went to, and only an absolute one is that in
+    every cwd. `paths.ensure` also keeps the drop inside `paths.home()`; a
+    drop outside it is refused there, not widened here.
+
+    It is shown a `Wire(method="FILE", url=<path>, body=<byte count>)` — the
+    destination and the size, never a row (the content was already composed
+    and is the caller's to have inspected before calling `deliver`). A
+    refused or missing `confirm` raises `EgressRefused`, writes nothing and
+    creates nothing — not even the directory. Approved, the write is `O_EXCL`
+    — `<envelope_id>.json` under `drop_dir` — so a repeat, a file already at
+    that name, or a symlink planted there, is `AlreadyDelivered` rather than
+    overwritten or followed (I-9's shape, applied to a sync).
+
+    `confirm` must return **`True`**, on either leg, and is called exactly
+    once. Truthiness is not consent: `lambda w: input("send? [y/N] ")`
+    returns `"n"`, which is truthy, and would have sent. `deliver` normalises
+    its own confirm to `is True` before handing it to `egress.send`, which is
+    why the URL leg gets the same rule without `keep/egress.py`'s own
+    contract (I-17's, older and with other callers to come) being redefined
+    from here.
 
     Either way, before anything is sent or written, the `IntegrityLog` is
     consulted for this `envelope_id`; already there, `deliver` refuses with
-    `AlreadyDelivered` before showing anything to `confirm` (I-38,
-    provisional — "ledgered once").
+    `AlreadyDelivered` before showing anything to `confirm` (I-38 —
+    "ledgered once").
 
     On success: **one** `IntegrityLog` row — `{act: "record_synced",
     household, envelope, purpose, scope, rows, destination}`, references
@@ -380,6 +461,15 @@ def deliver(
             "exactly one destination per call, never both and never neither"
         )
 
+    if drop_dir is not None and not drop_dir.is_absolute():
+        raise ValueError(
+            f"drop_dir must be an absolute directory, not {drop_dir!r} — a "
+            "relative one names one directory to paths.ensure (under "
+            "paths.home()) and another to open() (under the cwd), and the "
+            "ledger can only honestly record one of them. Resolve it at the "
+            "call site, or pass default_drop_dir()."
+        )
+
     log = integrity or ledger()
     if _already_delivered(log, envelope.envelope_id):
         raise AlreadyDelivered(
@@ -388,29 +478,40 @@ def deliver(
             "the record has changed"
         )
 
+    # `True`, not truthy — see the docstring. Wrapping rather than re-deciding
+    # keeps the confirm called exactly once on both legs: this is a pass-through.
+    approved: Confirm | None = None if confirm is None else (lambda wire: confirm(wire) is True)
+
     if url is not None:
-        egress.send(url, envelope.to_dict(), confirm=confirm)
+        egress.send(url, envelope.to_dict(), confirm=approved)
         destination = url
     else:
-        drop = drop_dir if drop_dir is not None else (paths.exports_dir() / "sync")
-        paths.ensure(drop)
+        # Normalised *before* the Wire is built, so the path the operator is
+        # shown, the path the bytes go to and the path the ledger records are
+        # one string. The only assert-free way to say "this is not None here"
+        # is to use it, and `.resolve()` on an absolute path does that.
+        drop = drop_dir.resolve()   # type: ignore[union-attr]  # the exactly-one guard above
         body = envelope.to_bytes()
         target = drop / f"{envelope.envelope_id}.json"
         wire = Wire(method="FILE", url=str(target), body=f"{len(body)} bytes",
-                     content_type="text/plain")
-        if confirm is None:
+                    content_type="text/plain")
+        if approved is None:
             raise EgressRefused(
                 "no sync without an explicit per-call act (I-37). Nothing "
                 "here writes by default; pass confirm=, shown the "
-                "destination and the size, and it must return true."
+                "destination and the size, and it must return True."
             )
-        if not confirm(wire):
+        if not approved(wire):
             raise EgressRefused(
                 f"sync declined at the preview: {wire.method} {wire.url} was "
                 "shown and not approved, so nothing was written."
             )
+        # Only now — a refused act leaves no directory behind either.
+        # `paths.ensure` is also the containment check: a drop outside
+        # `paths.home()` is refused there, by the rule that predates this bite.
+        paths.ensure(drop)
         try:
-            with open(target, "xb") as fh:   # O_EXCL — never overwrite a drop
+            with open(target, "xb") as fh:   # O_EXCL — never overwrite or follow a drop
                 fh.write(body)
         except FileExistsError as e:
             raise AlreadyDelivered(
@@ -418,6 +519,13 @@ def deliver(
             ) from e
         destination = str(target)
 
+    # Order: destination first, then the IntegrityLog, then the VisibleLog. A
+    # crash between the first two leaves an envelope delivered and unledgered
+    # — the residual, ruled on in `docs/DECISION-sync-envelope-and-consent.md`
+    # § "The crash window". The other order would leave one ledgered and never
+    # sent, which is the worse lie for a log whose whole job is to prove what
+    # left; and a two-row pending/finalise scheme would break the one-row
+    # shape I-38 pins.
     log.append({
         "act": Event.RECORD_SYNCED.value, "household": envelope.household,
         "envelope": envelope.envelope_id, "purpose": Purpose.SYNC.value,
