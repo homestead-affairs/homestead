@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import json
 import sys
 from pathlib import Path
 
@@ -242,28 +243,139 @@ class _RecordingConn:
 def test_insert_and_write_sql_shape(monkeypatch):
     """`insert` is `ON CONFLICT DO NOTHING`, `write` is `ON CONFLICT ... DO
     UPDATE` — the append-only/upsert split canonical/sidecar rely on — and
-    every value is a `%s` placeholder, never interpolated into the text."""
+    every value is a `%s` placeholder, never interpolated into the text.
+
+    `value` is canonicalized to JSON text before it becomes a parameter
+    (E7b, 2026-09-11): a mapping here, to prove this is not just a string
+    that happens to round-trip, and a `None` for `write`, to prove a JSON
+    `null` becomes the four-byte text `null` rather than a SQL `NULL`."""
     pytest.importorskip("psycopg")
     from homestead.keep import store
 
     adapter = store.PostgresAdapter("postgresql://x/y", household="hh-0123456789abcdef")
     ref = ("custody", "note", "n1")
+    value = {"counterpart": "c", "from": "chk", "to": "visa"}
+    text = store.canonical_value_text(value)
 
     insert_cursor = _RecordingCursor()
     monkeypatch.setattr(adapter, "_connect", lambda: _RecordingConn(insert_cursor))
-    count = adapter.insert(store.SIDECAR, ref, "blob", envelope="e1", synced_at="2026-01-01T00:00:00Z")
+    count = adapter.insert(store.SIDECAR, ref, value, envelope="e1", synced_at="2026-01-01T00:00:00Z")
     assert count == insert_cursor.rowcount
     (sql, params) = insert_cursor.executed[0]
     assert "ON CONFLICT" in sql and "DO NOTHING" in sql and "DO UPDATE" not in sql
-    assert "blob" not in sql and "%s" in sql
-    assert params == ("hh-0123456789abcdef", "custody", "note", "n1", "blob", "e1", "2026-01-01T00:00:00Z")
+    assert text not in sql and "%s" in sql
+    assert params == (
+        "hh-0123456789abcdef", "custody", "note", "n1", text,
+        store.VALUE_FORMAT_JSON, "e1", "2026-01-01T00:00:00Z",
+    )
 
     write_cursor = _RecordingCursor()
     monkeypatch.setattr(adapter, "_connect", lambda: _RecordingConn(write_cursor))
-    adapter.write(store.CANONICAL, ref, "blob2", envelope="e2", synced_at="2026-01-01T00:00:00Z")
-    (sql2, _params2) = write_cursor.executed[0]
+    adapter.write(store.CANONICAL, ref, None, envelope="e2", synced_at="2026-01-01T00:00:00Z")
+    (sql2, params2) = write_cursor.executed[0]
     assert "ON CONFLICT" in sql2 and "DO UPDATE" in sql2
-    assert "blob2" not in sql2 and "%s" in sql2
+    assert "%s" in sql2
+    assert params2[4] == "null", "a JSON null stores as the text 'null', never a SQL NULL"
+    assert params2[5] == store.VALUE_FORMAT_JSON
+    assert "value_format=excluded.value_format" in sql2, (
+        "an upsert over a pre-E7b row must move its value_format too, or the "
+        "row would claim to be raw text while holding canonical JSON"
+    )
+
+
+def test_postgres_adapter_write_canonicalizes_a_mapping_and_decode_value_reverses_it(monkeypatch):
+    """The adapter round trip through a fake adapter: `write` stores
+    canonical text plus the `value_format` that says so, and
+    `fleet_cli.decode_value` reads the same mapping back out of the pair
+    (E7b, 2026-09-11)."""
+    pytest.importorskip("psycopg")
+    from homestead.keep import fleet_cli, store
+
+    adapter = store.PostgresAdapter("postgresql://x/y", household="hh-0123456789abcdef")
+    cursor = _RecordingCursor()
+    monkeypatch.setattr(adapter, "_connect", lambda: _RecordingConn(cursor))
+    value = {"counterpart": "c", "from": "chk", "to": "visa"}
+    adapter.write(
+        store.SIDECAR, ("transfers", "pair", "p1"), value,
+        envelope="e1", synced_at="2026-01-01T00:00:00Z",
+    )
+    (_sql, params) = cursor.executed[0]
+    stored_text, stored_format = params[4], params[5]
+    assert stored_text == store.canonical_value_text(value)
+    decoded = fleet_cli.decode_value(stored_text, value_format=stored_format)
+    assert decoded == fleet_cli.Decoded(value, legacy=False)
+
+
+def test_a_pre_e7b_row_is_read_as_the_raw_text_it_is_never_guessed_at():
+    """**The E7b audit's finding (2026-09-11).** Before this bite,
+    `PostgresAdapter.insert`/`.write` took an already-serialized blob and
+    passed it straight into the statement, so every fleet row written until
+    now holds the served string *verbatim* — `2026-10-06`, not
+    `"2026-10-06"`. The bite's note said no migration was needed because
+    "every stored value was already a JSON string literal"; it was not.
+    `json.loads` on such a row either raises or, worse, quietly succeeds
+    with the wrong type: a ledger amount `1450.00` reads back as the float
+    `1450.0`, a household's money re-typed by a reader that thought it was
+    decoding. So `decode_value` is *told*, from the row's own
+    `value_format`, and a `raw` row comes back tagged `legacy=True`."""
+    from homestead.keep import fleet_cli
+    from homestead.keep.store import VALUE_FORMAT_RAW
+
+    for legacy_text in ("2026-10-06", "1450.00", "123", "true", "null", "a note"):
+        got = fleet_cli.decode_value(legacy_text, value_format=VALUE_FORMAT_RAW)
+        assert got == fleet_cli.Decoded(legacy_text, legacy=True), (
+            "a pre-E7b row is the string it is — never re-typed by json.loads"
+        )
+
+    # And the same texts through the guessing reader this replaces: two of
+    # them raise and four come back as the wrong Python type, which is why
+    # a try/except fallback was not enough on its own.
+    assert json.loads("1450.00") == 1450.0 and isinstance(json.loads("1450.00"), float)
+    assert json.loads("123") == 123 and json.loads("true") is True
+
+    # A `json` row is parsed, and a `json` row whose text will not parse is
+    # reported as legacy rather than raised on (I-11) — the column and the
+    # text disagreeing is an answer, not a traceback.
+    assert fleet_cli.decode_value('{"a":1}', value_format="json") == fleet_cli.Decoded(
+        {"a": 1}, legacy=False
+    )
+    assert fleet_cli.decode_value("2026-10-06", value_format="json") == fleet_cli.Decoded(
+        "2026-10-06", legacy=True
+    )
+
+
+def test_ensure_schema_adds_the_value_format_column_to_a_table_already_there():
+    """The migration, such as it is: `CREATE TABLE IF NOT EXISTS` cannot add
+    a column to a table that already exists, so an `ALTER TABLE … ADD COLUMN
+    IF NOT EXISTS … DEFAULT 'raw'` runs beside it. Existing rows — the
+    pre-E7b ones — gain the column already saying `raw`, which is true of
+    them by construction (E7b audit, 2026-09-11)."""
+    from homestead.keep import fleet_cli
+    from homestead.keep.store import CANONICAL, SIDECAR, VALUE_FORMAT_RAW
+
+    cursor = _RecordingCursor()
+    fleet_cli.ensure_schema(_RecordingConn(cursor))
+    statements = [sql for sql, _params in cursor.executed]
+    for table in (CANONICAL, SIDECAR):
+        assert any(
+            s.startswith(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS value_format")
+            and f"DEFAULT '{VALUE_FORMAT_RAW}'" in s
+            for s in statements
+        ), f"{table} must gain value_format even when the table predates it"
+        assert any(
+            s.startswith(f"CREATE TABLE IF NOT EXISTS {table}") and "value_format" in s
+            for s in statements
+        ), f"a fresh {table} must be created with the column too"
+
+
+def test_canonical_value_text_is_stable_sorted_and_keeps_unicode():
+    """The canonical form is stable: sorted keys, no spaces, non-ASCII
+    preserved literally rather than `\\uXXXX`-escaped — the same shape
+    `keep/sync.py`'s `_canonical_bytes` freezes an envelope with."""
+    from homestead.keep import store
+
+    text = store.canonical_value_text({"b": 1, "a": "café", "z": None})
+    assert text == '{"a":"café","b":1,"z":null}'
 
 
 # ── fleet_cli.ingest(): the five refusals, no live Postgres needed ─────────
@@ -587,11 +699,9 @@ def test_the_confirm_never_prints_a_keyword_value_password(monkeypatch, capsys, 
     "row_over, drop, id_hint",
     [
         pytest.param({"item_id": "n\x001"}, None, "item_id", id="nul-in-item-id"),
-        pytest.param({"value": "a\x00b"}, None, "value", id="nul-in-value"),
         pytest.param({}, "matter", "matter", id="row-missing-matter"),
         pytest.param({}, "item_type", "item_type", id="row-missing-item-type"),
         pytest.param({}, "value", "value", id="row-missing-value"),
-        pytest.param({"value": 1234}, None, "value", id="value-is-not-text"),
         pytest.param({"matter": "  "}, None, "matter", id="whitespace-matter"),
         pytest.param({"matter": "../etc"}, None, "matter", id="separator-in-matter"),
     ],
@@ -602,11 +712,11 @@ def test_ingest_refuses_an_unstorable_row_by_name_never_by_traceback(row_over, d
     The failure this guards against: an envelope hashes correctly over
     whatever it carries (`Envelope.from_bytes` proves only that the bytes
     were not edited after composition), so a row can be missing `matter`
-    entirely or carry a NUL byte Postgres cannot hold. Before this audit
-    those came out of `ingest()` as a bare `KeyError` or a
-    `psycopg.DataError` stack — not a refusal by name (I-11), and on the
-    `DataError` path only after a connection had been opened.
-    """
+    entirely or carry a NUL byte inside an identifier Postgres refuses
+    outright. Before this audit those came out of `ingest()` as a bare
+    `KeyError` or a `psycopg.DataError` stack — not a refusal by name
+    (I-11), and on the `DataError` path only after a connection had been
+    opened."""
     from homestead.keep import fleet_cli
 
     row = _row(value=SECRET)
@@ -618,6 +728,273 @@ def test_ingest_refuses_an_unstorable_row_by_name_never_by_traceback(row_over, d
         fleet_cli.ingest(env, "postgresql://x/y")
     assert id_hint in str(e.value)
     assert SECRET not in str(e.value), "a refusal names the field, never the value (I-15)"
+
+
+def test_ingest_refuses_a_row_with_a_value_json_cannot_serialize(monkeypatch):
+    """A `bytes` value cannot even be hashed into an `envelope_id` (E7b,
+    2026-09-11) — `json.dumps` refuses it — so this builds the `Envelope`
+    object directly rather than through the `_envelope()` helper above: the
+    shape a hand-built or buggy composer could produce, since `Envelope`'s
+    own constructor does not validate its rows. `Envelope.from_bytes()`
+    could never hand `ingest()` this row (a byte string has no JSON form to
+    have round-tripped through), so this is belt and braces against a
+    caller other than that one."""
+    from homestead.keep import fleet_cli
+    from homestead.keep import sync as sync_mod
+
+    row = _row(value=b"not json-serialisable")
+    env = sync_mod.Envelope(
+        schema=sync_mod.SCHEMA, household="hh-0123456789abcdef",
+        composed_at="2026-01-01T00:00:00+00:00", head="genesis",
+        scope={"matters": ["custody"], "item_types": None,
+               "ceiling": "L3", "tables": ["sidecar"]},
+        rows=(row,), count=1, envelope_id="not-checked-by-ingest",
+    )
+    with pytest.raises(fleet_cli.IngestRefused) as e:
+        fleet_cli.ingest(env, "postgresql://x/y")
+    assert "value" in str(e.value)
+
+
+# ── E7b: `value` is any JSON shape `serve()` can return, not just `str` ─────
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"counterpart": "c", "from": "chk", "to": "visa"},
+        ["a", "b", 3],
+        True,
+        False,
+        0,
+        -17,
+        None,
+        "a\x00b",
+    ],
+    ids=["mapping", "list", "true", "false", "zero", "negative-int", "null",
+         "nul-inside-a-string"],
+)
+def test_validate_rows_accepts_every_json_shape_serve_can_return(monkeypatch, value):
+    """`serve()` returns exactly one of `str`, a mapping, a list, a `bool`,
+    an `int`, or `None` for `value`; before this bite only a plain `str`
+    passed `_validate_rows`, so a ledger `transfers` pair — an L2 mapping —
+    was refused before the dial (the G5-sync audit's finding, 2026-09-11).
+
+    A string containing a NUL byte is included too: it used to be refused
+    as a byte Postgres cannot hold, and no longer needs to be —
+    `canonical_value_text` escapes it to `\\u0000` before it ever reaches a
+    statement, so no literal NUL byte is ever stored."""
+    from homestead.keep import fleet_cli
+
+    conn = _FakeConn(_FakeCursor())
+    monkeypatch.setattr(fleet_cli, "_connect", lambda dsn: conn)
+    result = fleet_cli.ingest(
+        _envelope(rows=(_row(rung="L2", value=value),)), "postgresql://x/y"
+    )
+    assert result.written == 1 and conn.committed
+
+
+def test_a_nul_byte_in_a_value_is_escaped_and_round_trips(monkeypatch):
+    """The rule the old `"\\x00" in value` refusal is replaced by, pinned
+    both ways: the *stored text* holds no literal NUL byte (Postgres `TEXT`
+    rejects one) and the value still reads back as the string it was. A
+    removal not replaced by a positive check is just a removal."""
+    from homestead.keep import fleet_cli, store
+
+    cursor = _FakeCursor()
+    monkeypatch.setattr(fleet_cli, "_connect", lambda dsn: _FakeConn(cursor))
+    fleet_cli.ingest(_envelope(rows=(_row(value="a\x00b"),)), "postgresql://x/y")
+
+    (stored,) = [
+        params[4] for sql, params in cursor.calls
+        if sql.strip().startswith("INSERT INTO sidecar") and params
+    ]
+    assert "\x00" not in stored and stored == '"a\\u0000b"'
+    assert fleet_cli.decode_value(
+        stored, value_format=store.VALUE_FORMAT_JSON
+    ) == fleet_cli.Decoded("a\x00b", legacy=False)
+
+
+@pytest.mark.parametrize(
+    "disposition",
+    ["derive", "deny", "wharrgarbl"],
+    ids=["derive", "deny", "not-a-disposition"],
+)
+def test_a_non_render_row_is_refused_outright_even_with_no_value(disposition):
+    """**Fail closed on the disposition, whatever the `value` is (E7b
+    audit, 2026-09-11).** E7b first relaxed this to "a non-`render` row is
+    fine as long as it carries no value", reading a `DERIVE` row with
+    `value: null` as a shape the fleet should expect. It is not: `compose()`
+    drops every `DENY` and above-ceiling row before freezing, and `serve()`
+    on `S4_EGRESS` with a declared purpose renders L1–L4 and denies L5 — it
+    never returns `DERIVE` at all (`keep/rungs.py`'s `_CEILING`). A
+    non-`render` row is therefore forged or hand-built, and the relaxed rule
+    wrote it as the text `null` — on the insert-only canonical table, taking
+    that key for good so the household's real row could never land."""
+    from homestead.keep import fleet_cli
+
+    env = _envelope(rows=(_row(disposition=disposition, value=None),))
+    with pytest.raises(fleet_cli.IngestRefused) as e:
+        fleet_cli.ingest(env, "postgresql://x/y")
+    assert disposition in str(e.value) and "render" in str(e.value)
+
+
+def test_compose_emits_only_render_rows_so_the_outright_refusal_costs_nothing(tmp_path, monkeypatch):
+    """The other half of the rule above, read off `compose()` rather than
+    asserted about it: every row a real envelope carries is `render`, so
+    refusing every non-`render` row turns nothing legitimate away."""
+    from homestead.keep import sync as sync_mod
+    from homestead.keep.rungs import Classified, Rung
+    from homestead.keep.store import Sidecar, SQLiteAdapter
+
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    sidecar = Sidecar(SQLiteAdapter(tmp_path / "s.db"))
+    sidecar.put("custody", "note", "n1", Classified(Rung.L1, "a date"))
+    sidecar.put("custody", "note", "n2", Classified(Rung.L4, "a long note", "an instruction"))
+    sidecar.put("custody", "note", "n3", Classified(Rung.L5, "withheld"))
+
+    envelope = sync_mod.compose(
+        {"sidecar": sidecar},
+        sync_mod.SyncScope(matters=("custody",), item_types=None,
+                           ceiling=Rung.L4, tables=("sidecar",)),
+    )
+    assert envelope.rows, "the fixture must actually compose something"
+    assert {row["disposition"] for row in envelope.rows} == {"render"}
+    assert "n3" not in {row["item_id"] for row in envelope.rows}, "L5 is dropped, not derived"
+
+
+@pytest.mark.parametrize(
+    "value, hint",
+    [
+        pytest.param(1.10, "float", id="float"),
+        pytest.param(float("nan"), "float", id="nan"),
+        pytest.param(float("inf"), "float", id="infinity"),
+        pytest.param(b"bytes", "serialize", id="bytes"),
+        pytest.param({"a", "b"}, "serialize", id="set"),
+        pytest.param("x" * (64 * 1024 + 1), "bytes", id="over-the-cap"),
+    ],
+)
+def test_ingest_refuses_a_hostile_value_by_name_never_by_traceback(value, hint):
+    """**Each of these was accepted, or came out as a traceback, until the
+    E7b audit (2026-09-11).**
+
+    A `float` is refused by name: money is a two-decimal *string*
+    (`homestead_ledger.money.amount_text`), no module puts a float in a
+    record, and a float does not round-trip as one text — `1.10` and `1.1`
+    are one number and two texts, so one record would sync as two rows.
+    `NaN`/`Infinity` are floats too, which Python's `json` writes as text no
+    other JSON reader can parse; `allow_nan=False` in
+    `canonical_value_text` is the backstop under the same rule. And nothing
+    capped the size at all: `sync.compose()` puts no bound on a served
+    value, so a 1 MB row framed, crossed and ingested."""
+    from homestead.keep import fleet_cli
+    from homestead.keep import sync as sync_mod
+
+    # Built directly: a `bytes` or a `set` has no JSON form, so `_envelope()`
+    # cannot hash an identity over one.
+    env = sync_mod.Envelope(
+        schema=sync_mod.SCHEMA, household="hh-0123456789abcdef",
+        composed_at="2026-01-01T00:00:00+00:00", head="genesis",
+        scope={"matters": ["custody"], "item_types": None,
+               "ceiling": "L3", "tables": ["sidecar"]},
+        rows=(_row(value=value),), count=1, envelope_id="not-checked-by-ingest",
+    )
+    with pytest.raises(fleet_cli.IngestRefused) as e:
+        fleet_cli.ingest(env, "postgresql://x/y")
+    assert hint in str(e.value)
+
+
+def test_ingest_refuses_a_nested_value_by_name_rather_than_a_recursion_error():
+    """A value nested past `MAX_VALUE_DEPTH` is refused by name before any
+    serializer sees it. The plant is deliberately shallow enough to
+    serialize on every interpreter: on 3.10/3.11 a 2000-deep list raised
+    `RecursionError` inside `json.dumps`, on 3.12 it does not (the C
+    encoder's recursion is no longer counted), and CI showed the old plant
+    reaching the dial there. The depth bound is the fleet's, not Python's."""
+    from homestead.keep import fleet_cli
+    from homestead.keep import sync as sync_mod
+
+    planted: object = []
+    for _ in range(fleet_cli.MAX_VALUE_DEPTH + 8):
+        planted = [planted]
+    env = sync_mod.Envelope(
+        schema=sync_mod.SCHEMA, household="hh-0123456789abcdef",
+        composed_at="2026-01-01T00:00:00+00:00", head="genesis",
+        scope={"matters": ["custody"], "item_types": None,
+               "ceiling": "L3", "tables": ["sidecar"]},
+        rows=(_row(value=planted),), count=1, envelope_id="not-checked-by-ingest",
+    )
+    with pytest.raises(fleet_cli.IngestRefused) as e:
+        fleet_cli.ingest(env, "postgresql://x/y")
+    assert "nested deeper than" in str(e.value)
+    assert "[" not in str(e.value)
+
+
+def test_a_value_at_the_depth_cap_still_crosses():
+    """The cap is a bound, not a fear of nesting: exactly `MAX_VALUE_DEPTH`
+    levels validates (a real ledger row is two deep at most)."""
+    from homestead.keep import fleet_cli
+    from homestead.keep import sync as sync_mod
+
+    planted: object = "leaf"
+    for _ in range(fleet_cli.MAX_VALUE_DEPTH - 1):
+        planted = [planted]
+    env = sync_mod.Envelope(
+        schema=sync_mod.SCHEMA, household="hh-0123456789abcdef",
+        composed_at="2026-01-01T00:00:00+00:00", head="genesis",
+        scope={"matters": ["custody"], "item_types": None,
+               "ceiling": "L3", "tables": ["sidecar"]},
+        rows=(_row(value=planted),), count=1, envelope_id="not-checked-by-ingest",
+    )
+    fleet_cli._validate_rows(env)
+
+
+def test_canonical_value_text_is_the_encoder_the_envelope_is_frozen_with():
+    """One canonical encoding, not two that can drift: a row's value,
+    canonicalized, is a literal substring of the envelope bytes
+    `sync._canonical_bytes` freezes — and canonicalizing what comes back out
+    of those bytes gives the same text again (round-trip stability)."""
+    from homestead.keep import fleet_cli, store
+    from homestead.keep import sync as sync_mod
+
+    values = [{"b": 1, "a": "café"}, ["x", 2], "a\x00b", None, True, 0]
+    rows = tuple(
+        _row(item_id=f"n{n}", value=v) for n, v in enumerate(values)
+    )
+    envelope = _envelope(rows=rows)
+    frozen = envelope.to_bytes()
+    assert sync_mod.Envelope.from_bytes(frozen).envelope_id == envelope.envelope_id
+
+    for row in sync_mod.Envelope.from_bytes(frozen).rows:
+        text = store.canonical_value_text(row["value"])
+        assert text.encode("utf-8") in frozen, (
+            "the fleet's stored text must be exactly the envelope's own bytes "
+            "for that value, not a second encoding of it"
+        )
+        decoded = fleet_cli.decode_value(text, value_format=store.VALUE_FORMAT_JSON)
+        assert store.canonical_value_text(decoded.value) == text
+
+
+def test_a_ledger_transfer_pair_mapping_value_crosses(monkeypatch):
+    """The G5-sync audit's finding, verbatim: the ledger's `transfers` pair
+    is an L2 served value that is a mapping `{counterpart, from, to}`, and
+    before this bite `_validate_rows` refused any row whose `value` was not
+    a Python `str` — so a ledger envelope carrying a transfer pair was
+    refused before the dial, never reaching Postgres at all."""
+    import hashlib
+
+    from homestead.keep import fleet_cli
+
+    fingerprint = hashlib.sha256(b"transfer-out").hexdigest()
+    counterpart = hashlib.sha256(b"transfer-in").hexdigest()
+    row = {
+        "table": "sidecar", "matter": "transfers", "item_type": "pair",
+        "item_id": fingerprint, "rung": "L2", "disposition": "render",
+        "value": {"counterpart": counterpart, "from": "chk", "to": "visa"},
+        "derived": None,
+    }
+    conn = _FakeConn(_FakeCursor())
+    monkeypatch.setattr(fleet_cli, "_connect", lambda dsn: conn)
+    result = fleet_cli.ingest(_envelope(rows=(row,)), "postgresql://x/y")
+    assert result.written == 1 and conn.committed
 
 
 def test_ingest_refuses_a_row_that_is_not_an_object():
