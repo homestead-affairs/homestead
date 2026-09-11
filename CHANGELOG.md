@@ -20,6 +20,18 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.8.0](https://github.com/homestead-affairs/homestead/compare/v0.7.0...v0.8.0) (2026-09-11)
+
+
+### Added
+
+* sync core — SyncScope, Envelope, and a household id (E4-sync-core) ([d57b948](https://github.com/homestead-affairs/homestead/commit/d57b948c42e5336447abe7b89d6d790715870e48))
+
+
+### Fixed
+
+* audit E4-sync-core — an envelope is addressed by its content, and consent is True ([90a4a32](https://github.com/homestead-affairs/homestead/commit/90a4a32bdef4588fd3f098be65955e5eb4f74921))
+
 ## [0.7.0](https://github.com/homestead-affairs/homestead/compare/v0.6.0...v0.7.0) (2026-09-11)
 
 
