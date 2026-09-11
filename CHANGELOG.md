@@ -20,6 +20,19 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.9.0](https://github.com/homestead-affairs/homestead/compare/v0.8.0...v0.9.0) (2026-09-11)
+
+
+### Added
+
+* a Postgres adapter and a non-listening fleet ingest behind the fleet extra ([#62](https://github.com/homestead-affairs/homestead/issues/62)) ([991b899](https://github.com/homestead-affairs/homestead/commit/991b89951587c2d8d80ef7020ed4e59b7023ba35))
+* the fleet's own Postgres adapter and a never-listening ingest (E4-postgres-fleet) ([b95475b](https://github.com/homestead-affairs/homestead/commit/b95475b5ca2285a507f2bcd7781b47296606b221))
+
+
+### Fixed
+
+* audit E4-postgres-fleet — the confirm leaks no password, and a row is written by one code path ([56515e5](https://github.com/homestead-affairs/homestead/commit/56515e505cc9699a9a20a72735ed57d40a0e907f))
+
 ## [0.8.0](https://github.com/homestead-affairs/homestead/compare/v0.7.0...v0.8.0) (2026-09-11)
 
 
