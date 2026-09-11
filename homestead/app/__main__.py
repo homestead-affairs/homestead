@@ -14,9 +14,10 @@ Four ways in:
     display. What CI runs against the built artifact.
   * `--demo` — seed a synthetic custody matter into a throwaway store and print
     the list and a detail, composed through the gate. The pipeline, headless.
-  * `integrity init-key|verify` — the E5 keyed-integrity CLI. Domain logic
-    (key generation, chain verification) stays in `homestead.keep.logs`;
-    `_integrity_main` only parses argv and prints, never key material — see
+  * `integrity init-key|verify|seal` — the E5/E6 integrity CLI. Domain logic
+    (key generation, chain verification, sealing) stays in
+    `homestead.keep.logs`; `_integrity_main` only parses argv and prints,
+    never key material and never a sealed line's plaintext — see
     `docs/DECISION-integrity-key-management.md`.
   * default — open the tkinter view on the cover.
 """
@@ -27,23 +28,30 @@ from pathlib import Path
 
 
 def _integrity_main(argv: list[str]) -> int:
-    """`homestead integrity init-key|verify` — see
-    docs/DECISION-integrity-key-management.md. Neither subcommand ever prints
-    key material: `init-key` reports only the path it wrote to, `verify`
-    reports only keyed/unkeyed and the boolean result.
+    """`homestead integrity init-key|verify|seal` — see
+    docs/DECISION-integrity-key-management.md. No subcommand ever prints key
+    material or a sealed line's plaintext: `init-key` reports only the path
+    it wrote to, `verify` reports only keyed/unkeyed/sealed and the boolean
+    result, `seal` reports only the path it started sealing.
 
     Three exit codes, because `verify()` gives three answers and collapsing
     them would make a cron job read "cannot tell" as "tampered" (or worse,
     the other way round): **0** clean, **1** the chain or the anchor does not
     hold, **2** this command line does not parse, **3** refused by name — an
-    `IntegrityKeyError`, which is "the key needed to even ask the question is
-    missing or broken," never a finding about the log.
+    `IntegrityKeyError`/`IntegritySealError`, which is "the key (or the
+    `sealed` extra) needed to even ask the question is missing or broken,"
+    never a finding about the log.
     """
     from homestead.keep import export
-    from homestead.keep.logs import IntegrityKeyError, IntegrityLog, init_key
+    from homestead.keep.logs import (
+        IntegrityKeyError,
+        IntegrityLog,
+        IntegritySealError,
+        init_key,
+    )
 
-    usage = "usage: homestead integrity init-key | verify [--path PATH]"
-    if not argv or argv[0] not in ("init-key", "verify"):
+    usage = "usage: homestead integrity init-key | verify [--path PATH] | seal [--path PATH]"
+    if not argv or argv[0] not in ("init-key", "verify", "seal"):
         print(usage, file=sys.stderr)
         return 2
 
@@ -59,10 +67,10 @@ def _integrity_main(argv: list[str]) -> int:
         print(f"homestead: integrity key created at {path}")
         return 0
 
-    # verify. An argument this does not understand is a usage error, never a
-    # silent fall-through to the default ledger: `verify --pat x` answering
-    # "ok" about a log the operator did not name is the worst failure this
-    # command has (I-11 — refuse, never default).
+    # verify and seal share the same "an unrecognised flag is a usage error,
+    # never a silent fall-through to the default ledger" rule: `verify --pat
+    # x` answering "ok" about a log the operator did not name is the worst
+    # failure this command has (I-11 — refuse, never default).
     rest = argv[1:]
     custom_path = None
     if rest:
@@ -71,12 +79,22 @@ def _integrity_main(argv: list[str]) -> int:
             return 2
         custom_path = rest[1]
     log = IntegrityLog(Path(custom_path)) if custom_path else export.ledger()
+
+    if argv[0] == "seal":
+        try:
+            log.seal()
+        except (IntegrityKeyError, IntegritySealError) as exc:
+            print(f"homestead integrity seal: refused — {exc}", file=sys.stderr)
+            return 3
+        print(f"homestead: sealing begins now for {log.path}")
+        return 0
+
     try:
         ok = log.verify()
-    except IntegrityKeyError as exc:
+    except (IntegrityKeyError, IntegritySealError) as exc:
         print(f"homestead integrity verify: refused — {exc}", file=sys.stderr)
         return 3
-    kind = "keyed" if log.keyed else "unkeyed"
+    kind = "sealed" if log.sealed else ("keyed" if log.keyed else "unkeyed")
     print(f"homestead: {kind} — verify: {'ok' if ok else 'FAILED'}")
     return 0 if ok else 1
 
@@ -94,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
         # binary die on startup.
         from homestead.app import demo, theme, view, window  # noqa: F401
         from homestead.keep import (  # noqa: F401
-            advise, export, household, logs, paths, record, rungs, sync,
+            advise, export, household, logs, paths, record, rungs, sealed, sync,
         )
         print("homestead: smoke ok")
         return 0

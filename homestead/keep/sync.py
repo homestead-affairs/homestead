@@ -371,29 +371,31 @@ def compose(readers: Mapping[str, Reader], scope: SyncScope) -> Envelope:
 
 
 def _already_delivered(log: IntegrityLog, envelope_id: str) -> bool:
-    """Whether this envelope already has a `record_synced` row — read the
-    same way every test here reads a log with no public `read()`. No
-    `.payload`; a ledger line is JSON, not a `Classified`."""
+    """Whether this envelope already has a `record_synced` row.
+
+    Routed through `IntegrityLog._entries()` (E6) rather than a bare
+    `json.loads` over the file: a sealed log's lines are AES-256-GCM
+    ciphertext wrappers on disk, and `_entries()` is the one place that
+    decrypts them and skips the boundary rows — a direct read here would see
+    `{"sealed": 1, ...}` and never find the `act` it is looking for, sync'd
+    or not. No `.payload`; a ledger line is JSON, not a `Classified`."""
     if not log.path.exists():
         return False
-    for n, raw in enumerate(log.path.read_text(encoding="utf-8").splitlines(), 1):
-        if not raw.strip():
-            continue
-        try:
-            entry = json.loads(raw)
-        except json.JSONDecodeError as e:
-            # A log this cannot read is a log that cannot be shown not to hold
-            # this envelope already. Fail closed by name (I-11) rather than
-            # letting a `JSONDecodeError` out of `deliver` — `IntegrityLog`
-            # itself takes the same partial-final-line crash seriously
-            # (`verify()` returns False for it). The line number, never the line.
-            raise EgressRefused(
-                f"{log.path} line {n} does not read as a ledger entry, so "
-                "whether this envelope was already synced cannot be "
-                "established — refused rather than delivered twice (I-11, I-38)"
-            ) from e
-        if entry.get("act") == Event.RECORD_SYNCED.value and entry.get("envelope") == envelope_id:
-            return True
+    try:
+        for entry in log._entries():
+            if entry.get("act") == Event.RECORD_SYNCED.value and entry.get("envelope") == envelope_id:
+                return True
+    except json.JSONDecodeError as e:
+        # A log this cannot read is a log that cannot be shown not to hold
+        # this envelope already. Fail closed by name (I-11) rather than
+        # letting a `JSONDecodeError` out of `deliver` — `IntegrityLog`
+        # itself takes the same partial-final-line crash seriously
+        # (`verify()` returns False for it).
+        raise EgressRefused(
+            f"{log.path} does not read as a ledger, so whether this "
+            "envelope was already synced cannot be established — refused "
+            "rather than delivered twice (I-11, I-38)"
+        ) from e
     return False
 
 

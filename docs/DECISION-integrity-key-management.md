@@ -330,11 +330,123 @@ rather than silently assumed, per the bite's own instruction: "document
 Windows" is the answer, not a claim that 0600-equivalent protection exists
 there.
 
+## 8 · Sealing (E6, Phase 4)
+
+Status: **Proposed, 2026-09-11.**
+author: the build seat
+verified_by: _______________, ____________
+
+Added by the sibling bite this document promised in §"There is no
+encryption" and item 8 of `docs/PLAN-affairs-face.md`'s open items: "keying
+first, sealing second, no escrow." Keying (§1–§7, ratified) closes the
+forged-chain-plus-matching-anchor gap for a log that opts in. It never made
+the log unreadable — every line stays plaintext JSON on disk, and this
+section's own opening line said so. Sealing is the part that does, for a
+household that chooses it, in `keep/sealed.py`.
+
+**One key, two independent subkeys, not two keys.** The household already
+has exactly one secret to lose (§3): `anchors_dir()/integrity.key`, 32 raw
+bytes. Sealing needs a *different* key from the one HMAC uses — reusing the
+same 32 bytes for both HMAC-SHA256 and AES-256-GCM is the kind of key reuse
+cryptographic practice avoids on principle, not because a specific attack
+against this pairing is known — so `keep/sealed.py:derive_subkey` runs
+HKDF-SHA256 over the raw key with **no salt** and a **fixed**
+`info=b"homestead integrity sealed v1"`. No salt because HKDF's salt exists
+to concentrate entropy out of a weak or reused input key, and the raw key is
+already 256 bits from `secrets.token_hex`, generated once; a fixed label
+because it is the thing that keeps this specific derivation ("the AES key
+for homestead's sealed log, scheme v1") from ever colliding with some later,
+unrelated subkey drawn from the same file. Losing the key loses both the
+HMAC chain's verifiability *and* the sealed segment's readability at once —
+stated plainly, not discovered piecemeal, because there was never a second
+file to separately lose.
+
+**AAD binds `prev`.** Each sealed line's Associated Authenticated Data is
+the previous line's hash — so a line only decrypts at the position the
+chain says it belongs, and a splice, reorder, or replay breaks
+authentication before anything about the plaintext is even attempted. This
+is *in addition to*, not instead of, the plaintext `prev`-chain check
+`verify()` already made for keying: an attacker who also relabels every
+downstream `prev`/`hash` field can pass that structural check without the
+key (see "chain verified, contents not authenticated" below), but cannot
+produce a matching GCM tag for a `prev` the ciphertext was not actually
+sealed under.
+
+**The boundary row, again.** Exactly the keying mechanism (§4), one layer
+up: `{"act": "sealed", ...}` — plaintext, keyed-hashed like any line before
+it, written by `IntegrityLog.seal()` (`homestead integrity seal`) or lazily
+by the first `append()` on an instance constructed `sealed=True`. Lines
+before it are whatever they already were (plaintext keyed or unkeyed);
+sealing turns on there, not for a log's whole history, for the same reason
+keying does not require starting a fresh log (§4): a household's real
+export ledger already has history, and it is not owned twice over. The
+turning point is recorded beside the key
+(`anchors_dir()/integrity.sealed`), the identical shape as
+`integrity.keyed` (`_record_boundary`/`_recorded_boundary` now take a
+`marker_path`, shared by both), and `verify()` treats a missing sealed
+boundary row behind a recorded marker as a downgrade — `False`, not a clean
+unsealed read — the same way §4a treats a missing keyed one.
+
+**No plaintext fallback, ever.** `IntegrityLog(sealed=True)` refuses at
+construction (`IntegritySealError`, naming whichever is missing) if the key
+is absent or the `cryptography` extra is not installed — never a silent
+write of an unencrypted line where a sealed one was asked for.
+`append()`/`verify()`/`_entries()` carry the identical refusal for a log
+*auto-detected* as sealed (the marker says so) but missing what it needs at
+the moment ciphertext is actually touched. The one place this is
+deliberately **not** eager: `IntegrityLog()`'s plain auto-construction
+(`sealed=None`) never raises for a missing key or extra, so that
+`verify(decrypt=False)` — which never needs the `cryptography` extra, only
+the key, via stdlib `hmac`, for the keyed boundary rows every sealed log
+carries; a log with no key at all cannot be verified either way, unchanged
+from E5 — remains reachable on a sealed log even without
+`homestead-affairs[sealed]` installed. That single exception is why
+`decrypt` exists as its own keyword rather than folding
+into `sealed`/`keyed`.
+
+**"Chain verified, contents not authenticated."** A sealed line's `hash`
+field (the keyed hash of its plaintext, computed before encryption) rides
+in the clear beside the ciphertext, so the `prev`/`hash` chain — and the
+final anchor comparison — can be walked without decrypting anything
+(`verify(decrypt=False)`). That proves the file's *shape* holds: nothing
+truncated, nothing whose declared links do not connect. It proves nothing
+about whether the content behind a `hash` is genuine, because `hash` is not
+covered by any GCM tag. `verify()` defaults to `decrypt=True`, which adds
+exactly that missing check, and `describe_verification()` puts the
+distinction into words rather than letting the weaker pass read as
+identical to the stronger one — the literal instruction in item 3 of the
+E6 bite: never report a sealed log clean by hashing ciphertext alone
+without saying so.
+
+**No escrow, still.** Nothing here changes §3's answer. A lost key was
+already unverifiable-not-recoverable for a keyed log; for a sealed one it is
+now **unreadable**, not merely unverifiable — the honest cost of the
+tradeoff the plan named at open item 8 ("Integrity key loss = ledger
+unreadable once sealed"). No second copy is introduced by this bite for the
+same reason §3 gives none: a second way to obtain the key is a second way
+the person sharing the machine (F-5) obtains it too.
+
+**Windows.** Nothing in §7 changes. `cryptography`'s AES-GCM and HKDF
+implementations are pure-library code with no platform-specific key
+storage of their own — sealing does not touch the filesystem any
+differently than keying already did, so §7's ACL discussion is the whole of
+what this section has to add: none.
+
+**The nonce-reuse test.** AES-GCM's security assumption is that a (key,
+nonce) pair is never reused; `seal_line` draws a fresh 96-bit nonce from
+`os.urandom` per line. `tests/test_invariants_sealed.py` seals 10,000 lines
+and asserts every nonce is distinct — a property of the operating system's
+CSPRNG this bite depends on rather than invents, pinned so a future edit
+that makes the nonce derived or predictable is caught.
+
 ## What this bite deliberately does not do
 
-* **Encrypt anything.** The log stays plaintext JSON lines, keyed or not.
+* ~~**Encrypt anything.** The log stays plaintext JSON lines, keyed or not.
   `keep/sealed.py` (E6, Phase 4, extra `sealed`) is a separate bite and a
-  separate dependency (`cryptography`).
+  separate dependency (`cryptography`).~~ **Done, 2026-09-11 (E6, §8
+  above).** A *sealed* log's lines are ciphertext; an unsealed or
+  keyed-only log is unaffected — its on-disk format is unchanged (see the
+  next bullet).
 * **Rotate or escrow the key.** There is exactly one key, at one path, made
   once. A lost key is not recoverable by this application, by design (§3).
 * **Make the key's absence distinguishable from never-having-keyed**, once
