@@ -978,3 +978,17 @@ def test_sync_on_a_truncated_ledger_refuses_rather_than_delivering_twice(keep, h
 
     with pytest.raises(keep.IntegrityIncompleteError):
         sync._already_delivered(keep.IntegrityLog(log.path), "env-abc123")
+
+
+def test_a_deleted_log_with_a_surviving_anchor_refuses_rather_than_saying_nothing(keep, home):
+    """Truncation taken to the limit, and the H6 failure word for word: the
+    log file is gone, the anchor that vouches for it is not, and a reader
+    that answers "nothing was ever written" is wrong in the one direction
+    that matters. A log with *no* anchor is the genuinely empty case and
+    still reads as empty (`test_a_log_with_no_anchor_still_reads`)."""
+    log = keep.IntegrityLog(keyed=False)
+    log.append({"kind": "a", "ref": "r1"})
+    log.path.unlink()
+
+    with pytest.raises(keep.IntegrityIncompleteError):
+        list(keep.IntegrityLog(log.path, keyed=False).read_entries())
