@@ -684,6 +684,12 @@ def test_the_purpose_enum_is_the_set_that_was_ratified():
     `"operator opened the record"` is a *surface act* — it belongs to
     `S1_DETAIL`, which already carries it. Free text let all three kinds of
     thing into one slot and could not tell them apart.
+
+    **`SYNC` added later still, by the identical measurement**
+    (docs/DECISION-purpose-sync.md): zero cells of `_CEILING` move. The
+    docstring above still says "seven" in places — annotated, not rewritten,
+    because it is a dated record of what was true at ratification and the pin
+    below is what stays current.
     """
     assert {p.name: p.value for p in Purpose} == {
         "DRAFTING": "drafting",
@@ -693,6 +699,7 @@ def test_the_purpose_enum_is_the_set_that_was_ratified():
         "SUBJECT_ACCESS": "subject_access",
         "REDISCLOSURE": "redisclosure",
         "ANSWERING": "answering",
+        "SYNC": "sync",   # docs/DECISION-purpose-sync.md
     }
     assert issubclass(Purpose, str), "so a ledger line reads as itself (I-14)"
     for name in ("Purpose", "UndeclaredPurpose"):
@@ -793,7 +800,8 @@ def test_i13_the_decision_never_reads_the_content_of_a_purpose():
     made redundant by the first — a closed enum plus `if purpose is
     Purpose.FILING: return True` is an escape hatch with a nicer type. The
     decision still turns on whether a purpose was declared and never on which
-    one, and the ceiling table still has two columns rather than seven.
+    one, and the ceiling table still has two columns rather than one per
+    member.
 
     This scan exempts the whole of `_declared`, so it cannot see a member
     comparison hidden *inside* that function. That hole is closed behaviourally
@@ -873,7 +881,7 @@ def test_no_purpose_member_is_more_of_a_declaration_than_another():
     needs. The spec separates S3 from S4 by *trust tier* and by *ledger entry*,
     and this module enforces neither — so a table that treated `EXPORT` as
     weightier than `ANSWERING` would be inventing an authority it has not
-    got. Two columns, not seven.
+    got. Two columns, not one per member.
     """
     reference = Purpose.DRAFTING
     for member in Purpose:
@@ -1174,8 +1182,10 @@ def test_the_detail_pane_needs_no_purpose_and_is_not_confused_by_one():
     2026-08-05: it would break the corpus's most valuable sweep, which passes
     every purpose to every surface to prove that nothing unlocks `L5` anywhere.
     Destroying a live safety test to prevent a lesser error is a bad trade. So
-    `purpose` stays accepted on all five surfaces, inert on three, and the
-    inertness is asserted here rather than enforced by an absent parameter.
+    `purpose` stays accepted on all five surfaces, inert on every surface but
+    `S4_EGRESS` (it was inert on three until S3's column closed, 2026-08-05),
+    and the inertness is asserted here rather than enforced by an absent
+    parameter.
     """
     assert may_render(Rung.L4, Surface.S1_DETAIL, purpose=None) is True
     for member in Purpose:
@@ -1226,8 +1236,8 @@ def test_purpose_is_accepted_on_all_five_surfaces_and_inert_on_four():
 def test_an_invalid_purpose_raises_even_where_a_purpose_is_inert():
     """The type check is unconditional, and it has to be.
 
-    A check that only ran on the two surfaces where a purpose lifts would let a
-    call site build the habit of passing rubbish on the three where it does not,
+    A check that only ran on the surfaces where a purpose lifts would let a
+    call site build the habit of passing rubbish on the ones where it does not,
     and habits get copied to the surfaces that matter. The same argument as
     keeping `purpose` on `S1_DETAIL` at all, pointed the other way.
 

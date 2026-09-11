@@ -118,7 +118,7 @@ down in the report rather than made quietly:
 **The new guarantees the enum is supposed to buy live in
 `tests/test_purpose_corpus.py`** — that no string is a purpose including the
 member *values*, that no member unlocks `L5` anywhere, that a member is inert on
-the three surfaces whose ceilings are equal, that the decision is stateless, and
+the surfaces whose ceilings are equal, that the decision is stateless, and
 what happens when a `Purpose` and a `Rung` are transposed.
 """
 from __future__ import annotations
@@ -1976,14 +1976,15 @@ def test_the_corpus_has_not_been_hollowed_out():
     # The failure this file most had to fear was the enum being used as an
     # excuse to trim the free-text tables. Their sizes are asserted above; that
     # they are still *swept* is asserted here.
-    assert len(Purpose) == 7, (
+    assert len(Purpose) == 8, (
         "membership is a product decision and the set is closed; an added "
         "member is a new act somebody has to authorise, not a convenience. "
-        "Six were ratified 2026-08-05 and COMPELLED_DISCLOSURE was authorised "
-        "separately the same day — this guard is one of the four that made "
-        "that addition announce itself, which is the job"
+        "Six were ratified 2026-08-05, COMPELLED_DISCLOSURE was authorised "
+        "separately the same day, and SYNC later still (DECISION-purpose-sync) "
+        "— this guard is one of the sites that made each addition announce "
+        "itself, which is the job"
     )
-    assert len(VALID_PURPOSES) == 8, "the members, and None for 'nobody declared one'"
+    assert len(VALID_PURPOSES) == 9, "the members, and None for 'nobody declared one'"
     assert SWEEP_PURPOSES == VALID_PURPOSES
     assert len(REJECTED_PURPOSES) >= 58
     for family in (BLANK_PURPOSES, PLAUSIBLE_PURPOSES, ADVERSARIAL_PURPOSES,
@@ -1997,8 +1998,10 @@ def test_the_corpus_has_not_been_hollowed_out():
                   "../medical", "medical'; --", "override", "L5",
                   "do_not_use", "", "   "):
         assert sharp in REJECTED_PURPOSES, f"{sharp[:20]!r} was deleted"
-    # The cell sweep is smaller than it was (7 purposes, not 12) and it is now
-    # *complete*: there is no accepted purpose it fails to visit.
+    # The cell sweep is smaller than it was — the members plus `None`, rather
+    # than twelve free-text strings — and it is now *complete*: there is no
+    # accepted purpose it fails to visit. Counted from the enum, never spelled
+    # out, so an added member does not make this comment false again.
     assert len(LADDER) * len(Surface) * len(SWEEP_PURPOSES) >= 175
     assert set(SWEEP_PURPOSES) == {None} | set(Purpose)
 

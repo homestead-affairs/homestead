@@ -72,11 +72,13 @@ S4_EGRESS  (L2, L4)   lifts — the only surface where a purpose changes an answ
 """
 from __future__ import annotations
 
+import ast
 import inspect
 import itertools
 import random
 import re
 import string
+from pathlib import Path
 
 import pytest
 
@@ -85,6 +87,9 @@ from homestead.keep.rungs import (Classified, Disposition, Purpose, Rung,
                                   UnknownSurface, classify_schema, compose,
                                   decide, may_render, serve, serve_all)
 from homestead.keep.surfaces import Surface
+
+ROOT = Path(__file__).resolve().parent.parent
+PACKAGE = ROOT / "homestead"
 
 LADDER = (Rung.L1, Rung.L2, Rung.L3, Rung.L4, Rung.L5)
 MEMBERS = tuple(Purpose)
@@ -178,25 +183,112 @@ def test_the_members_are_exactly_those_that_were_ratified():
     is what "an edit somebody has to make on purpose" is supposed to feel like.
     Renamed off the count at the same time — `..._the_six_members_are_exactly_the_six...`
     would now be a title asserting a number the body contradicts, which is the
-    defect this suite renamed `test_the_ceiling_table_did_not_move` for.
+    defect this suite renamed `test_the_ceiling_table_did_not_move` for. **It
+    became eight later still**, for `SYNC` (docs/DECISION-purpose-sync.md), by
+    the identical measurement and the identical four-file pin — the count in
+    this docstring is now stale on purpose, annotated rather than rewritten, so
+    a reader can see the pin doing its job a second time.
 
     It sits next to `FILING` rather than at the end, because it exists to be told
     apart from `FILING` — the two describe the same operation and differ only in
     who set it in motion, and adjacency is the cheapest way to make a reader see
-    that. docs/DECISION-compelled-disclosure.md.
+    that. docs/DECISION-compelled-disclosure.md. `SYNC` sits at the end instead,
+    because it is not adjacent to anything it must be told apart from by
+    placement — the ledger row `keep/sync.py` writes is what carries that
+    distinction, not where the member sits in the list.
     """
     assert [p.name for p in Purpose] == [
         "DRAFTING", "FILING", "COMPELLED_DISCLOSURE", "EXPORT",
-        "SUBJECT_ACCESS", "REDISCLOSURE", "ANSWERING",
+        "SUBJECT_ACCESS", "REDISCLOSURE", "ANSWERING", "SYNC",
     ]
     assert [p.value for p in Purpose] == [
         "drafting", "filing", "compelled_disclosure", "export",
-        "subject_access", "redisclosure", "answering",
+        "subject_access", "redisclosure", "answering", "sync",
     ]
-    assert len({p.value for p in Purpose}) == 7, (
+    assert len({p.value for p in Purpose}) == 8, (
         "two members sharing a value are one member with two names, and any "
         "table keyed on it silently loses a row"
     )
+
+
+def _hardcoded_purpose_enumerations(root) -> list[str]:
+    """Every list/set/tuple literal under `root` that spells the set out.
+
+    Scanned, not imported, because the defect is in the source rather than in
+    any answer: `("drafting", "filing", …)` typed out by hand is correct on the
+    day it is written and silently short by one the day a member is ratified.
+    """
+    offenders: list[str] = []
+    values = {p.value for p in Purpose}
+    for module in sorted(Path(root).rglob("*.py")):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.List, ast.Set, ast.Tuple)):
+                continue
+            spelled = [
+                element.value for element in node.elts
+                if isinstance(element, ast.Constant)
+                and isinstance(element.value, str)
+            ]
+            if len(spelled) >= 2 and set(spelled) <= values:
+                offenders.append(f"{module.name}:{node.lineno}: "
+                                 f"{ast.unparse(node)}")
+    return offenders
+
+
+def test_no_module_hardcodes_a_list_of_purpose_values():
+    """What "adding a member migrates nothing" actually rests on, measured
+    rather than asserted.
+
+    `docs/DECISION-purpose-sync.md` proposed to rest it on *"no call to
+    `may_render`, `decide`, `serve`, `serve_all` or `ambient_rows` exists
+    anywhere in `homestead/` outside `rungs.py`"*, inherited from
+    `docs/DECISION-compelled-disclosure.md`, which measured it in a tree where
+    it was true and where it stopped being true at `371bfb2` — the chokepoint
+    wiring. `serve()` has callers now, and will have more, and that is the
+    design rather than a problem: none of them is made wrong by a new member,
+    because none of them enumerates the members.
+
+    A hand-typed list of purpose values is the thing that would be. It is
+    correct on the day it is written, it goes one short the day a member is
+    ratified, and nothing fails — the code keeps working, against a set that is
+    no longer the set. That is I-23's shape ("the registry is the only
+    enumeration") pointed at this enum, and it is why the one enumeration in
+    `homestead/` — `export.py`'s refusal text — is the comprehension
+    `[p.value for p in Purpose]` and not a literal.
+
+    `Purpose.SYNC` named in `keep/sync.py` (Wave 4) is *not* what this forbids:
+    naming one member is a call site, and call sites are what the set is for.
+    """
+    offenders = _hardcoded_purpose_enumerations(PACKAGE)
+    assert not offenders, (
+        "the purpose set is spelled out by hand in the package, so the day a "
+        "member is ratified this literal is silently one short and nothing "
+        f"fails: {offenders}. Derive it from `Purpose`."
+    )
+
+
+def test_the_hardcoded_purpose_scan_catches_a_planted_enumeration(tmp_path):
+    """A scan that has never fired has not been shown to check anything.
+
+    Two members' values in a literal, in a module the scan has never seen, and
+    the scan has to name it — otherwise the test above is a green light that
+    means nothing, which is the Phase 0 finding this corpus exists downstream
+    of.
+    """
+    (tmp_path / "planted.py").write_text(
+        "ALLOWED = ['drafting', 'filing', 'export']\n", encoding="utf-8"
+    )
+    (tmp_path / "innocent.py").write_text(
+        "from homestead.keep.rungs import Purpose\n"
+        "ALLOWED = [p.value for p in Purpose]\n"
+        "ONE_MEMBER = Purpose.EXPORT\n"
+        "UNRELATED = ['a', 'b']\n",
+        encoding="utf-8",
+    )
+    caught = _hardcoded_purpose_enumerations(tmp_path)
+    assert len(caught) == 1, caught
+    assert caught[0].startswith("planted.py:1:"), caught
 
 
 def test_a_purpose_is_a_string_and_is_not_an_integer():
@@ -481,14 +573,15 @@ def test_the_chokepoint_family_refuses_a_bad_purpose_at_every_door():
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 4 · Inert on three surfaces, lifting on two — and both halves matter
+# 4 · Inert on every surface but egress, lifting on egress — both halves matter
 # ═════════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize("purpose", MEMBERS, ids=[p.name for p in MEMBERS])
 @pytest.mark.parametrize("surface", sorted(INERT_SURFACES, key=lambda s: s.name),
                          ids=lambda s: s.name)
 def test_a_purpose_changes_no_answer_on_an_inert_surface(surface, purpose):
-    """The three surfaces whose ceilings are equal with and without a purpose.
+    """The surfaces whose ceilings are equal with and without a purpose —
+    `INERT_SURFACES` above, which is derived rather than counted out here.
 
     `S1_LIST` is inert because the threat is ambient exposure — someone walking
     past thirty seconds later — and a declaration does not change who is
@@ -496,7 +589,10 @@ def test_a_purpose_changes_no_answer_on_an_inert_surface(surface, purpose):
     the pane is the declaration*, decided 2026-08-04 by widget rather than by
     dialog, so a person in crisis pays no ceremony tax. `S2_PROMPT` is inert
     because of I-13's first hard stop: if a local model needs the diagnosis to
-    do its job, that is a signal the job is wrong.
+    do its job, that is a signal the job is wrong. `S3_AGENT` joined them on
+    2026-08-05 when its column closed (docs/DECISION-agent-retrieval.md) —
+    which is why this docstring no longer counts them, and why the parameter
+    list reads `INERT_SURFACES` instead.
 
     Inert means **identical**, rung by rung — not "mostly the same", and not
     "the same except at `L4`".
@@ -631,6 +727,39 @@ def test_all_members_are_interchangeable_at_the_decision_function():
     )
 
 
+@pytest.mark.parametrize("surface", list(Surface), ids=[s.name for s in Surface])
+@pytest.mark.parametrize("rung", LADDER, ids=[r.name for r in LADDER])
+def test_sync_lifts_exactly_what_export_lifts_on_s4_and_nothing_elsewhere(rung, surface):
+    """`SYNC` measured against its nearest neighbour, cell by cell, rather than
+    trusted to `test_all_members_are_interchangeable_at_the_decision_function`'s
+    whole-table sweep alone.
+
+    `test_all_members_...` proves every member answers alike; it does not by
+    itself say *which* answer, and a reader asking specifically "did `SYNC`
+    change anything `EXPORT` did not" deserves a test that names `EXPORT` and
+    answers exactly that — the same discipline
+    `docs/DECISION-compelled-disclosure.md` § 1 applied by diffing
+    `COMPELLED_DISCLOSURE` against `FILING` cell by cell rather than citing the
+    whole-table property and stopping.
+
+    `SYNC` is not `EXPORT` under a new name — `EXPORT` is the operator taking
+    their own record out; `SYNC` is the household's record going to its own
+    fleet store — but at this gate the two are indistinguishable by
+    construction: `_declared` reads *whether*, never *which*. So the assertion
+    is not "SYNC does nothing" — no member does nothing, an unused member
+    with a truthful occasion is not dead weight, `docs/DECISION-redisclosure.md`
+    settles that — it is "SYNC moves no cell EXPORT did not already move",
+    which is `docs/DECISION-purpose-sync.md`'s central measurement, pinned.
+    """
+    assert decide(rung, surface, purpose=Purpose.SYNC) == decide(
+        rung, surface, purpose=Purpose.EXPORT
+    ), (
+        f"decide({rung.name}, {surface.name}, purpose=SYNC) disagrees with "
+        "purpose=EXPORT — a seemingly interchangeable member just stopped "
+        "being interchangeable"
+    )
+
+
 @pytest.mark.parametrize("purpose", VALID_PURPOSES, ids=[_pid(p) for p in VALID_PURPOSES])
 @pytest.mark.parametrize("surface", list(Surface), ids=[s.name for s in Surface])
 @pytest.mark.parametrize("rung", LADDER, ids=[r.name for r in LADDER])
@@ -666,7 +795,7 @@ def test_the_parameter_is_still_accepted_on_all_five_surfaces():
 
     The corpus's most valuable sweep passes every purpose to every surface to
     prove that nothing unlocks `L5` anywhere. A signature that refuses the
-    argument on three of five surfaces destroys that sweep to prevent a lesser
+    argument on the surfaces where it is inert destroys that sweep to prevent a lesser
     error — an inert argument passed hopefully — which is a bad trade. So the
     argument is accepted everywhere and inert on three, and the enum plus the
     inertness test carry the weight instead.
@@ -997,8 +1126,8 @@ def test_this_corpus_has_not_been_hollowed_out():
     """Table sizes, asserted, because a table trimmed to two rows is the
     cheapest way for a scan to stop scanning — which is what Phase 0's audit
     found twice."""
-    assert len(Purpose) == 7   # six ratified 2026-08-05, +COMPELLED_DISCLOSURE same day
-    assert len(VALID_PURPOSES) == 8   # the members, and None for "nobody declared one"
+    assert len(Purpose) == 8   # six ratified 2026-08-05, +COMPELLED_DISCLOSURE same day, +SYNC later
+    assert len(VALID_PURPOSES) == 9   # the members, and None for "nobody declared one"
     assert len(LADDER) == 5
     assert len(Surface) == 5
     assert len(INERT_SURFACES) == 4   # was 3 until S3's column closed, 2026-08-05

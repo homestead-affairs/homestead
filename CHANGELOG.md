@@ -20,6 +20,38 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.5.0](https://github.com/homestead-affairs/homestead/compare/v0.4.0...v0.5.0) (2026-09-11)
+
+
+### Added
+
+* backward counting, mail days, business days, district-state holidays ([90bf4ca](https://github.com/homestead-affairs/homestead/commit/90bf4ca2c57c8351868a6410162816e35e0f6bae))
+
+
+### Fixed
+
+* audit E1-dates-a — say what VERIFIED means, and let the mail re-roll see the district ([ab21e33](https://github.com/homestead-affairs/homestead/commit/ab21e335c72ccf15e8605f7dd955aa11f14b8f5d))
+
+## [0.4.0](https://github.com/homestead-affairs/homestead/compare/v0.3.0...v0.4.0) (2026-09-11)
+
+
+### Added
+
+* add Purpose.SYNC as an eighth member ([6d9230d](https://github.com/homestead-affairs/homestead/commit/6d9230db8f2bcf2fce4eaf9a748ff660e7424d7e))
+
+## [0.3.0](https://github.com/homestead-affairs/homestead/compare/v0.2.3...v0.3.0) (2026-09-11)
+
+
+### Added
+
+* JURISDICTIONS tuple and derived-form key on engine packs ([21f8dd2](https://github.com/homestead-affairs/homestead/commit/21f8dd28668137e2fd5a2162ba6866915b1d3159))
+
+
+### Fixed
+
+* audit E1-pack-contract — a leaky derived form, a drifting jurisdiction copy, and derived_of held to the schema ([85b2151](https://github.com/homestead-affairs/homestead/commit/85b2151d2530c777474c3738961106e729925033))
+* rename the engine console script to homestead, correct registry docs ([4f5d212](https://github.com/homestead-affairs/homestead/commit/4f5d212a68ce5ca06382e9edb70e34cbd7184006))
+
 ## [0.2.3](https://github.com/homestead-affairs/homestead/compare/v0.2.2...v0.2.3) (2026-08-25)
 
 ## [0.2.2](https://github.com/homestead-affairs/homestead/compare/v0.2.1...v0.2.2) (2026-08-25)
