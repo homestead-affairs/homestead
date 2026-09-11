@@ -192,11 +192,20 @@ the batching the plan described:
   audit, 2026-09-11) — the fleet's `canonical`/`sidecar` DDL stores `value`
   as `TEXT`, and `fleet_cli._validate_rows` refuses any row whose served
   value is a mapping (a ledger `transfers` pair is L2 `{counterpart, from,
-  to}`); settle the contract as `JSONB` (or canonical-JSON text). **Not
-  landed** as of this bite (`ff33787`) — being built concurrently in this
-  same worktree's sibling checkout on `claude/fleet-structured-values`
-  (`keep/fleet_cli.py`, `keep/store.py`, `docs/DECISION-fleet-ingest.md`),
-  which this bite does not touch. Left unstruck.
+  to}`); settle the contract as `JSONB` (or canonical-JSON text). **Merged,
+  not yet released** — *(updated on audit, 2026-09-11: it said "not landed"
+  and named `ff33787`, which was true when the builder wrote it and stopped
+  being true the same day.)* PR
+  [#70](https://github.com/homestead-affairs/homestead/pull/70) merged to
+  `main` as `e0f147d` — the envelope row carries the value as canonical JSON
+  text with a `value_format` column, plus `fleet_cli.MAX_VALUE_DEPTH` — and
+  is merged into this branch. **Left unstruck on purpose:** release-please
+  had not cut the release containing it when this was written, so there is
+  no release number to name, and the guard in
+  `tests/test_plan_affairs_face.py` requires a struck bite to name both. It
+  is struck, with `#70` and the release, by whoever merges after that tag
+  exists. The README's capabilities table gains its structured-values note
+  then, for the same reason.
 - **X7-drift-\<repo\>** (this bite, engine leg) — `tests/test_docs_drift.py`,
   `tests/test_scans_fire.py`, the README status table, and this document.
   Not struck here: a document does not mark its own landing before the PR
@@ -215,17 +224,34 @@ text, may end up a `docs:`-only bite rather than a `feat:` at all.
 ## Module and cross-repo bites — named, not struck
 
 Everything below lives in `homestead-law`, `homestead-ledger`,
-`homestead-health`, or is a cross-repo orchestration step (`ORCH-0`,
-`ORCH-2`, `ORCH-8`, and the module halves of `ORCH-R1..R4`). This repo's own
-git history says nothing about whether they landed, so — per the rule stated
-at the top of this document — none of the following is struck by this bite:
-`W0-LAW`, `W0-LEDGER`, `W0-HEALTH`; `H2-cap`, `L2a-pack-contract`,
-`L2c-second-pack-readiness`, `G2a-account-packs`, `G2c-importer-dates`;
-`L2b-instances`, `L3-custody-relocation`, `L3-bankruptcy-ch13`,
-`L3-workers-comp`, `L3-deadline-templates`, `G2b-account-instances`,
-`G3-cadence-paidby`; `G4-overlay`, `G4-transfers`, `G4-budget`,
-`G4-schedules-export`, `L4-surfaces`; `L5-sync`, `G5-sync`; `H6-sealed-reader`;
-`H7-floor-0.12`; `L8-grant`, `L8-venture`, `L8-surfaces`, `G8-business-books`.
+`homestead-health`, or is a cross-repo orchestration step. This repo's own
+git history says nothing about whether any of them landed, so — per the rule
+stated at the top of this document — **none of the following is struck
+here**, and none of it is omitted either: a bite left out of this list is
+indistinguishable from a bite that never existed, which is the one mark this
+document may not make. Each group names the checkout that can answer for it,
+so a reader with that checkout open knows which `git log` to read. *(Grouped
+by repository on audit, 2026-09-11 — the list was one undifferentiated
+paragraph and said "homestead-law, homestead-ledger, homestead-health" once,
+collectively, for all twenty-eight of them.)*
+
+**tracked in `homestead-law`** — `W0-LAW`; `L2a-pack-contract`,
+`L2c-second-pack-readiness`; `L2b-instances`, `L3-custody-relocation`,
+`L3-bankruptcy-ch13`, `L3-workers-comp`, `L3-deadline-templates`;
+`L4-surfaces`; `L5-sync`; `L8-grant`, `L8-venture`, `L8-surfaces`.
+
+**tracked in `homestead-ledger`** — `W0-LEDGER`; `G2a-account-packs`,
+`G2c-importer-dates`; `G2b-account-instances`, `G3-cadence-paidby`;
+`G4-overlay`, `G4-transfers`, `G4-budget`, `G4-schedules-export`; `G5-sync`;
+`G8-business-books`.
+
+**tracked in `homestead-health`** — `W0-HEALTH`; `H2-cap`;
+`H6-sealed-reader`; `H7-floor-0.12`.
+
+**cross-repo, tracked by the orchestrator** — `ORCH-0`, `ORCH-2`, `ORCH-8`,
+and the module halves of `ORCH-R1..R4`. The engine halves of `ORCH-R1..R4`
+are struck above against the releases this repo's `git log` shows.
+
 A reader who has the other three checkouts open can strike these directly
 against their own `git log`, the same way this document struck the engine
 half.
