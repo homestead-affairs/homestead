@@ -31,6 +31,8 @@ from pathlib import Path
 
 import pytest
 
+from _strikethrough import live
+
 # tomllib is stdlib from 3.11; the requires-python floor is 3.10, where this file
 # would fail to *collect* and take every check in it down. `tomli` is in the dev
 # extra for that leg.
@@ -267,3 +269,73 @@ def test_a_breaking_change_below_1_0_cuts_1_0_0_rather_than_a_minor():
         f"manifest is {version} — past 1.0 both flags are dead weight, because "
         "`isPreMajor` gates them and it is false from 1.0.0 on. Remove them."
     )
+
+
+def test_the_console_script_is_named_for_the_engine_not_a_module():
+    """`homestead-law` collided by name with the law module's own console
+    script of the same name — whichever package installed second silently
+    clobbered the other's entry point. The engine's script is named for the
+    engine (`homestead`), never for a module it does not own."""
+    pyproject = tomllib.loads((_REPO / "pyproject.toml").read_text())
+    scripts = pyproject["project"]["scripts"]
+    assert scripts.get("homestead") == "homestead.app.__main__:main"
+    assert "homestead-law" not in scripts, (
+        "homestead-law is the law module's own console script name — the "
+        "engine must not declare a script with that name too"
+    )
+
+
+# ── the PyPI publisher's owner is the owner the repo actually has ────────────
+#
+# A trusted-publisher row is matched on (owner, repo, workflow, environment).
+# Get the owner wrong and nothing warns at setup time — the row is accepted,
+# and then every upload is rejected at the last step of a release that has
+# already tagged. `docs/releasing.md` and `release.yml`'s header are the two
+# places that tell the operator what to type, they were written when this repo
+# sat under a personal account, and they drifted apart from each other when one
+# of them was corrected. The repository URL in `pyproject.toml` is the ground
+# truth — it is what `pip show` and the PyPI project page point at.
+
+_OWNER_NAMED = re.compile(r"[Oo]wner:?\s*`([^`]+)`")
+_RELEASING_DOC = _REPO / "docs" / "releasing.md"
+
+
+def _repo_owner() -> str:
+    url = tomllib.loads((_REPO / "pyproject.toml").read_text())["project"]["urls"]["Repository"]
+    return url.rstrip("/").split("/")[-2]
+
+
+def _owners_named_in(text: str) -> list[str]:
+    """Every owner the text still asserts. Struck-through spans are history,
+    not instructions, so they are dropped first — the same `live()` reading the
+    registry doc guard uses, from the same helper, so the two cannot disagree
+    about what "still claimed" means."""
+    return _OWNER_NAMED.findall(live(text))
+
+
+def test_the_publisher_owner_is_the_repositorys_owner_everywhere_it_is_named():
+    """One owner, named the same in both places an operator reads it, and equal
+    to the one in the repository URL."""
+    owner = _repo_owner()
+    assert owner == "homestead-affairs"
+    for path in (_RELEASING_DOC, _RELEASE_WF):
+        named = _owners_named_in(path.read_text())
+        assert named, f"{path.name} no longer tells the operator which owner to file under"
+        assert set(named) == {owner}, (
+            f"{path.name} still names {sorted(set(named) - {owner})} as the "
+            f"trusted-publisher owner; this repo is owned by {owner}. A "
+            "publisher row under the wrong owner does not warn — it rejects "
+            "every upload, after the tag is already cut."
+        )
+
+
+def test_the_owner_check_fires_on_a_planted_owner(tmp_path):
+    """A scan that has never fired has not been shown to check anything: a
+    stale owner written live trips it, the same one struck through does not,
+    and both go through `_owners_named_in`, the helper the check above calls."""
+    assert _owners_named_in("   - Owner: `rudi193-cmd`   ·   Repository: `homestead`") == [
+        "rudi193-cmd"
+    ]
+    assert _owners_named_in(
+        "~~Owner: `rudi193-cmd`~~ (struck 2026-09-11) Owner: `homestead-affairs`"
+    ) == ["homestead-affairs"]

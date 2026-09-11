@@ -86,6 +86,7 @@ class Event(str, Enum):
     FACT_REJECTED = "fact_rejected"
     ITEM_RESOLVED = "item_resolved"
     ITEM_SNOOZED = "item_snoozed"
+    RECORD_ADDED = "record_added"          # a record was entered by the operator
     RECORD_SYNCED = "record_synced"
     DRAFT_SAVED = "draft_saved"
     EXPORTED = "exported"

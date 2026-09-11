@@ -12,8 +12,11 @@ name: Release
 # publish and NOT done yet (this project has never released):
 #   1. On PyPI: create a *pending* publisher for a project named
 #      `homestead-affairs` (Account → Publishing → add a pending publisher, since
-#      the project does not exist yet): owner `rudi193-cmd`, repo `homestead`,
-#      workflow `release.yml`, environment `pypi`. The distribution is
+#      the project does not exist yet): ~~owner `rudi193-cmd`~~ (struck
+#      2026-09-11: this repo lives in the `homestead-affairs` org, not a
+#      personal account — a publisher row filed under the wrong owner does not
+#      warn, it rejects every upload) owner `homestead-affairs`, repo
+#      `homestead`, workflow `release.yml`, environment `pypi`. The distribution is
 #      `homestead-affairs`, not `homestead` — that bare name is an unrelated
 #      abandoned 2022 package (see [project].name in pyproject.toml).
 #   2. Create a GitHub environment named `pypi` (Settings → Environments).
@@ -22,8 +25,9 @@ name: Release
 #
 # Two triggers, one implementation:
 #   * `push: tags` — every real release, automated or not. release-please cuts
-#     the tag with a PAT (see release-please.yml), and a PAT is not a bot token,
-#     so the push triggers this normally. A human running
+#     the tag with ~~a PAT~~ (struck 2026-09-11: the PAT is retired) a willow-ci
+#     App installation token (see release-please.yml), and neither is a bot
+#     token, so the push triggers this normally. A human running
 #     `git push origin vX.Y.Z` lands in exactly the same place.
 #   * `workflow_dispatch` — publish an existing tag from the Actions UI. The
 #     recovery path for a tag that exists but never published.
@@ -32,7 +36,8 @@ name: Release
 # wrong:
 #   * `release: published` — GitHub suppresses workflow runs for any event
 #     generated with GITHUB_TOKEN, releases included, so it never fires for a
-#     bot-cut release. With the PAT the tag push already covers it.
+#     bot-cut release. With ~~the PAT~~ the App token the tag push already
+#     covers it.
 #   * `workflow_call` — release-please calling this workflow directly does start
 #     it, but PyPI authenticates a called workflow against `job_workflow_ref`
 #     (this file) while the PEP 740 attestation records `workflow_ref` (the
