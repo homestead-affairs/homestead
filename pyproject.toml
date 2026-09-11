@@ -74,6 +74,16 @@ dev = ["pytest>=8.0", "pyyaml", "tomli; python_version<'3.11'"]
 # calls (EntityResolver, set_ledger_path, ledger.verify) is stable across
 # the 0.2 -> 0.11 range — no code change required in nestor_seam.py.
 entity = ["nestor-meaning>=0.11.0,<1.0"]
+# The fleet side's own extra (E4-postgres-fleet, decision 5): a Postgres
+# driver, never a required dependency of the household side. `keep/store.py`'s
+# `PostgresAdapter` and `keep/fleet_cli.py` import `psycopg` lazily, inside a
+# function, never at module load — `test_i27_the_core_needs_nothing_but_the_
+# standard_library` and I-39's own guard (tests/test_invariants_fleet.py) both
+# check for it — so a checkout without this extra still imports `store.py` and
+# `fleet_cli.py`, and only fails, by name, the moment something tries to
+# construct `PostgresAdapter`. `[binary]` ships a prebuilt libpq rather than
+# requiring one on the machine that runs `homestead-fleet ingest`.
+fleet = ["psycopg[binary]>=3.1,<4"]
 
 [project.scripts]
 # ~~homestead-law = "homestead.app.__main__:main"~~ (struck 2026-09-11): the
@@ -82,6 +92,10 @@ entity = ["nestor-meaning>=0.11.0,<1.0"]
 # overwrote the other's entry point. The engine's script is named for the
 # engine.
 homestead = "homestead.app.__main__:main"
+# The fleet side's own entry point (E4-postgres-fleet) — never installed or
+# run by the household side, which never holds a DSN (open item 7 of the
+# affairs build plan). See docs/DECISION-fleet-ingest.md.
+homestead-fleet = "homestead.keep.fleet_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/homestead-affairs/homestead"
@@ -121,3 +135,9 @@ packages = ["homestead"]
 # I-28: bare `pytest -q` must work. Nothing shadows the live suite.
 testpaths = ["tests"]
 norecursedirs = ["_archived", "build", "dist", ".git", "packaging"]
+# `fleet`: needs a live Postgres (`HOMESTEAD_FLEET_TEST_DSN`) — registered so
+# `pytest -q` never warns about an unknown marker, and so CI's `fleet` job can
+# select exactly this set with `-m fleet`. tests/test_fleet_postgres.py skips
+# (not fails) when the env var is unset, which is what keeps the default
+# `invariants` matrix psycopg-free (I-27).
+markers = ["fleet: requires a live Postgres via HOMESTEAD_FLEET_TEST_DSN"]

@@ -58,6 +58,7 @@ from .rungs import (
 __all__ = [
     "key", "InvalidKey", "RecordExists", "Replaced", "Due",
     "StorageAdapter", "FileAdapter", "SQLiteAdapter",
+    "InvalidTable", "MissingFleetExtra", "PostgresAdapter",
     "Reader", "Sidecar", "Canonical",
 ]
 
@@ -280,6 +281,136 @@ class SQLiteAdapter(StorageAdapter):
                 "ON CONFLICT(matter, item_type, item_id) DO UPDATE SET value=excluded.value",
                 (*ref, blob),
             )
+
+
+class InvalidTable(ValueError):
+    """A table name that is not `{SIDECAR, CANONICAL}`. `PostgresAdapter`
+    builds its statements with an f-string for the table name — `psycopg`
+    cannot parameterize an identifier — so this is the guard between a
+    caller's string and the SQL text; every value stays a `%s` placeholder.
+    Refused before a cursor is ever opened. Planted at `"sidecar; DROP TABLE
+    envelopes"` and `"sidecar "` (a trailing space is a real, different
+    identifier) during the E4-postgres-fleet build."""
+
+
+class MissingFleetExtra(ImportError):
+    """`psycopg` is not installed. `PostgresAdapter` is reached only by the
+    fleet's own `homestead-fleet ingest`, behind the optional `fleet` extra,
+    and imports `psycopg` lazily, inside this constructor and nowhere at
+    module load (I-27, I-39) — a checkout without the extra still imports
+    this whole module. Refused by name rather than a bare
+    `ModuleNotFoundError` a caller has to guess the fix for."""
+
+
+_FLEET_TABLES = frozenset({SIDECAR, CANONICAL})
+
+
+class PostgresAdapter:
+    """The fleet's own backing — a shared Postgres database one household's
+    record is copied *to*, on `homestead-fleet ingest`'s own act
+    (`keep/fleet_cli.py`). Never constructed by `Sidecar`/`Canonical` on the
+    household side, which never holds a DSN (open item 7;
+    `docs/DECISION-fleet-ingest.md`).
+
+    The same four-method shape `StorageAdapter` documents — `read`,
+    `read_matter`, `insert`, `write` — scoped to one `household` fixed at
+    construction, so every statement carries it. Does not literally
+    subclass `StorageAdapter`'s ABC: `insert`/`write` here also take the
+    envelope id and synced-at timestamp the fleet's own columns carry, and
+    `insert` returns the affected row count rather than a bare bool, so a
+    caller can tell "already there" (`0`) from "written" (`1`) without a
+    second read — `keep/fleet_cli.py`'s canonical insert-only count depends
+    on it.
+
+    `psycopg` is imported inside `__init__`, never at module load — the one
+    caller that ever needs it already needs the extra. Table names are
+    validated against `{SIDECAR, CANONICAL}` before any SQL interpolation —
+    see `InvalidTable`.
+    """
+
+    def __init__(self, dsn: str, *, household: str) -> None:
+        try:
+            import psycopg
+        except ImportError as e:
+            raise MissingFleetExtra(
+                "the 'fleet' extra is not installed — "
+                'pip install "homestead-affairs[fleet]" to use PostgresAdapter'
+            ) from e
+        self._psycopg = psycopg
+        self._dsn = dsn
+        self._household = household
+
+    def _connect(self):
+        return self._psycopg.connect(self._dsn)
+
+    @staticmethod
+    def _table(table: str) -> str:
+        if table not in _FLEET_TABLES:
+            raise InvalidTable(
+                f"table {table!r} is not one of {sorted(_FLEET_TABLES)} — "
+                "refused before it reaches any SQL text"
+            )
+        return table
+
+    def read(self, table: str, ref: Ref) -> str | None:
+        table = self._table(table)
+        matter, item_type, item_id = ref
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT value FROM {table} WHERE household=%s AND matter=%s "
+                "AND item_type=%s AND item_id=%s",
+                (self._household, matter, item_type, item_id),
+            )
+            row = cur.fetchone()
+        return row[0] if row is not None else None
+
+    def read_matter(self, table: str, matter: str) -> list[tuple[Ref, str]]:
+        table = self._table(table)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT item_type, item_id, value FROM {table} "
+                "WHERE household=%s AND matter=%s ORDER BY item_type, item_id",
+                (self._household, matter),
+            )
+            rows = cur.fetchall()
+        return [((matter, it, ii), value) for it, ii, value in rows]
+
+    def insert(self, table: str, ref: Ref, blob: str, *, envelope: str, synced_at: str) -> int:
+        """`INSERT … ON CONFLICT DO NOTHING`, returning the row count. `0`
+        means the key was already there — canonical rows are append-only,
+        and `keep/fleet_cli.py` counts a `0` here as skipped, never
+        overwritten."""
+        table = self._table(table)
+        matter, item_type, item_id = ref
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO {table} "
+                "(household, matter, item_type, item_id, value, envelope, synced_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (household, matter, item_type, item_id) DO NOTHING",
+                (self._household, matter, item_type, item_id, blob, envelope, synced_at),
+            )
+            count = cur.rowcount
+            conn.commit()
+        return count
+
+    def write(self, table: str, ref: Ref, blob: str, *, envelope: str, synced_at: str) -> None:
+        """Upsert — the sidecar's shape: a later sync of the same key
+        replaces it (never used for the canonical table, which is
+        insert-only at the fleet too)."""
+        table = self._table(table)
+        matter, item_type, item_id = ref
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO {table} "
+                "(household, matter, item_type, item_id, value, envelope, synced_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (household, matter, item_type, item_id) DO UPDATE SET "
+                "value=excluded.value, envelope=excluded.envelope, "
+                "synced_at=excluded.synced_at",
+                (self._household, matter, item_type, item_id, blob, envelope, synced_at),
+            )
+            conn.commit()
 
 
 def _default_adapter() -> StorageAdapter:
