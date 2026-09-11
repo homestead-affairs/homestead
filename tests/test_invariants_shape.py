@@ -35,17 +35,76 @@ def _toplevel_imports(tree: ast.Module) -> set[str]:
     return names
 
 
+def _dotted(node: ast.AST) -> str:
+    """`urllib.request.urlopen` for the attribute chain that spells it, and
+    `""` for anything that is not a plain dotted name."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        root = _dotted(node.value)
+        return f"{root}.{node.attr}" if root else ""
+    return ""
+
+
+def _any_network_import(tree: ast.Module) -> set[str]:
+    """Network modules imported *anywhere* in the file, nested imports
+    included. `_toplevel_imports` deliberately reads only `tree.body` — I-30
+    is about import time — so a lazily imported dialler is invisible to it.
+    This is the wider reading, used for the two checks below that are about
+    what the code *does* rather than what it costs to import."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names & NET
+
+
+def _label(mod: Path) -> str:
+    """A path in a message or a dict key, spelled the one way Windows and
+    posix agree on (CI runs both)."""
+    return mod.relative_to(ROOT).as_posix() if mod.is_relative_to(ROOT) else mod.name
+
+
+#: The one module allowed to *spell* a network call, and only in the call-chain
+#: half of the scan below. `keep/egress.py` is the sanctioned door: I-17 says
+#: nothing leaves without a per-call act that shows the operator the `Wire`,
+#: and the send that act reaches has to name `urllib` somewhere. Its own
+#: module docstring, `test_invariants_egress.py` and
+#: `test_egress_imports_no_network_at_module_load` hold the rest of the
+#: promise; what stays banned for it, like everything else, is the *import*
+#: at module load. Same shape as the chokepoint's allowance for `keep/rungs.py`
+#: to reach a `.payload`: one named door, not a category.
+_DIAL_ALLOWED = {("keep", "egress.py")}
+
+
 def _network_import_offenders(paths: list[Path]) -> dict[str, list[str]]:
     """Every path, among `paths`, that imports a network module at the top
-    level. Factored out (X7-drift) so the real package scan and its
+    level, **or** spells a call on one whatever the import looked like.
+
+    Factored out (X7-drift) so the real package scan and its
     planted-violation test below run the identical check — this scan had
-    never fired before that test existed."""
+    never fired before that test existed. The audit leg then added the
+    second half: `_toplevel_imports` reads `tree.body` only, so
+    `urllib.request.urlopen(...)` reached through an import inside a function
+    passed the whole scan. The call chain is caught by its root name, which
+    is the same word in either spelling.
+    """
     offenders: dict[str, list[str]] = {}
     for mod in paths:
-        hits = NET & _toplevel_imports(ast.parse(mod.read_text()))
+        tree = ast.parse(mod.read_text())
+        hits = NET & _toplevel_imports(tree)
+        if mod.parts[-2:] not in _DIAL_ALLOWED:
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                dotted = _dotted(node.func)
+                root = dotted.split(".")[0]
+                if dotted and "." in dotted and root in NET:
+                    hits = hits | {root}
         if hits:
-            key = str(mod.relative_to(ROOT)) if mod.is_relative_to(ROOT) else mod.name
-            offenders[key] = sorted(hits)
+            offenders[_label(mod)] = sorted(hits)
     return offenders
 
 
@@ -60,35 +119,103 @@ def test_i30_i26_nothing_imports_the_network():
 def test_i30_i26_the_network_import_scan_fires_on_a_planted_import(tmp_path):
     """A scan that has never fired has not been shown to check anything
     (X7-drift): this file had no planted violation for either network scan
-    until now. A module importing `socket` at the top level must be caught."""
-    leak = tmp_path / "leak.py"
-    leak.write_text("import socket\n\ndef dial():\n    return socket.socket()\n")
-    offenders = _network_import_offenders([leak])
-    assert offenders == {"leak.py": ["socket"]}
+    until the builder's leg, and the builder's plant was one line —
+    `import socket` — which is the one spelling nobody would use to hide a
+    dial. Four spellings now, three of them import forms the scan has to
+    normalise (`from X import y`, `import x.y as z`) and one of them the
+    hole the audit found: the import moved inside a function, where
+    `_toplevel_imports` cannot see it, and only the call chain is left.
+    """
+    bare = tmp_path / "bare.py"
+    bare.write_text("import socket\n\ndef dial():\n    return socket.socket()\n")
+    assert _network_import_offenders([bare]) == {"bare.py": ["socket"]}
+
+    from_import = tmp_path / "from_import.py"
+    from_import.write_text(
+        "from urllib import request\n\ndef dial(url):\n    return request.urlopen(url)\n"
+    )
+    assert _network_import_offenders([from_import]) == {"from_import.py": ["urllib"]}
+
+    aliased = tmp_path / "aliased.py"
+    aliased.write_text(
+        "import http.client as h\n\ndef dial():\n    return h.HTTPConnection('x')\n"
+    )
+    assert _network_import_offenders([aliased]) == {"aliased.py": ["http"]}
+
+    lazy = tmp_path / "lazy.py"
+    lazy.write_text(
+        "def dial(url):\n"
+        "    import urllib.request\n"
+        "    return urllib.request.urlopen(url).read()\n"
+    )
+    assert _network_import_offenders([lazy]) == {"lazy.py": ["urllib"]}, (
+        "a dial whose import hides inside the function is still a dial — the "
+        "call chain names the module whatever the import looked like"
+    )
+
+    # The sanctioned door is exempt from the call-chain half and from nothing
+    # else: a `keep/egress.py` that imported urllib at module load would still
+    # be caught, which is the half of I-26 the allowance does not touch.
+    door = tmp_path / "keep"
+    door.mkdir()
+    (door / "egress.py").write_text(
+        "def send(url):\n"
+        "    import urllib.request\n"
+        "    return urllib.request.urlopen(url)\n"
+    )
+    assert _network_import_offenders([door / "egress.py"]) == {}
+
+    (door / "egress.py").write_text(
+        "import urllib.request\n\ndef send(url):\n    return urllib.request.urlopen(url)\n"
+    )
+    assert _network_import_offenders([door / "egress.py"]) == {"egress.py": ["urllib"]}
 
 
-#: `bind` is deliberately NOT here. tkinter spells event binding
-#: `widget.bind(...)`, so banning the bare name would fire on every key
-#: handler in the surface layer and the test would be switched off within a
-#: week. The real control is the import scan above: nothing binds a socket
-#: without importing one. These four names have no GUI meaning.
-_LISTEN_BANNED = {"listen", "serve_forever", "create_server", "ThreadingHTTPServer"}
+#: `bind` is deliberately NOT an unconditional ban. tkinter spells event
+#: binding `widget.bind(...)`, so banning the bare name would fire on every
+#: key handler in the surface layer and the test would be switched off within
+#: a week. It is banned *conditionally* below, in a file that has a network
+#: module in scope, where `bind` has only one meaning. The rest have no GUI
+#: meaning at all: `HTTPServer`/`ThreadingHTTPServer` construct a listener,
+#: `start_server` is asyncio's, `create_server` is asyncio's and ssl's.
+_LISTEN_BANNED = {
+    "listen",
+    "serve_forever",
+    "create_server",
+    "start_server",
+    "HTTPServer",
+    "ThreadingHTTPServer",
+    "TCPServer",
+    "ThreadingTCPServer",
+}
+
+#: Banned only where a network module is in scope — see above.
+_LISTEN_BANNED_NEAR_A_SOCKET = {"bind"}
 
 
 def _listen_offenders(paths: list[Path]) -> list[str]:
     """Every bind/listen/serve call, however it is spelled, among `paths`.
     Factored out (X7-drift) for the same reason `_network_import_offenders`
-    was: the real scan and its plant must run one check, not two."""
+    was: the real scan and its plant must run one check, not two. The audit
+    leg widened the banned set — `HTTPServer(...)` and
+    `asyncio.start_server(...)` are listeners the four original names walked
+    straight past — and added the conditional `bind`."""
     offenders: list[str] = []
     for mod in paths:
         tree = ast.parse(mod.read_text())
+        conditional = (
+            _LISTEN_BANNED_NEAR_A_SOCKET if _any_network_import(tree) else set()
+        )
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                f = node.func
-                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
-                if name in _LISTEN_BANNED:
-                    label = str(mod.relative_to(ROOT)) if mod.is_relative_to(ROOT) else mod.name
-                    offenders.append(f"{label}:{node.lineno} {name}")
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+            root = _dotted(f).split(".")[0]
+            if name in _LISTEN_BANNED or name in conditional or (
+                name in _LISTEN_BANNED_NEAR_A_SOCKET and root in NET
+            ):
+                offenders.append(f"{_label(mod)}:{node.lineno} {name}")
     return offenders
 
 
@@ -99,12 +226,54 @@ def test_i30_nothing_listens():
 
 
 def test_i30_the_listen_scan_fires_on_a_planted_call(tmp_path):
-    """The plant this scan never had (X7-drift): a bare `.serve_forever()`
-    call must be caught, by name and line."""
-    leak = tmp_path / "leak.py"
-    leak.write_text("def run(server):\n    server.serve_forever()\n")
-    offenders = _listen_offenders([leak])
-    assert offenders == ["leak.py:2 serve_forever"]
+    """The plant this scan never had (X7-drift), widened by the audit to the
+    four spellings a listener actually arrives in. `socket.bind` is the one
+    the original scan could not take at all — `bind` is tkinter's word too —
+    so it is caught by its company: a `bind` in a file with a socket in
+    scope is not a key handler."""
+    served = tmp_path / "served.py"
+    served.write_text("def run(server):\n    server.serve_forever()\n")
+    assert _listen_offenders([served]) == ["served.py:2 serve_forever"]
+
+    bound = tmp_path / "bound.py"
+    bound.write_text(
+        "import socket\n\n"
+        "def run():\n"
+        "    s = socket.socket()\n"
+        "    s.bind(('127.0.0.1', 0))\n"
+        "    s.listen(1)\n"
+    )
+    assert _listen_offenders([bound]) == ["bound.py:5 bind", "bound.py:6 listen"]
+
+    http_server = tmp_path / "http_server.py"
+    http_server.write_text(
+        "from http.server import HTTPServer, BaseHTTPRequestHandler\n\n"
+        "def run():\n"
+        "    return HTTPServer(('127.0.0.1', 0), BaseHTTPRequestHandler)\n"
+    )
+    assert _listen_offenders([http_server]) == ["http_server.py:4 HTTPServer"]
+
+    aio = tmp_path / "aio.py"
+    aio.write_text(
+        "import asyncio\n\n"
+        "async def run(handler):\n"
+        "    return await asyncio.start_server(handler, '127.0.0.1', 0)\n"
+    )
+    assert _listen_offenders([aio]) == ["aio.py:4 start_server"]
+
+
+def test_the_listen_scan_does_not_fire_on_a_tkinter_key_handler(tmp_path):
+    """The negative control the conditional `bind` needs, and the reason the
+    ban was never unconditional: `widget.bind("<Key>", handler)` in a file
+    with no network module in scope is a key handler, and a scan that fires
+    on it is a scan somebody switches off."""
+    view = tmp_path / "view.py"
+    view.write_text(
+        "import tkinter as tk\n\n"
+        "def wire(widget, handler):\n"
+        "    widget.bind('<Return>', handler)\n"
+    )
+    assert _listen_offenders([view]) == []
 
 
 def test_i14_rungs_are_strings_not_integers():

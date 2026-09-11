@@ -355,16 +355,49 @@ def test_both_logs_live_under_the_root(keep, tmp_path):
 ENTRIES_ALIAS_REMOVED_IN = (0, 13, 0)
 
 
-def _latest_released_version() -> tuple[int, int, int]:
+def _latest_released_version(text: str | None = None) -> tuple[int, int, int]:
     """The top `## [X.Y.Z]` heading in CHANGELOG.md — release-please writes
     it from the tag, and unlike `importlib.metadata.version()` it is the same
     number in a worktree, a shallow CI checkout and an editable install
     (which report a `.devN+g<sha>` guess derived from whatever tags the
-    checkout happens to carry)."""
-    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    checkout happens to carry).
+
+    `text` is for the plant below. This read the shipped changelog and
+    nothing else until X7-drift's meta-scan named it: it decides *which half*
+    of the deprecation-window assertion runs, and it had never once been
+    shown to read a changelog correctly.
+    """
+    if text is None:
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     m = re.search(r"^## \[(\d+)\.(\d+)\.(\d+)\]", text, re.M)
     assert m, "CHANGELOG.md has no released-version heading to read"
     return tuple(int(g) for g in m.groups())
+
+
+def test_the_changelog_version_reader_fires_on_a_planted_changelog():
+    """A scan that has never fired has not been shown to check anything, and
+    this one silently decides whether the assertion below is "the alias must
+    still be here" or "the alias must be gone". Planted four ways: the
+    ordinary heading; a heading below an `## [Unreleased]` section, which
+    must NOT be read as the release; a two-digit minor, because `0.9.0` and
+    `0.10.0` sort the wrong way as strings and this returns integers; and a
+    changelog with no released heading at all, which must refuse rather than
+    hand back a default that would quietly flip the branch.
+    """
+    assert _latest_released_version("## [0.12.0](https://x) (2026-09-11)\n") == (0, 12, 0)
+
+    assert _latest_released_version(
+        "# Changelog\n\n## [Unreleased]\n\n## [0.13.0](https://x) (2026-09-12)\n"
+        "\n## [0.12.0](https://x) (2026-09-11)\n"
+    ) == (0, 13, 0), "the topmost released heading is the release"
+
+    assert _latest_released_version("## [0.10.0](https://x)\n") > (0, 9, 0), (
+        "0.10.0 is after 0.9.0 — this returns integers, not a string that "
+        "would sort them the other way round"
+    )
+
+    with pytest.raises(AssertionError):
+        _latest_released_version("# Changelog\n\nNothing has been released yet.\n")
 
 
 def test_the_entries_alias_is_gone_by_its_named_removal_version():

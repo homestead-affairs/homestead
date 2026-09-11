@@ -18,6 +18,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
 PKG = ROOT / "homestead"
@@ -51,6 +53,30 @@ FOUNDATION: dict[str, str] = {
 
 _CODE_SPAN_MODULE = re.compile(r"`((?:keep|app)/[A-Za-z_]+\.py)`")
 
+#: The heading the capabilities table lives under. The scan is scoped to this
+#: one section, and that scoping is the point: read over the whole README, a
+#: module counted as "named in the capabilities table" merely by being
+#: mentioned anywhere else in the file — which is how `keep/paths.py` was
+#: simultaneously in `FOUNDATION` *and* satisfying the coverage check from
+#: the I-19/I-20 row of a different table (X7-drift audit). The property this
+#: file claims is "named in the capabilities table, or excluded with a
+#: reason"; a scan that reads the whole file is not checking that claim.
+_CAPABILITIES_HEADING = "## Engine capabilities, and what shipped them"
+
+
+def _capabilities_section(readme_text: str) -> str:
+    """The README text under `_CAPABILITIES_HEADING`, up to the next `##`
+    heading — and a refusal, never an empty string, if the heading is gone.
+    An empty section would make every module unaccounted-for and the failure
+    would read as twenty-six missing rows rather than one renamed heading."""
+    _, sep, rest = readme_text.partition(_CAPABILITIES_HEADING)
+    assert sep, (
+        f"README.md has no {_CAPABILITIES_HEADING!r} heading — this file "
+        "checks a table that no longer exists under the name it was given"
+    )
+    end = rest.find("\n## ")
+    return rest if end == -1 else rest[:end]
+
 
 def _modules_named_in(text: str) -> set[str]:
     """Every `keep/x.py` or `app/x.py` backtick-quoted path in `text`."""
@@ -71,7 +97,7 @@ def _real_engine_modules() -> set[str]:
 def _unaccounted_for(real_modules: set[str], readme_text: str) -> set[str]:
     """Modules that are neither named in `readme_text` nor in `FOUNDATION` —
     the check both the real test and its plant below share."""
-    named = _modules_named_in(readme_text) | set(FOUNDATION)
+    named = _modules_named_in(_capabilities_section(readme_text)) | set(FOUNDATION)
     return real_modules - named
 
 
@@ -107,3 +133,48 @@ def test_the_coverage_guard_fires_on_a_planted_unaccounted_module():
     # the real tree, run through the same helper, must be clean — the plant
     # above is additive, not a relaxation of the real check.
     assert not _unaccounted_for(_real_engine_modules(), readme_text)
+
+
+def test_the_foundation_exclusions_are_minimal():
+    """An exclusion for a module the table names anyway is not an exclusion,
+    it is a second, unsynchronised list of the same module — BUG-6's
+    mechanism, which is what this whole file is here about. `keep/paths.py`
+    sat in both for exactly as long as the coverage scan read the whole
+    README instead of the capabilities section (X7-drift audit); with the
+    scan scoped, the overlap is checkable, so it is checked."""
+    in_table = _modules_named_in(_capabilities_section(README.read_text("utf-8")))
+    both = sorted(set(FOUNDATION) & in_table)
+    assert not both, (
+        f"these modules are in FOUNDATION and in the capabilities table: "
+        f"{both}. A module is a capability with a release, or a foundation "
+        "with a reason — one list, not two."
+    )
+
+
+def test_the_capabilities_scan_reads_the_section_and_fires_on_a_planted_mention():
+    """The plant the scoping needs, both ways round. A module named *only*
+    outside the capabilities section must still count as unaccounted — the
+    exact false pass the unscoped scan gave — and the same name inside the
+    section must count as covered."""
+    outside = (
+        "# Engine\n\n## What is enforced here today\n\n"
+        "`keep/_planted_elsewhere.py` is the only module that may do the thing.\n\n"
+        f"{_CAPABILITIES_HEADING}\n\n| capability | shipped by | module(s) |\n"
+        "|---|---|---|\n| Something | 0.9.0 | `keep/sync.py` |\n\n## Design\n"
+    )
+    planted = {"keep/_planted_elsewhere.py", "keep/sync.py"}
+    assert _unaccounted_for(planted, outside) == {"keep/_planted_elsewhere.py"}
+
+    inside = outside.replace(
+        "| Something | 0.9.0 | `keep/sync.py` |",
+        "| Something | 0.9.0 | `keep/sync.py`, `keep/_planted_elsewhere.py` |",
+    )
+    assert _unaccounted_for(planted, inside) == set()
+
+
+def test_a_missing_capabilities_heading_refuses_rather_than_reading_empty():
+    """Fail closed (I-11): a renamed or deleted heading is a refusal that
+    names the heading, not a silent empty section that would report every
+    module in the package as missing a row."""
+    with pytest.raises(AssertionError, match="Engine capabilities"):
+        _capabilities_section("# Engine\n\n## Design\n\nnothing here\n")
