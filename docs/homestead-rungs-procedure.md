@@ -52,8 +52,9 @@ comments — these are not paraphrased):
 | `L4` | protected — identifies **and** carries a category the law follows |
 | `L5` | sealed — never served on any surface |
 
-Higher is more restricted (`rungs.py:3`). Two properties are structural rather
-than incidental (`rungs.py:14-33`):
+Higher is more restricted (`rungs.py:3`). Four rules are structural rather than
+incidental — the module's own count and its own word, *"four rules live here
+rather than in prose"* (`rungs.py:12`), stated at `rungs.py:14-33`:
 
 * **I-14 — a rung is a string, never an integer.** `L3`, not `3`. Trust runs
   the *other* direction elsewhere in the stack (ascending privilege), so a
@@ -140,17 +141,19 @@ citation:
 * **immigration** — named in the same quoted passage
   (`docs/DECISION-redisclosure.md:140-143`).
 
-**(reconstructed, unconfirmed in this tree)** — the plan that commissioned
-this document also lists **religion**, **union** (membership), and
-**criminal** (history) as step-3 categories. This tree has **zero** hits for
-any of those three terms anywhere under `homestead/` or `docs/`. The nearest
-verified text — the quoted `homestead-rungs.md` passage above — instead names
+**(reconstructed, unconfirmed anywhere available here)** — three further
+categories a reader arriving from general data-protection practice might
+expect — **religion**, **union** membership, **criminal** history — are
+attested by **nothing this reconstruction can read**: zero hits for any of the
+three anywhere under `homestead/` or `docs/`, and none in the build-out plan
+that commissioned this document either. The nearest verified text — the
+quoted `homestead-rungs.md` passage above — instead names
 "discipline," "likeness," and "privileged communications" alongside health,
 money, minors, substance-use and immigration. Whether religion/union/criminal
-are additional categories the real document lists elsewhere, or a
-misremembering in the plan, cannot be settled from this tree. Treat the
+are additional categories the real document lists elsewhere, or simply are
+not part of this model, cannot be settled from this tree. Treat the
 religion/union/criminal trio as **unverified** until `homestead-rungs.md` is
-read directly.
+read directly; this document asserts no source for them, because it has none.
 
 **Step 4 — key material, a refusal, privilege, or a sealing order?** → `L5`,
 and `L5` has no override anywhere (I-13). `classify_schema`'s refusal message
@@ -161,10 +164,11 @@ verbatim as "step 4": `custody.py:117-121`, `bankruptcy.py:96-101` — "key
 material — sealed, and L5 has no override anywhere (step 4)."
 
 Step 3 and step 4 are sequenced, not merged: a field can pass step 2 or 3 and
-still not clear step 4. Both packs say this explicitly of `case_number`: "step
-2, then step 4 does not raise it" (`custody.py:62-68`, `bankruptcy.py:72-77`
-for `creditors`) — resolving to a person, or carrying financial content, does
-not by itself reach `L5` unless one of the four step-4 clauses is also true.
+still not clear step 4. Both packs write that sequencing out in the same
+words, "step 2, then step 4 does not raise it" — custody of `case_number`
+(`custody.py:62-68`), bankruptcy of `creditors` (`bankruptcy.py:72-77`) —
+because resolving to a person, or carrying financial content, does not by
+itself reach `L5` unless one of the four step-4 clauses is also true.
 
 **Step 5 — record the matter and the jurisdiction alongside the rung.** The
 *same field name* takes a different rung depending on the matter it is filed
@@ -192,8 +196,11 @@ hold a matter to its own declared fields.
 ## 3 · The crossing table — surfaces × ceilings
 
 `homestead/keep/surfaces.py` defines five surface members over four "S"
-groups (`surfaces.py:69-86`); `homestead/keep/rungs.py`'s `_CEILING` gives each
-surface two ceilings — the highest rung whose **payload** renders with no
+groups (`surfaces.py:69-86`), and the "What it is" column below is each
+member's own `SurfaceFacts.what` (`surfaces.py:110-136`) verbatim, with this
+document's own gloss in brackets where it adds one. `homestead/keep/rungs.py`'s
+`_CEILING` gives each surface two ceilings — the highest rung whose **payload**
+renders with no
 purpose declared, and the highest with one declared (`rungs.py:497-500,
 531-537`):
 
@@ -202,16 +209,19 @@ purpose declared, and the highest with one declared (`rungs.py:497-500,
 | `S1_LIST` | the operator's own screen, list pane — ambient | `L3` | `L3` (no lift) |
 | `S1_DETAIL` | the operator's own screen, detail pane — opened deliberately | `L4` | `L4` (no lift; opening the pane *is* the declaration) |
 | `S2_PROMPT` | a local model's context window | `L2` | `L2` (no lift) |
-| `S3_AGENT` | agent retrieval over MCP stdio, never a listening port (I-30) | `L2` | `L2` (no lift) |
-| `S4_EGRESS` | egress — drafts, exports, filings, manifests; the only surface that leaves the machine | `L2` | `L4` |
+| `S3_AGENT` | agent retrieval over MCP stdio [never a listening port — I-30] | `L2` | `L2` (no lift) |
+| `S4_EGRESS` | egress — a draft, an export, a filing, a manifest [the only member with `leaves_the_machine=True`] | `L2` | `L4` |
 
-**A purpose lifts on `S4` and nowhere else.** This is stated directly:
-*"S3's column was closed on 2026-08-05 ... A purpose lifts on S4 alone"*
-(`rungs.py:50-56`), and the `_CEILING` comment repeats it per row
-(`rungs.py:502-530`): S1 list, S1 detail, S2 and S3 all show the same ceiling
+**A purpose lifts on `S4` and nowhere else.** This is stated directly, in
+those words: *"A purpose lifts on S4 and nowhere else. S3's column was closed
+on 2026-08-05"* (`rungs.py:50-51`); the `Purpose` docstring says it again —
+*"A purpose now lifts on **S4 alone**"* (`rungs.py:169`) — and the `_CEILING`
+comment repeats it per row (`rungs.py:502-530`): S1 list, S1 detail, S2 and S3
+all show the same ceiling
 in both columns; only `S4_EGRESS` moves, from `L2` to `L4`. `_check_crossing()`
-(`rungs.py:540-592`) enforces four properties of this table at import, so a
-future surface cannot silently violate them:
+(`rungs.py:540-592`) enforces five properties of this table at import, so a
+future surface cannot silently violate them (a sixth check rejects a `_CEILING`
+key that is not a `Surface` at all, `rungs.py:556-557`):
 
 1. every `Surface` member has a `_CEILING` entry (no BUG-6-shaped gap);
 2. every ceiling is a `Rung`, never a bare integer (I-14);
@@ -258,7 +268,7 @@ that stands in for the payload wherever the payload itself may not render.
 `_check_crossing()` computes as everything strictly between the lowest ceiling
 any surface has and `L5` (`rungs.py:585-592`) — today that computes to `{L3,
 L4}`. A rung needing a derived form and not carrying one is a build failure
-(`rungs.py:702-706`), citing BUG-5 by name: *"a withheld payload with nothing
+(`rungs.py:702-710`), citing BUG-5 by name: *"a withheld payload with nothing
 in its place is the screen saying 'Excluded from drafting' over a packet that
 still contains the fact."*
 
@@ -274,10 +284,17 @@ derived sentence restates neither
   a prompt or an agent; their derived forms say a category exists ("a
   substance-use treatment record exists in this matter," quoted at
   `docs/DECISION-redisclosure.md:95`) without naming who;
-* **a date** — no worked derived form in this tree includes a date; the
-  parenting-time example replaces a specific schedule with a recurrence shape;
 * **nor a magnitude** — the derived form for a financial field states that an
   obligation or category exists, not its amount.
+
+**A derived form does not, however, drop every date, and this document will
+not claim it does.** The model's own worked `L4` example in this tree is
+dated: `Classified(Rung.L4, ime, derived="Medical records response due Aug
+15")`, introduced as *"The spec's own worked example, run"*
+(`tests/test_invariants_surfaces.py:1045-1062`; the same string again at
+`:1446`, and as an `AmbientRow` at `:1041`). What the worked forms drop is the
+payload — the diagnosis, the impairment percentage, the schedule — not every
+digit in the sentence that replaces it.
 
 `Classified.__post_init__` checks only that a derived string is present and
 non-blank (`rungs.py:702-704`); it explicitly does **not** check that the
@@ -287,8 +304,11 @@ replaces — that is the re-identification judgement the spec puts on a human at
 classification time"* (`rungs.py:674-678`). The stronger, mechanical version of
 this rule — every `L3`/`L4` field's derived form contains no digits — is a
 **planned** test (the build-out plan's E1-pack-contract bite), not a check
-this tree enforces today. This document states the rule the packs already
-follow by hand; it does not claim the rule is machine-checked yet.
+this tree enforces today — and it is **stricter than the practice above**,
+since "Medical records response due Aug 15" would not survive it. Whoever
+lands that bite is making that trade deliberately, not inheriting it from this
+document. What this section states is the rule the packs already follow by
+hand; it does not claim the rule is machine-checked yet.
 
 ## 5 · The advisory content matcher — argues a rung up, never down
 
@@ -322,7 +342,7 @@ decisions," item 5), which states the ledger's rungs as settled in its bite 1:
 
 The same source states these are "declared at schema-definition time;
 unclassified fails the build" — the same I-11 build-failure discipline as the
-law packs, applied to money fields. `/home/user/homestead-law/README.md:79`
+law packs, applied to money fields. `/home/user/homestead-law/README.md:84`
 independently confirms the general rule this table is an instance of: *"I-11
 — absence fails closed to L5 at the storage boundary. A row whose rung is
 missing, unreadable, or whose payload will not decode reads L5 on the way
@@ -347,16 +367,16 @@ from surrounding text rather than quoted from a single named line.
 | I-3 | One source for every derived fact — `overdue` and `days_until` cannot disagree because there is only one of them. | `homestead/keep/dates.py:18-22` |
 | I-4 | FRCP 6(a) counting rules; an unknown jurisdiction is refused, never silently treated as federal. | `tests/test_dates_corpus.py:593-594, 784-787` |
 | I-5 | No free text for a date/snooze — an unreadable date is a visible refusal, never a guess or a silent `None`. | `homestead/keep/dates.py:24-28` |
-| I-6 | The canonical record is read-only, enforced by type (`Canonical` has no write/update/delete). | `homestead/keep/record.py:13-19` |
-| I-7 | One key derivation — `key(matter, item_type, item_id)` is the only place those three become a path. | `homestead/keep/record.py:21-24` |
-| I-8 | An unparseable or sealed deadline becomes a recorded gap, never dropped or defaulted. | `homestead/keep/store.py:93-95, 325` |
-| I-9 | Writes never silently overwrite — `put()` refuses an occupied key or reports what it replaced. | `homestead/keep/record.py:26-27` |
+| I-6 | The canonical record is read-only, enforced by type (`Canonical` has no write/update/delete). | `homestead/keep/record.py:10-14` |
+| I-7 | One key derivation — `key(matter, item_type, item_id)` is the only place those three become a path. | `homestead/keep/record.py:16-19` |
+| I-8 | An unparseable deadline becomes a recorded gap — surfaced, never dropped or defaulted (a *sealed* one is a different case: it never becomes a `Due` at all). | `homestead/keep/store.py:91-95, 322-325` |
+| I-9 | Writes never silently overwrite — `put()` refuses an occupied key or reports what it replaced. | `homestead/keep/record.py:21-22` |
 | I-10 | **Unknown in this tree.** Zero references anywhere under `homestead/` or `docs/`. | — |
 | I-11 | Absence fails closed, twice: an unclassified field is a build failure; an unreadable rung reads `L5` at runtime. | `homestead/keep/rungs.py:24-29`, `classify_schema` (`:862-966`) |
 | I-12 | Composition is `max`, everywhere — a projection never lowers a rung. | `homestead/keep/rungs.py:19-23` |
 | I-13 | `L5` has no override anywhere; `L4` never reaches a prompt. Checked at import, not trusted as a conditional. | `homestead/keep/rungs.py:30-33`, `_check_crossing` (`:540-592`) |
 | I-14 | A rung is a string, never an integer — `L3`, not `3`. | `homestead/keep/rungs.py:14-17, 145-150` |
-| I-15 | References, never content, in logs and errors — an advisory or log names a field, never echoes an L3+ value. | `homestead/keep/advise.py` (per `docs/DECISION-advisory-matcher.md`), `README.md`'s I-22/I-15 row |
+| I-15 | (reconstructed) References, never content, in logs and errors — an advisory or log names a field, never echoes an L3+ value. | `homestead/keep/advise.py` (per `docs/DECISION-advisory-matcher.md`), `README.md`'s I-22/I-15 row |
 | I-16 | One chokepoint — a payload may be reached only by the gate and the store; any other reach is a build failure, enforced by AST scan. | `homestead/keep/rungs.py:95-104`, `tests/test_invariants_chokepoint.py` |
 | I-17 | No network egress by default — `send()` refuses unless a per-call act is shown exactly what will go. | `homestead/keep/egress.py:1-16` |
 | I-18 | Any pattern that could match PII is anchored and tested against PII negatives (F-3's lesson — an address must not wear a citation's shape). | `homestead/keep/patterns.py:1-16` |
@@ -438,8 +458,8 @@ are **not ratified**. An auditor ratifies each as its bite lands.
 * **The step-3 category list is incomplete and partly unverified.** Only
   minor, medical, substance use, financial/money and immigration are backed by
   a direct quote or a pack's `why` string in this tree. Religion, union, and
-  criminal — named in the plan that commissioned this document — have zero
-  hits anywhere in this repo and are flagged unverified in § 2.
+  criminal have zero hits anywhere in this repo *and* none in the build-out
+  plan; they are named in § 2 only to be flagged unverified, on no source.
 * **I-10, I-34, I-24 and I-25 are gaps, not settled facts.** I-10 and I-34 are
   wholly unattested; I-24 and I-25 are attested only as "analogs," never
   defined on their own terms.
