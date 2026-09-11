@@ -446,3 +446,49 @@ def test_the_rule_table_guard_fires_on_a_planted_status_flip():
 
     missing = {name: dict(row) for name, row in real.items() if name != "US-NM"}
     assert any("undocumented: ['US-NM']" in p for p in _rule_table_disagreements(missing))
+
+
+# ── guard 10: the dates module's own front door names its jurisdictions ─────
+#
+# `keep/dates.py`'s opening line — "One `Deadline` type, one strict parser,
+# and the FRCP 6(a) counting rules" — was written when there was one rule
+# row, and `RULES` grew `US-NM` and `US-OR` in 0.6.0 without it. A module
+# docstring is where a reader decides whether this engine knows their state;
+# the doc site nearest the code is the one that goes stale in silence.
+
+DATES_PY = ROOT / "homestead" / "keep" / "dates.py"
+
+
+def _jurisdictions_missing_from(docstring: str, names: list[str]) -> list[str]:
+    """Every jurisdiction in `names` the module docstring never mentions."""
+    return [name for name in names if name not in docstring]
+
+
+def test_the_dates_docstring_names_every_jurisdiction_it_implements():
+    from homestead.keep.dates import RULES
+
+    docstring = ast.get_docstring(ast.parse(DATES_PY.read_text("utf-8"))) or ""
+    missing = _jurisdictions_missing_from(docstring, sorted(RULES))
+    assert not missing, (
+        f"{DATES_PY.name}'s module docstring implements {missing} and never "
+        "says so. A rule table a reader cannot find from the front door is a "
+        "rule table they will assume is not there."
+    )
+
+
+def test_the_dates_docstring_guard_fires_on_a_planted_omission():
+    """A scan that has never fired has not been shown to check anything: the
+    docstring as it stood before this audit — federal only — must be caught
+    for both state rows, and the corrected one must come back clean."""
+    before = "One Deadline type, one strict parser, and the FRCP 6(a) counting rules."
+    assert _jurisdictions_missing_from(
+        before, ["US-federal", "US-NM", "US-OR"]
+    ) == ["US-federal", "US-NM", "US-OR"]
+
+    partial = "Counting for US-federal and US-NM."
+    assert _jurisdictions_missing_from(
+        partial, ["US-federal", "US-NM", "US-OR"]
+    ) == ["US-OR"]
+
+    docstring = ast.get_docstring(ast.parse(DATES_PY.read_text("utf-8"))) or ""
+    assert _jurisdictions_missing_from(docstring, ["US-federal", "US-NM", "US-OR"]) == []
