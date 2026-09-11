@@ -110,9 +110,13 @@ citation is `volume reporter page`, and the reporter is one of a **closed set** 
 published abbreviations, not any capitalized word — so `1420 Maple 87501` cannot
 wear a citation's shape and be POSTed as one (F-3), and `347 F.3d 1120`, which the
 loose regex missed, is caught. An unknown reporter misses a cite; it never matches
-an address — the safe direction. With it, **every invariant this project's pending
-file ever held red is built and green** (`UNBUILT` is empty). Nothing here is
-installable by anyone who is not building it.
+an address — the safe direction. With it, ~~**every invariant this project's pending
+file ever held red is built and green** (`UNBUILT` is empty)~~ — true until
+2026-09-11, when `tests/test_invariants_pending.py` was reseeded with the sync and
+fleet wave: `keep.sync`, `keep.household`, `keep.fleet_cli` and `app.reveal` are
+red again, and six invariants (I-37…I-40, I-32, I-33) are claims rather than code.
+Everything that file ever held **before** that date is built and green. Nothing here
+is installable by anyone who is not building it.
 
 ## The method
 

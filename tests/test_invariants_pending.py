@@ -15,7 +15,6 @@ from __future__ import annotations
 import ast
 import importlib
 import importlib.util
-import inspect
 import json
 from pathlib import Path
 
@@ -89,9 +88,12 @@ UNBUILT = {
     # failed the moment the module existed and would not go green again until it
     # was moved and struck from this dict.
     #
-    # 2026-09-11 — E1-pending (docs/PLAN-affairs-face.md,
-    # "so-lets-plan-it-sparkling-shell") reseeds this dict for the sync/fleet
-    # wave, four modules at once rather than one:
+    # 2026-09-11 — E1-pending, bite 7 of the affairs build-out plan
+    # ("so-lets-plan-it-sparkling-shell"), reseeds this dict for the sync/fleet
+    # wave, four modules at once rather than one. **That plan is not in this
+    # repo yet**: it lands as `docs/PLAN-affairs-face.md` in its own Wave 7
+    # bite, so until then the citations below are to the plan by name, and
+    # every claim they carry is restated here rather than pointed at.
     #
     #   * `homestead.keep.sync` and `homestead.keep.household` — Wave 4
     #     (E4-sync-core). I-37 (sync is an operator-authored act — a refused
@@ -101,12 +103,19 @@ UNBUILT = {
     #     fleet ingest never listens and lazy-imports psycopg) keys on it.
     #   * `homestead.keep.sync` again for I-40 (an unnamed scope syncs
     #     nothing) — `SyncScope` is declared there per the plan's Decision 5.
-    #   * `homestead.app.reveal` — a later UI wave (I-32/I-33), carried over
-    #     from Phase 2's own list ("Deliberately not included": *"the I-32
-    #     reveal timer (pending test only)"*) and PHASE2-SURFACES.md's open
-    #     items 2 ("May the rung indicator say something is sealed?") and its
-    #     "No `L4` timeout" gap. Both tests are written against a **provisional**
-    #     API (`reveal.open`/`reveal.expire`) — see their docstrings.
+    #   * `homestead.app.reveal` — a later UI wave (I-32/I-33). The affairs
+    #     plan's "Deliberately not included" list keeps it there for now (*"the
+    #     I-32 reveal timer (pending test only)"*), so the claims are Phase 2's
+    #     and only the deferral is this plan's: docs/PHASE2-SURFACES.md, "What
+    #     this does **not** cover" ("No `L4` timeout … `S1_DETAIL` here says
+    #     *may*, not *for how long*") and product decision 2, whose original
+    #     text is the question "May the rung indicator say that something is
+    #     sealed?". Decision 2 is **ratified** — the indicator may not say `L5
+    #     present` — and "needs Phase 4" because there is no renderer; I-33
+    #     below tests the singular-indicator half only, not the ratified L5
+    #     half, which belongs to the bite that builds the pane. Both tests are
+    #     written against a **provisional** API (`reveal.open`/`reveal.expire`)
+    #     — see their docstrings.
     #
     # These invariant numbers are themselves provisional (I-37…I-40; the plan's
     # Decision 10) until an audit ratifies them alongside the code that builds
@@ -173,18 +182,22 @@ def test_pending_liveness():
 
 # I-18 (`homestead.keep.patterns`) was promoted to
 # tests/test_invariants_patterns.py — the last pending invariant to land, leaving
-# UNBUILT empty. Every claim this file once made red is now built and green.
+# UNBUILT empty. Every claim this file once made red was then built and green —
+# which held until 2026-09-11, when the section below reseeded the dict.
 
 
 # ── Wave 4/5 · sync, the fleet, and a reveal that expires ───────────────────
 #
-# Seeded 2026-09-11, E1-pending (docs/PLAN-affairs-face.md). Every module named
-# below imports inside the test body, per the mechanism this file documents —
-# so each of these fails today (`ModuleNotFoundError`, or here and there a
-# missing name on a module that already exists for another reason), is caught
-# by `xfail(strict=True)`, and goes XPASS-strict — a build failure, on purpose
-# — the day the real module makes it pass. That is the promotion signal; the
-# assertions below are what should still be true once it fires.
+# Seeded 2026-09-11, E1-pending (the affairs build-out plan; see the note in
+# UNBUILT above for where it lives). Every module named below is reached inside
+# the test body, per the mechanism this file documents — four by import, and
+# `fleet_cli` by `find_spec` alone, because the violation *that* test guards
+# against is a top-level import that would kill it before it could assert. So
+# each of these fails today (`ModuleNotFoundError`, a missing spec, or here and
+# there a missing name on a module that already exists for another reason), is
+# caught by `xfail(strict=True)`, and goes XPASS-strict — a build failure, on
+# purpose — the day the real module makes it pass. That is the promotion signal;
+# the assertions below are what should still be true once it fires.
 
 
 def _lines(path):
@@ -194,6 +207,21 @@ def _lines(path):
     if not path.exists():
         return []
     return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+
+
+def _keys(obj):
+    """Every mapping key anywhere inside a decoded JSON value.
+
+    A ledger entry is a tree, so `"value" not in entry` only ever asked about
+    its first level — and a nested row carrying a payload sat one level below
+    that, unseen. This walks the whole thing."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield k
+            yield from _keys(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            yield from _keys(v)
 
 
 @pending(
@@ -208,8 +236,18 @@ def test_i37_a_sync_is_an_operator_authored_act(tmp_path, monkeypatch):
     refuses with no `confirm`; Decision 5 says the sync act inherits that same
     refusal rather than re-deciding it, so `sync.deliver(envelope, confirm=None)`
     must raise the identical `EgressRefused` — and because a refused act is not
-    an act, it must not touch either log: no `IntegrityLog` entry, no
-    `VisibleLog` line.
+    an act, it must not touch either log and must leave nothing at the
+    destination: no `IntegrityLog` entry, no `VisibleLog` line, no file drop.
+
+    **A destination is supplied on purpose**, and the audit is why. Called with
+    neither `url=` nor `drop_dir=`, a wholly I-37-compliant `deliver` that
+    validates its destination before its confirmation raises `ValueError`, not
+    `EgressRefused` — and this test then stays red for a reason that has nothing
+    to do with the invariant, forever, which is exactly the R-6 trap this file's
+    own `UNBUILT` comment describes. Reproduced against a simulated
+    `keep/sync.py` during the E1-pending audit. With `drop_dir=` given, the only
+    thing missing from the call is the operator's act, so a refusal can only
+    mean the one thing this test is about.
 
     Provisional I-37 (the plan's Decision 10, ratified by audit alongside the
     code). Promotes to tests/test_invariants_sync.py when Wave 4's
@@ -225,11 +263,16 @@ def test_i37_a_sync_is_an_operator_authored_act(tmp_path, monkeypatch):
     scope = sync.SyncScope(matters=("custody",), item_types=None, ceiling=Rung.L3, tables=("sidecar",))
     envelope = sync.compose({"sidecar": Sidecar()}, scope)
 
+    drop = tmp_path / "drop"
     with pytest.raises(EgressRefused):
-        sync.deliver(envelope, confirm=None)
+        sync.deliver(envelope, confirm=None, drop_dir=drop)
 
     assert _lines(logs.IntegrityLog().path) == [], "a refused sync writes no integrity entry"
     assert logs.VisibleLog().read() == [], "a refused sync writes no visible line"
+    assert not (drop.exists() and any(drop.iterdir())), (
+        "a refused sync leaves nothing at the destination either — the act did "
+        "not happen, so no envelope was dropped"
+    )
 
 
 @pending(
@@ -268,8 +311,15 @@ def test_i38_an_envelope_is_ledgered_once_with_references_only(tmp_path, monkeyp
     assert entry["act"] == "record_synced"
     for field in ("household", "envelope", "purpose", "scope", "rows", "destination"):
         assert field in entry, f"missing {field!r} — the entry must name the act by reference"
+    # Checked at **every** depth, not just the top level. A top-level-only check
+    # passed an entry whose `rows` field held the envelope's whole row list, each
+    # row carrying its own `"value"` — reproduced against a simulated
+    # `keep/sync.py` during the E1-pending audit. Only the substring check below
+    # caught it, and that one is blind to a leaked *derived* form, which is
+    # content too (I-15 bans the value, not one spelling of it).
+    keys = set(_keys(entry))
     for banned in ("value", "payload", "derived"):
-        assert banned not in entry, f"the ledger carries references, never content ({banned!r})"
+        assert banned not in keys, f"the ledger carries references, never content ({banned!r})"
     raw = json.dumps(entry)
     assert SECRET_DATE not in raw, "no served value may appear in the ledger (I-15)"
     assert entry["household"] == envelope.household
@@ -291,12 +341,28 @@ def test_i39_the_fleet_ingest_never_listens_and_lazy_imports_psycopg():
     ingest command is exactly the code someone reaches for `socketserver` in,
     and I-27's import scan reads only `pyproject.toml`'s `dependencies`, so a
     module-level `import psycopg` would run clean in CI and only fail on a
-    machine without the `fleet` extra installed. Two static checks, over the
-    actual source (an AST scan, not a runtime import of `psycopg`-touching
-    code): `homestead/keep/fleet_cli.py` contains none of the I-30 banned call
-    names (`tests/test_invariants_shape.py`'s list); and neither it nor the
-    `PostgresAdapter` region of `homestead/keep/store.py` imports `psycopg` at
-    module level — it may only be reached inside a function body.
+    machine without the `fleet` extra installed. So the checks are static, over
+    the actual source (an AST scan, not a runtime import of `psycopg`-touching
+    code): `homestead/keep/fleet_cli.py` declares `main` — the console script's
+    entry point, so an empty file does not satisfy this test — and contains none
+    of the I-30 banned call names (`tests/test_invariants_shape.py`'s list); and
+    neither it nor the `PostgresAdapter` region of `homestead/keep/store.py`
+    imports `psycopg` at module level — it may only be reached inside a function
+    body.
+
+    **Nothing here is imported, and that is the point.** The first version of
+    this test called `importlib.import_module("homestead.keep.fleet_cli")` to
+    find the file, which meant that the one violation it exists to catch — a
+    top-level `import psycopg` — killed the test with `ModuleNotFoundError`
+    before a single assertion ran, on every machine without the `fleet` extra,
+    which is the default `test` job. The suite stayed red, so nothing shipped;
+    but it was red in a way that reads as "the extra is not installed", and the
+    obvious next move is a `skipif` that switches the guard off precisely where
+    it is needed. Reproduced against a simulated `keep/fleet_cli.py` during the
+    E1-pending audit. `find_spec().origin` locates the source without executing
+    it, so the scan answers for the file rather than for this machine's
+    packages. The same for `store.py`, which the suite happens to import
+    anyway — one mechanism, no exception to remember.
 
     Provisional I-39. Promotes to tests/test_invariants_fleet.py when Wave 4's
     E4-postgres-fleet builds `homestead.keep.fleet_cli` and `store.PostgresAdapter`.
@@ -321,14 +387,20 @@ def test_i39_the_fleet_ingest_never_listens_and_lazy_imports_psycopg():
                 return True
         return False
 
-    fleet_cli = importlib.import_module("homestead.keep.fleet_cli")
-    fleet_tree = ast.parse(Path(inspect.getfile(fleet_cli)).read_text(encoding="utf-8"))
+    def source(module: str) -> ast.Module:
+        """The module's own text, located without importing it."""
+        spec = importlib.util.find_spec(module)
+        assert spec is not None and spec.origin, f"{module} must exist, as a file"
+        return ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
+
+    fleet_tree = source("homestead.keep.fleet_cli")
+    assert any(
+        isinstance(node, ast.FunctionDef) and node.name == "main" for node in fleet_tree.body
+    ), "fleet_cli must declare main() — `homestead-fleet ingest`'s entry point"
     assert not offenders(fleet_tree), "the fleet ingest must never listen (I-30)"
     assert not toplevel_psycopg(fleet_tree), "psycopg must be lazy, not a top-level import (I-27)"
 
-    from homestead.keep import store
-
-    store_tree = ast.parse(Path(inspect.getfile(store)).read_text(encoding="utf-8"))
+    store_tree = source("homestead.keep.store")
     pg_class = next(
         (n for n in ast.walk(store_tree) if isinstance(n, ast.ClassDef) and n.name == "PostgresAdapter"),
         None,
@@ -351,6 +423,16 @@ def test_i40_an_unnamed_scope_syncs_nothing(tmp_path, monkeypatch):
     one rung `serve()` never crosses), must both refuse at construction — not
     compose an envelope with nothing or everything in it.
 
+    **The positive control is load-bearing.** Two refusals and nothing else is a
+    test any number of non-implementations satisfy, and the audit built both:
+    a `SyncScope` that validates *nothing* but spells its parameters differently
+    raises `TypeError` twice and passes; so does one whose constructor raises
+    unconditionally. Either would XPASS-strict and be promoted out of this file
+    as a green test that had never once exercised the invariant — the R-6 trap,
+    landed. So a named scope within the ceiling must construct first, and a
+    refusal that is a `TypeError` is rejected by name: a changed signature is
+    not a refusal, it is a different function.
+
     Provisional I-40. Promotes to tests/test_invariants_sync.py alongside
     I-37/I-38.
     """
@@ -358,10 +440,23 @@ def test_i40_an_unnamed_scope_syncs_nothing(tmp_path, monkeypatch):
     from homestead.keep import sync
     from homestead.keep.rungs import Rung
 
-    with pytest.raises(Exception):
-        sync.SyncScope(matters=(), item_types=None, ceiling=Rung.L3, tables=("sidecar",))
-    with pytest.raises(Exception):
-        sync.SyncScope(matters=("custody",), item_types=None, ceiling=Rung.L5, tables=("sidecar",))
+    named = sync.SyncScope(
+        matters=("custody",), item_types=None, ceiling=Rung.L3, tables=("sidecar",)
+    )
+    assert named is not None, "a scope the operator named, under the ceiling, is allowed"
+
+    for kwargs, why in (
+        (dict(matters=(), item_types=None, ceiling=Rung.L3, tables=("sidecar",)),
+         "a scope naming no matters"),
+        (dict(matters=("custody",), item_types=None, ceiling=Rung.L5, tables=("sidecar",)),
+         "a scope whose ceiling is L5"),
+    ):
+        with pytest.raises(Exception) as caught:
+            sync.SyncScope(**kwargs)
+        assert not isinstance(caught.value, TypeError), (
+            f"{why} was refused with a TypeError — that is what a changed "
+            "constructor signature raises, not a scope declining to sync"
+        )
 
 
 @pending(
