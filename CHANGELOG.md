@@ -20,6 +20,13 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.10.0](https://github.com/homestead-affairs/homestead/compare/v0.9.0...v0.10.0) (2026-09-11)
+
+
+### Added
+
+* IntegrityLog takes an optional HMAC-SHA256 key ([#64](https://github.com/homestead-affairs/homestead/issues/64)) ([f41cbce](https://github.com/homestead-affairs/homestead/commit/f41cbcefbb45f0bac7f0fbbf8620c229dff2d582))
+
 ## [0.9.0](https://github.com/homestead-affairs/homestead/compare/v0.8.0...v0.9.0) (2026-09-11)
 
 
