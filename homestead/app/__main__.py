@@ -31,6 +31,13 @@ def _integrity_main(argv: list[str]) -> int:
     docs/DECISION-integrity-key-management.md. Neither subcommand ever prints
     key material: `init-key` reports only the path it wrote to, `verify`
     reports only keyed/unkeyed and the boolean result.
+
+    Three exit codes, because `verify()` gives three answers and collapsing
+    them would make a cron job read "cannot tell" as "tampered" (or worse,
+    the other way round): **0** clean, **1** the chain or the anchor does not
+    hold, **2** this command line does not parse, **3** refused by name — an
+    `IntegrityKeyError`, which is "the key needed to even ask the question is
+    missing or broken," never a finding about the log.
     """
     from homestead.keep import export
     from homestead.keep.logs import IntegrityKeyError, IntegrityLog, init_key
@@ -41,19 +48,25 @@ def _integrity_main(argv: list[str]) -> int:
         return 2
 
     if argv[0] == "init-key":
+        if argv[1:]:
+            print(usage, file=sys.stderr)
+            return 2
         try:
             path = init_key()
         except IntegrityKeyError as exc:
             print(f"homestead integrity init-key: refused — {exc}", file=sys.stderr)
-            return 1
+            return 3
         print(f"homestead: integrity key created at {path}")
         return 0
 
-    # verify
+    # verify. An argument this does not understand is a usage error, never a
+    # silent fall-through to the default ledger: `verify --pat x` answering
+    # "ok" about a log the operator did not name is the worst failure this
+    # command has (I-11 — refuse, never default).
     rest = argv[1:]
     custom_path = None
-    if rest[:1] == ["--path"]:
-        if len(rest) < 2:
+    if rest:
+        if rest[0] != "--path" or len(rest) != 2:
             print(usage, file=sys.stderr)
             return 2
         custom_path = rest[1]
@@ -62,7 +75,7 @@ def _integrity_main(argv: list[str]) -> int:
         ok = log.verify()
     except IntegrityKeyError as exc:
         print(f"homestead integrity verify: refused — {exc}", file=sys.stderr)
-        return 1
+        return 3
     kind = "keyed" if log.keyed else "unkeyed"
     print(f"homestead: {kind} — verify: {'ok' if ok else 'FAILED'}")
     return 0 if ok else 1

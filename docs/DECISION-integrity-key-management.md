@@ -1,8 +1,24 @@
 # The integrity key: no escrow, no server, one file — decision brief
 
-Status: **Proposed.**
+Status: **Ratified with amendments, 2026-09-11.** The shape stands — one key,
+one path, `O_EXCL`, no escrow, a three-state `keyed` knob, a boundary row —
+and **one central claim did not hold as written and is corrected here**: §1
+said a forger who can rewrite the log and the anchor "still cannot produce a
+matching HMAC without also reading the key," which is true and beside the
+point, because they do not need to. They delete the boundary row, re-chain the
+survivors with the public SHA-256 they can compute, and offer a log that was
+never keyed. The audit reproduced that attack, it verified clean against a
+verifier *holding the key*, and it is now closed as far as anything on this
+machine can close it (§4a) with the residual pinned by a test rather than
+described. Two smaller claims were also corrected: §5 described a planted CLI
+test that did not exist (it does now), and the AST guard it names checked only
+functions spelled `verify` while every digest `verify()` compares is computed
+one call deeper.
 author: the build seat
-verified_by:
+verified_by: the audit seat, 2026-09-11
+
+*Status as proposed, kept:* **Proposed.** — with the note below, which is the
+right instinct and was worth acting on.
 
 **Proposed here, to be ratified by another hand** — `verified_by ≠ author`, as
 with the decision briefs before it. This one recommends a specific, narrow
@@ -31,10 +47,12 @@ not go away for a log that never opts in.
 For a log that does: `IntegrityLog` gains an optional 32-byte key, and both
 the line hash and the anchor become `hmac.new(key, ..., sha256)` instead of a
 bare digest. Forging a consistent chain now requires the key file, which does
-**not** live next to the log or the anchor it seals — see §3. An attacker who
+**not** live next to the log or the anchor it seals — see §3. ~~An attacker who
 can edit the log and the anchor still cannot produce a matching HMAC without
-also reading the key. This closes exactly the gap the module docstring names;
-it does not:
+also reading the key. This closes exactly the gap the module docstring
+names~~ **Corrected at ratification:** true, and not the whole question — an
+attacker who cannot forge an HMAC can *remove* the reason one is expected.
+What closes the gap is §4a, not the HMAC alone. This does not:
 
 * **make the log unreadable.** Content is still plaintext JSON lines. Sealing
   that (AES-256-GCM, `keep/sealed.py`) is Phase 4 (E6), a separate extra
@@ -132,6 +150,96 @@ final anchor recomputed exactly as an attacker without the key would) fails
 documented gap — still succeeds, so the test states the gain rather than
 just the presence of a key.
 
+## 4a · The downgrade, the marker beside the key, and the residual
+
+**Added at ratification**, because the audit's first attack got through.
+
+A boundary row is a row in a file the attacker is already rewriting. Delete
+it, re-link the surviving lines with plain SHA-256 — which needs no key — and
+write a bare-hex anchor, and `verify()` sees a log that never turned keyed and
+reports it clean. Holding the key does not help: nothing in the log any longer
+claims a key was ever involved. Truncating to the pre-boundary prefix is the
+same attack with less typing. Both were reproduced against the proposed
+implementation and both verified clean.
+
+So the turning point is written in a **second place**, beside the key rather
+than inside the log: `paths.anchors_dir() / "integrity.keyed"`, one
+`0600` line per log, `<sha256 of the log's resolved path> <a commitment to the
+boundary row's keyed hash>`. Three choices in that line, each for a reason:
+
+* **a digest of the path, not the path**, so the marker discloses nothing
+  about what the household keeps or where;
+* **the boundary row, not merely the fact of one**, so that re-keying a
+  downgraded log with an ordinary next `append()` cannot launder the alarm
+  away — the marker records *which* row, and a fresh one does not match;
+* **a commitment (`sha256("homestead-integrity-boundary:" + h)`), not `h`.**
+  Recording the keyed hash verbatim would publish, in a world-readable-shaped
+  bare-hex file, exactly the head an attacker needs to truncate every keyed
+  line and write a matching `hmac:` anchor. A downgrade guard that opens a
+  truncation oracle is a bad trade; the commitment is checkable by anyone who
+  can recompute the hash (which needs the key) and useless to anyone who
+  cannot. Found by re-reading the first version of this guard adversarially,
+  and pinned (`test_the_marker_is_not_an_anchor_an_attacker_can_copy`). `verify()` then answers a log whose
+marker line outlived its boundary row with **`False`** — a finding about the
+log — and not with `IntegrityKeyError`, which stays reserved for "the key
+needed to even ask the question is missing or broken."
+
+**What this deliberately does not do**, stated because it is the part that
+matters: the marker is one more file on the same machine. An attacker who
+deletes the key, deletes the marker and truncates the log to its pre-boundary
+prefix leaves something indistinguishable from a log that was never keyed —
+because that is now exactly what it is. F-5 is unchanged: a shared OS account
+is not securable by an application, and the key's *absence* cannot be made
+distinguishable from never-having-keyed by any file the same hand can reach.
+This residual is the pre-E5 threat model for an unkeyed prefix, no better and
+no worse, and it is pinned as a passing test
+(`test_the_residual_key_and_marker_gone_and_truncated_verifies_clean`) so that
+a later bite claiming to have closed it has to change that test on purpose.
+The one real closure is unchanged and is named in `logs.py`'s own docstring:
+`verify(expected_head=...)` against a head the operator recorded off the
+machine.
+
+The blunter rule considered first — "a bare-hex anchor while a key file exists
+is a finding" — was rejected and is pinned as a behaviour the code must *not*
+have (`test_a_legacy_log_untouched_since_init_key_still_verifies_clean`). It
+is the normal state of every pre-key log between `init-key` and that log's own
+next append, so it would refuse exactly the legacy logs this bite promises not
+to disturb.
+
+## 4b · A keyed log holds one row no caller wrote
+
+The boundary row is a line in the log, so anything that counts or iterates a
+ledger's lines sees it. `keep/sync.py` establishes "ledgered once" (I-38) that
+way, and its tests assert exact line counts; run against a keyed household,
+two of them fail on `2 == 1` while `deliver` and `_already_delivered`
+themselves are correct (both already filter on `act`). `BOUNDARY_ACT` is
+exported for exactly this, and the rule is: **a consumer counting ledger rows
+skips `entry.get("act") == BOUNDARY_ACT`.** Fixing those two assertions
+belongs to the sync bite, not here — the engine cannot reach into a branch
+that has not merged — and the contract is pinned on this side by
+`test_a_keyed_log_holds_one_row_no_caller_wrote`.
+
+## 4c · What reads as a key file
+
+`bytes.fromhex`'s answer, not a stricter one: surrounding whitespace stripped,
+uppercase accepted, whitespace between byte pairs accepted — all three name
+the same 32 bytes, and an operator restoring the key by hand from a printed
+copy should not be refused over the case of a letter. Anything that does not
+name exactly 32 bytes (63, 65 or 66 hex characters; an empty file; anything
+non-hex) is refused by name. A **missing** file is not an error at all — that
+is just an unkeyed household. All eight cases are pinned.
+
+`anchors_dir()` is created by `paths.ensure` if `init-key` is the first thing
+to need it — an ordinary `mkdir` under the umask, 0755 on a default POSIX box,
+deliberately not tightened: the anchor it holds is meant to be *copyable off
+the machine*, and the key inside it carries `0o600` whatever the umask says
+(pinned with the umask cleared, so the mode is the code's and not the
+environment's). `O_EXCL` also refuses a **symlink** standing at the key path,
+dangling or not, and never follows it — the way a writer would arrange for the
+key to land somewhere they can read it. The refusal says "something already
+exists", not "a key already exists", because at that point we do not know
+which.
+
 The marker's own field name, `act`, is shared with `export.py`'s ledger
 entries (`{"act": Event.EXPORTED.value, ...}`), which is a namespace an
 IntegrityLog entry is otherwise free to fill with anything. `Event` is a
@@ -161,8 +269,17 @@ is comparing values a forger is actively trying to match, and using the
 constant-time comparison everywhere in it rather than reasoning per-branch
 about which comparisons are "hot" is the cheaper thing to get right once. An
 AST guard in `tests/test_invariants_integrity_keyed.py` asserts no `==`/`!=`
-inside `IntegrityLog.verify`, planted against a fixture that uses one, so the
-guard is shown to fire rather than merely exist.
+~~inside `IntegrityLog.verify`~~ **Corrected at ratification:** anywhere in
+`logs.py` on an operand *named* like a digest. Scoped to functions spelled
+`verify` it checked less than it claimed — `verify()` delegates every hash it
+compares to `_hash_at`, `line_hash` and `_recorded_boundary`, so a bare `==`
+moved one call deep passed the guard while making the exact change the guard
+forbids. The operand-name filter is what keeps the wider walk from being
+blanket: `entry.get("act") == BOUNDARY_ACT` compares a sentinel, not a digest,
+and is pinned as a case that must *not* fire. Planted three ways — a bare
+equality in `verify`, one in a helper `verify` calls, and the sentinel
+comparison that must stay legal — so the guard is shown to fire, shown to
+reach past `verify`, and shown not to over-reach.
 
 ## 6 · What the CLI does and does not print
 
@@ -171,8 +288,23 @@ the hex. `homestead integrity verify [--path PATH]` prints `keyed` or
 `unkeyed` and the pass/fail result, never the key or a hash a forger could
 use as a starting point beyond what the log's own anchor file already
 exposes. Both are tested by grepping stdout and stderr for a 64-character hex
-run and asserting there is none — a test that only proves something once it
-is shown capable of failing (planted with a stub that does print the key).
+run and asserting there is none — a test that only proves something once it is
+shown capable of failing. ~~(planted with a stub that does print the key)~~
+**Corrected at ratification:** no such plant existed; the grep had never
+matched anything. It now does, against a line that prints a key and against
+the real line that prints only a path
+(`test_the_hex_grep_used_by_the_cli_tests_is_shown_to_fire`).
+
+**Exit codes**, because `verify()` gives three answers and a cron job reading
+"cannot tell" as "tampered" is the failure this separation exists to prevent:
+**0** clean, **1** the chain or the anchor does not hold, **2** a command line
+that does not parse, **3** refused by name (`IntegrityKeyError`). Added at
+ratification — refusal and failure shared `1`, which threw away the very
+distinction §6's next paragraph insists on. An argument `verify` does not
+understand is a usage error and never a silent fall-through to the default
+ledger: `verify --pat /some/log` answering "ok" about a log the operator did
+not name is the worst thing this command can do (I-11 — refuse, never
+default).
 
 A keyed anchor is written `hmac:<hex>` instead of a bare hex digest (item 6
 of the bite): `homestead integrity verify` needs to say "keyed" or "unkeyed"
@@ -205,6 +337,9 @@ there.
   separate dependency (`cryptography`).
 * **Rotate or escrow the key.** There is exactly one key, at one path, made
   once. A lost key is not recoverable by this application, by design (§3).
+* **Make the key's absence distinguishable from never-having-keyed**, once
+  the log has been truncated to its pre-boundary prefix and the marker
+  deleted. §4a says why no file on this machine can, and pins it.
 * **Change any unkeyed log's on-disk format**, or `append`/`head`/`verify`'s
   signatures. A sibling bite (sync) depends on both staying exactly as they
   were.

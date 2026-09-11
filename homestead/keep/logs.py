@@ -36,7 +36,16 @@ So there are two, with different powers:
     Keyed, `line_hash` is `hmac.new(key, ..., sha256)` instead of a bare
     digest, so a forger who can read and rewrite both the log and the anchor —
     everything on this machine — still cannot produce a valid chain without
-    the key file too. Unkeyed logs (no key ever created, or `keyed=False`)
+    the key file too. What they *can* do is **downgrade**: delete the
+    `{"act": "keyed"}` boundary row, re-chain the survivors with plain
+    SHA-256, write a bare-hex anchor, and offer a log that never turned keyed.
+    That is why the turning point is also recorded beside the key
+    (`MARKER_FILENAME`, `_recorded_boundary`) and a log whose marker line
+    survives its boundary row fails `verify()`. The marker is one more file on
+    the same machine, so deleting the marker *and* the key *and* truncating to
+    the pre-boundary prefix still verifies clean — the residual, unchanged
+    from the pre-key threat model and stated in the DECISION rather than
+    papered over. Unkeyed logs (no key ever created, or `keyed=False`)
     keep the exact gap described above; nothing about a legacy log's on-disk
     format changes. See `docs/DECISION-integrity-key-management.md`. **An
     on-machine anchor detects accident, not an adversary** — there is no
@@ -87,7 +96,7 @@ except ImportError:                     # pragma: no cover - Windows
 __all__ = [
     "VisibleLog", "IntegrityLog", "Event", "line_hash",
     "IntegrityKeyError", "init_key", "read_key", "default_key_path",
-    "KEY_BYTES", "BOUNDARY_ACT",
+    "default_marker_path", "KEY_BYTES", "BOUNDARY_ACT",
 ]
 
 GENESIS = "genesis"
@@ -104,7 +113,17 @@ KEY_BYTES = 32
 #: line and every line after it verify with HMAC. Written once, the first time
 #: `append()` runs while a key is present — never by `init-key` itself, which
 #: only makes the key and does not touch any log.
+#:
+#: **A keyed log therefore holds one row no caller wrote.** Anything that
+#: counts or iterates a ledger's lines — `keep/sync.py`'s "ledgered once"
+#: check is the live example — must skip `entry.get("act") == BOUNDARY_ACT`,
+#: which is why this name is exported rather than being a private literal.
 BOUNDARY_ACT = "keyed"
+
+#: Which logs have turned keyed, recorded beside the key rather than inside
+#: the log an attacker is rewriting. See `_record_keyed` for what this closes
+#: and, precisely, what it does not.
+MARKER_FILENAME = "integrity.keyed"
 
 
 class IntegrityKeyError(Exception):
@@ -142,6 +161,13 @@ def read_key(path: Path | None = None) -> bytes | None:
     A file that exists but is not 64 hex characters IS an error (refused by
     name), because using it anyway would silently produce a chain nothing else
     can ever verify.
+
+    What counts as those 64 characters is `bytes.fromhex`'s answer, not a
+    stricter one of our own: surrounding whitespace is stripped, uppercase is
+    accepted, and so is whitespace *between* byte pairs — all three name the
+    same 32 bytes, and an operator who restored the key by hand from a printed
+    copy should not be refused over the case of a letter. Anything that does
+    not name exactly 32 bytes is refused. Pinned by test.
     """
     path = path or default_key_path()
     if not path.exists():
@@ -169,8 +195,9 @@ def init_key(path: Path | None = None) -> Path:
         fd = os.open(str(path), flags, 0o600)
     except FileExistsError as exc:
         raise IntegrityKeyError(
-            f"an integrity key already exists at {path}; it is never "
-            "overwritten — there is no escrow, so losing it is the "
+            f"something already exists at {path} — a key, or a symlink or "
+            "other file standing where one goes; it is never overwritten and "
+            "never followed. There is no escrow, so losing a key is the "
             "operator's to manage"
         ) from exc
     try:
@@ -180,6 +207,78 @@ def init_key(path: Path | None = None) -> Path:
     if os.name == "posix":
         os.chmod(path, 0o600)          # belt-and-suspenders against umask
     return path
+
+
+def default_marker_path() -> Path:
+    return paths.anchors_dir() / MARKER_FILENAME
+
+
+def _log_tag(path: Path) -> str:
+    """A log's line in the marker: a digest of its resolved path, never the
+    path itself. Fixed-width (no escaping question), and the marker discloses
+    nothing about what the household keeps or where."""
+    return hashlib.sha256(str(Path(path).resolve()).encode("utf-8")).hexdigest()
+
+
+def _boundary_commitment(boundary_hash: str) -> str:
+    """What the marker stores about the boundary row: a commitment to its
+    keyed hash, **not** that hash.
+
+    Storing the hash itself would hand a reader a valid head for this log at
+    the moment it turned keyed — a bare-hex file publishing exactly the value
+    an attacker needs to truncate every keyed line and write a matching
+    anchor. Committing to it instead is checkable by anyone who can recompute
+    the hash (which needs the key) and useless to anyone who cannot.
+    """
+    return hashlib.sha256(f"homestead-integrity-boundary:{boundary_hash}".encode()).hexdigest()
+
+
+def _recorded_boundary(path: Path) -> str | None:
+    """The commitment recorded when this log turned keyed, or `None` if this
+    log has no marker line.
+
+    **What this closes.** Without it, a forger without the key does not need
+    to forge an HMAC at all: they delete the `{"act": "keyed"}` row, re-chain
+    the surviving lines with plain SHA-256 and write a bare-hex anchor. A
+    verifier *holding the key* then sees a log that never turned keyed and
+    reports it clean — the whole gain of keying, undone by a deletion. The
+    marker is the second place the turning point is written, so the log alone
+    can no longer deny it.
+
+    **What it does not close.** The marker is a file on the same machine, so
+    the same hand can delete it (`verify()` then falls back to "this log was
+    never keyed" — the pre-E5 threat model for the prefix, honestly). Like the
+    anchor it detects accident and a forger who does not know it is there; it
+    does not make an on-machine adversary impossible, which F-5 says no
+    application can. See `docs/DECISION-integrity-key-management.md` §4a.
+    """
+    marker = default_marker_path()
+    if not marker.exists():
+        return None
+    tag = _log_tag(path)
+    for raw in marker.read_text(encoding="utf-8").splitlines():
+        head, _, recorded = raw.strip().partition(" ")
+        if head and hmac.compare_digest(head, tag):
+            return recorded or None
+    return None
+
+
+def _record_keyed(path: Path, boundary_hash: str) -> None:
+    """Record that `path` turned keyed, at this boundary row. Append-only and
+    `0o600`, beside the key: one line per log, `<path digest> <commitment>`.
+    """
+    if _recorded_boundary(path) is not None:
+        return
+    marker = default_marker_path()
+    paths.ensure(marker.parent)
+    fd = os.open(str(marker), os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+    try:
+        os.write(fd, f"{_log_tag(path)} {_boundary_commitment(boundary_hash)}\n".encode("ascii"))
+    finally:
+        os.close(fd)
+    if os.name == "posix":
+        os.chmod(marker, 0o600)
+
 
 # One lock per process covers threads. Module-level rather than per-instance,
 # because two SealedLog objects over the same path are the realistic case and
@@ -424,7 +523,11 @@ class IntegrityLog:
         marker = {"act": BOUNDARY_ACT, "at": _now(), "prev": self.head()}
         fh.write(_canonical(marker) + "\n")
         fh.flush()
-        self._write_anchor(line_hash(marker, self.key), keyed=True)
+        boundary_hash = line_hash(marker, self.key)
+        self._write_anchor(boundary_hash, keyed=True)
+        # The second place the turning point is written, so deleting this row
+        # downgrades the log loudly instead of silently (`_recorded_boundary`).
+        _record_keyed(self.path, boundary_hash)
 
     def append(self, entry: dict[str, Any]) -> None:
         """Append one entry, reading the tail and writing under one lock.
@@ -477,6 +580,13 @@ class IntegrityLog:
         because they can edit the anchor too. Pass a head the operator recorded
         off the machine.
 
+        **A downgrade is tamper, not "unkeyed".** A log the marker records as
+        keyed (`_recorded_boundary`) must still carry that same boundary row:
+        deleting it and re-chaining the survivors with plain SHA-256 is what a
+        forger without the key would do, and it is answered with `False` — a
+        finding — not with a clean unkeyed verification. "Cannot tell" stays
+        reserved for `IntegrityKeyError`.
+
         Every comparison against a hash — the chain link and the final anchor
         or expected head — uses `hmac.compare_digest`, never `==`/`!=`
         (I-11's fail-closed spirit applied to timing, not just to defaults;
@@ -491,6 +601,14 @@ class IntegrityLog:
         except json.JSONDecodeError:
             return False            # a partial final line from a crash mid-write
         boundary = _boundary_index(lines)
+        recorded = _recorded_boundary(self.path)
+        if recorded is not None:
+            if boundary is None:
+                return False        # the boundary row was deleted: a downgrade
+            if self.key is not None and not hmac.compare_digest(
+                _boundary_commitment(line_hash(lines[boundary], self.key)), recorded
+            ):
+                return False        # a different boundary row than the one recorded
         for i, entry in enumerate(lines):
             prev_field = entry.get("prev")
             if not isinstance(prev_field, str) or not hmac.compare_digest(prev_field, prev):
