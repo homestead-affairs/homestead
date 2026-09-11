@@ -132,9 +132,10 @@ is an object at all, that `(matter, item_type, item_id)` pass `store.key()`
 below, for what that check used to be and why it changed. The audit found
 each of those coming out as a bare `KeyError` or a `psycopg.DataError`
 traceback instead of a refusal by name, and the `DataError` only after a
-connection had been opened. A row missing `matter`, or ~~carrying an
-integer~~ **carrying something JSON cannot serialize (a `bytes` object is
-the planted case)**, or a NUL ~~in `value`~~ **in `matter`/`item_type`/
+connection had been opened. A row missing `matter` **or `value`**, or
+~~carrying an integer~~ **carrying something JSON cannot serialize (a
+`bytes` object is the planted case), a `float`, or more than 64 KiB of
+canonical text**, or a NUL ~~in `value`~~ **in `matter`/`item_type`/
 `item_id`**, is not a crash: it is refused by name, naming the field and
 never the value (I-15).
 
@@ -190,9 +191,10 @@ is fixed.
 
 ## § Structured values (E7b)
 
-Status: **Proposed, 2026-09-11.**
+Status: **Ratified, 2026-09-11**, with the four changes § "What the audit
+changed" records.
 author: the build seat
-verified_by:
+verified_by: the audit seat, 2026-09-11 (audit fixes: `1568dda`)
 
 Found by the G5-sync audit (2026-09-11): the ledger's `transfers` pair is an
 `L2` served value that is a mapping, `{counterpart, from, to}` — the sample
@@ -205,17 +207,21 @@ before the dial, never reaching Postgres at all.
 **The contract, settled here: `value` is stored as canonical JSON text, not
 `JSONB`.** `keep/sync.py`'s `Envelope`/`envelope_id`/`SCHEMA` are unchanged —
 the envelope was already canonical JSON, and the served value inside a row
-stays exactly what `serve()` returned (`str`, a mapping, a list, a `bool`, a
-number, or `None`; `docs/DECISION-sync-envelope-and-consent.md` is not
-amended). What changes is only the fleet's own storage: `store.
+stays exactly what `serve()` returned (`str`, a mapping, a list, a `bool`,
+~~a number~~ an `int`, or `None`; `docs/DECISION-sync-envelope-and-consent.md`
+is not amended). What changes is only the fleet's own storage: `store.
 canonical_value_text(value)` — sorted keys, no whitespace, unicode kept
-literal, the same shape `sync._canonical_bytes` freezes an envelope with —
-is what `PostgresAdapter.insert`/`.write` now put in the `value` column, and
-`fleet_cli.decode_value(text)` is `json.loads` on the way back out. A JSON
-`null` stores as the four-byte text `null`; the column stays `TEXT NOT
-NULL`, unchanged, and no migration touches a row already there (every stored
-value was already a JSON string literal, which is itself valid canonical
-JSON text — `json.loads` of it returns the same Python `str` it always did).
+literal, `allow_nan=False`, the same shape `sync._canonical_bytes` freezes an
+envelope with — is what `PostgresAdapter.insert`/`.write` now put in the
+`value` column, and `fleet_cli.decode_value(text, *, value_format)` is the
+way back out. A JSON `null` stores as the four-byte text `null`; the `value`
+column stays `TEXT NOT NULL`, unchanged.
+
+~~and no migration touches a row already there (every stored value was
+already a JSON string literal, which is itself valid canonical JSON text —
+`json.loads` of it returns the same Python `str` it always did).~~ **That
+sentence was false, and the migration it waved away is § "Rows written
+before this" below.**
 
 **Why `TEXT`, not `JSONB`.** Two reasons, both already in the plan's
 decision 5. First, the fleet is a mirror, never a judge: nothing on the
@@ -228,24 +234,86 @@ one backing and not the other would make the two adapters disagree about
 what they store, for no capability this codebase uses.
 
 **What `_validate_rows` refuses, restated.** An `L5` or unreadable `rung`
-(unchanged). A `value` on a row whose `disposition` is not `"render"` — a
-derived or dropped row must not smuggle one across; `compose()` never emits
-this shape, so it is belt and braces against a forged or hand-built
-envelope, same as before. And anything `json.dumps` cannot serialize — a
-Python `bytes` object is the planted case — which can only reach this
-function from an `Envelope` built by hand (every test in this repo, and any
-future direct construction), since a row that arrived through `Envelope.
-from_bytes()` already round-tripped through JSON and so is always one of
-the six shapes above.
+(unchanged). ~~A `value` on a row whose `disposition` is not `"render"`~~
+**Any row whose `disposition` is not `"render"`, and any row with no
+`value` key at all** — see § "What the audit changed". A `float`. A value
+whose canonical text is over `fleet_cli.MAX_VALUE_TEXT` (64 KiB). And
+anything `json.dumps` cannot serialize — a Python `bytes` object is the
+planted case, a `set`, a circular reference, a structure nested past the
+interpreter's limit — which can only reach this function from an `Envelope`
+built by hand (every test in this repo, and any future direct
+construction), since a row that arrived through `Envelope.from_bytes()`
+already round-tripped through JSON and so is always one of the shapes above.
 
 ~~It no longer refuses a bare number or a NUL byte inside a string value.~~
-Both stopped being refusals because both are handled safely by
-canonicalization, not because the underlying hazard went away unaddressed:
-a number is simply a valid JSON value now, and a NUL byte inside a JSON
-string is escaped to the six characters `\u0000` by `json.dumps` itself —
+Neither is a refusal any more, and neither hazard went away unaddressed: an
+`int` is simply a valid JSON value, and a NUL byte inside a JSON string is
+escaped to the six characters `\u0000` by `json.dumps` itself —
 `canonical_value_text`'s output never contains a literal NUL byte, so the
-thing the old check was guarding against (Postgres's `TEXT` type rejecting
-one) cannot occur through this path at all.
+thing the old check guarded against (Postgres's `TEXT` type rejecting one)
+cannot occur through this path at all. Both are pinned by positive tests,
+not merely deleted. A *`float`* is a different matter and is refused by
+name (below).
+
+## § Rows written before this, and what the audit changed
+
+Status: **Ratified, 2026-09-11.** author: the audit seat.
+
+**Rows written before E7b are not JSON text.** `PostgresAdapter.insert`/
+`.write` took an already-serialized blob and passed it straight to the
+statement, so every row already in a fleet database holds the served string
+*verbatim* — `2026-10-06`, not `"2026-10-06"`. Reading one back with
+`json.loads` does not merely fail loudly: on `2026-10-06` it raises, but on
+a ledger amount `1450.00` it succeeds and returns the float `1450.0`, and on
+`123`, `true`, `null` an `int`, a `bool`, a `None`. A household's money,
+silently re-typed by a reader that believed it was decoding. Text alone
+cannot tell the two encodings apart, so a guess — try `json.loads`, fall
+back on failure — is not enough on its own.
+
+**So the row carries the answer.** `canonical`/`sidecar` gain
+`value_format TEXT NOT NULL DEFAULT 'raw'`, added by an idempotent
+`ALTER TABLE … ADD COLUMN IF NOT EXISTS` beside the `CREATE TABLE IF NOT
+EXISTS` in `ensure_schema()`. That is the whole migration, and it lands the
+truth by construction: the rows that predate the column are exactly the raw
+ones. Every row written from here on says `json`; an upsert over a raw row
+moves its format with its value; `PostgresAdapter.read_value()` selects both
+halves; and `fleet_cli.decode_value(text, *, value_format)` has **no
+default** for the second argument and returns `Decoded(value, legacy)` — a
+`raw` row comes back as the text it is, tagged, never parsed (I-11). The
+`value` column itself is untouched, and the `(household, matter, item_type,
+item_id)` primary key and both `ON CONFLICT` clauses are unchanged: a
+re-ingested identical row is still a no-op on `canonical` and still an
+upsert on `sidecar`.
+
+**What the audit changed, beyond that.**
+
+1. ~~A non-`render` row is accepted when its `value` is `None`.~~ **Any
+   non-`render` disposition is refused outright**, as it was before E7b.
+   The loosening read a `DERIVE` row with `value: null` as a shape the fleet
+   should expect; `compose()` says otherwise. It drops every `DENY` and
+   above-ceiling row before freezing, and `serve()` on `S4_EGRESS` with a
+   declared purpose renders L1–L4 and denies L5 — it never returns `DERIVE`
+   at all (`keep/rungs.py`'s `_CEILING`). A non-`render` row is therefore
+   forged or hand-built, and under the loosened rule it was written as the
+   text `null` into the *insert-only* canonical table, taking that key for
+   good so the household's real row could never land. The missing-`value`-key
+   refusal is restored on the same ground.
+2. **A `float` is refused by name.** No module puts one in a record: money
+   is a two-decimal *string* (`homestead_ledger.money.amount_text`), and
+   every other served value is text, a mapping, a list, a `bool` or an
+   `int`. A float does not round-trip as one text — `1.10` and `1.1` are one
+   number and two texts, so one record would sync as two rows — and
+   `NaN`/`Infinity` are floats Python's `json` writes as text no other JSON
+   reader can parse. `canonical_value_text` passes `allow_nan=False` as the
+   structural backstop under the same rule.
+3. **Three refusals that were tracebacks.** The serialization guard caught
+   `TypeError` only, so a circular reference (`ValueError`) and a 2000-deep
+   structure (`RecursionError`) came out of `ingest()` as stack traces.
+4. **A size cap, because nothing upstream has one.** `sync.compose()` puts
+   no bound on a served value, so a 1 MB row composed, framed and ingested.
+   `fleet_cli.MAX_VALUE_TEXT` is 64 KiB, declared at the fleet's own door
+   and named in the refusal. The envelope side is unchanged; if a bound
+   belongs there too, that is `keep/sync.py`'s bite, not this one.
 
 **The ledger's own floor.** `homestead-ledger`'s `test_the_fleet_refuses_a_
 structured_pair_value_by_name` (G5-sync) is written against the *old*
