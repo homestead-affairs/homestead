@@ -119,8 +119,11 @@ fleet wave: ~~`keep.sync`, `keep.household`,~~ `keep.fleet_cli` and `app.reveal`
 red~~, and six invariants (I-37…I-40, I-32, I-33) are claims rather than code~~
 (corrected 2026-09-11, same day, `E4-sync-core`: `keep.sync` and
 `keep.household` landed and I-37/I-38/I-40 promoted to
-`tests/test_invariants_sync.py`, unmarked; `keep.fleet_cli` and `app.reveal`
-are still red, and I-39/I-32/I-33 still claims rather than code).
+`tests/test_invariants_sync.py`, unmarked ~~; `keep.fleet_cli` and
+`app.reveal` are still red, and I-39/I-32/I-33 still claims rather than
+code)~~ — corrected again the same day, `E4-postgres-fleet`: `keep.fleet_cli`
+landed too and I-39 promoted to `tests/test_invariants_fleet.py`, unmarked;
+only `app.reveal` (I-32/I-33, a later UI wave) is still red).
 Everything that file ever held **before** that date is built and green. Nothing here
 is installable by anyone who is not building it.
 
@@ -130,9 +133,27 @@ composes into one frozen, content-addressed envelope, delivered by
 `egress.send` or an `O_EXCL` file drop under an explicit per-call confirm —
 never a schedule, never a default. A row above the scope's own ceiling is
 dropped, not derived; a delivery is ledgered exactly once, references only.
-See `docs/DECISION-sync-envelope-and-consent.md` (proposed; `verified_by:`
-blank) for why, and what the fleet-side ingest (`E4-postgres-fleet`) still
-does not exist to receive.
+See `docs/DECISION-sync-envelope-and-consent.md` (ratified) for why.
+
+The **fleet side now has something to receive it** (`keep/fleet_cli.py`,
+`store.PostgresAdapter`, `E4-postgres-fleet`, behind the optional `fleet`
+extra): `homestead-fleet ingest <envelope.json> --dsn <dsn>` — never
+installed by, and never run from, the household side, which never holds a
+DSN. It dials out to the Postgres it is pointed at and exits; it never
+listens (I-39, promoted). Sidecar rows upsert; canonical rows are
+insert-only, so a re-delivered or re-imported canonical record is counted as
+skipped rather than overwritten (the fleet's own copy of I-6). A re-ingest of
+an already-ingested envelope is refused by its `envelope_id`.
+
+```bash
+pip install "homestead-affairs[fleet]"
+export HOMESTEAD_FLEET_DSN=postgresql://user:pass@host/fleet   # or --dsn
+homestead-fleet ingest ~/.homestead/exports/sync/<envelope_id>.json
+```
+
+See `docs/DECISION-fleet-ingest.md` (proposed; `verified_by:` blank) for why
+canonical is insert-only at the fleet too, why there is an anchor, why the
+CLI never listens, and what the household side never holds.
 
 ## The method
 

@@ -129,8 +129,10 @@ Provisional since `tests/test_invariants_pending.py`'s 2026-09-11 reseed
 
 ## What this deliberately does not include
 
-- **No fleet adapter, no ingest.** `store.PostgresAdapter` and
-  `keep/fleet_cli.py` are `E4-postgres-fleet`, which depends on this bite.
+- ~~**No fleet adapter, no ingest.** `store.PostgresAdapter` and
+  `keep/fleet_cli.py` are `E4-postgres-fleet`, which depends on this
+  bite.~~ (struck 2026-09-11: built. `docs/DECISION-fleet-ingest.md`
+  proposed, `verified_by:` blank.)
 - **No `HOMESTEAD_FLEET_URL`.** Reading a destination from the environment
   inside the function that ledgers the act would make the destination
   ambient; Wave 5's module CLI takes it as a plain argument. A destination

@@ -85,3 +85,14 @@ Once `homestead-affairs` is on PyPI, `homestead-law` (and later
 instead of the cross-repo engine checkout its CI does today. Their pyproject
 `dependencies` currently name `homestead`; that becomes `homestead-affairs` at
 the same time. That repoint is a follow-on, not part of this setup.
+
+The **fleet side** (`homestead-fleet ingest`, `E4-postgres-fleet`) is a
+separate install and a separate run, on whatever machine holds the fleet's
+own Postgres — never the household side, which never holds a DSN:
+
+```bash
+pip install "homestead-affairs[fleet]"
+homestead-fleet ingest <envelope.json> --dsn postgresql://user:pass@host/fleet
+```
+
+See README.md and `docs/DECISION-fleet-ingest.md`.

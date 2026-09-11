@@ -12,10 +12,8 @@ to prevent, in an app that has already produced that failure once.
 """
 from __future__ import annotations
 
-import ast
 import importlib
 import importlib.util
-from pathlib import Path
 
 import pytest
 
@@ -130,9 +128,17 @@ UNBUILT = {
     # promotion (dates, surfaces, record, cover, now sync/household).
     # `test_pending_liveness` failed the moment the two modules existed and
     # would not go green again until they were moved and struck from this
-    # dict. `homestead.keep.fleet_cli` (I-39, `E4-postgres-fleet`) and
-    # `homestead.app.reveal` (I-32/I-33, a later UI wave) are still unbuilt.
-    "homestead.keep.fleet_cli": "Wave 4 (E4-postgres-fleet)",
+    # dict.
+    #
+    # 2026-09-11 — E4-postgres-fleet built `homestead.keep.fleet_cli` (and
+    # `store.PostgresAdapter`, in a module already built and so not tracked
+    # here). Its one test — I-39, the fleet ingest never listens and
+    # lazy-imports psycopg — moved to tests/test_invariants_fleet.py,
+    # unmarked, the sixth occasion of this same promotion mechanism (dates,
+    # surfaces, record, cover, sync, now fleet_cli). `test_pending_liveness`
+    # failed the moment the module existed and would not go green again
+    # until it was moved and struck from this dict. `homestead.app.reveal`
+    # (I-32/I-33, a later UI wave) is still unbuilt.
     "homestead.app.reveal": "a later UI wave (I-32/I-33)",
 }
 
@@ -220,85 +226,19 @@ def test_pending_liveness():
 # derive), which `_CEILING` cell governs a synced `L4` row, envelope
 # stability and tamper refusal, and the delivery contract's duplicate and
 # destination handling.
-
-
-@pending(
-    "homestead.keep.fleet_cli",
-    "I-39 (provisional): the fleet ingest never listens and lazy-imports psycopg",
-)
-def test_i39_the_fleet_ingest_never_listens_and_lazy_imports_psycopg():
-    """The failure this guards against: I-30's "nothing here listens" holding
-    for every module except the one built to talk to a shared Postgres — an
-    ingest command is exactly the code someone reaches for `socketserver` in,
-    and I-27's import scan reads only `pyproject.toml`'s `dependencies`, so a
-    module-level `import psycopg` would run clean in CI and only fail on a
-    machine without the `fleet` extra installed. So the checks are static, over
-    the actual source (an AST scan, not a runtime import of `psycopg`-touching
-    code): `homestead/keep/fleet_cli.py` declares `main` — the console script's
-    entry point, so an empty file does not satisfy this test — and contains none
-    of the I-30 banned call names (`tests/test_invariants_shape.py`'s list); and
-    neither it nor the `PostgresAdapter` region of `homestead/keep/store.py`
-    imports `psycopg` at module level — it may only be reached inside a function
-    body.
-
-    **Nothing here is imported, and that is the point.** The first version of
-    this test called `importlib.import_module("homestead.keep.fleet_cli")` to
-    find the file, which meant that the one violation it exists to catch — a
-    top-level `import psycopg` — killed the test with `ModuleNotFoundError`
-    before a single assertion ran, on every machine without the `fleet` extra,
-    which is the default `test` job. The suite stayed red, so nothing shipped;
-    but it was red in a way that reads as "the extra is not installed", and the
-    obvious next move is a `skipif` that switches the guard off precisely where
-    it is needed. Reproduced against a simulated `keep/fleet_cli.py` during the
-    E1-pending audit. `find_spec().origin` locates the source without executing
-    it, so the scan answers for the file rather than for this machine's
-    packages. The same for `store.py`, which the suite happens to import
-    anyway — one mechanism, no exception to remember.
-
-    Provisional I-39. Promotes to tests/test_invariants_fleet.py when Wave 4's
-    E4-postgres-fleet builds `homestead.keep.fleet_cli` and `store.PostgresAdapter`.
-    """
-    banned = {"listen", "serve_forever", "create_server", "ThreadingHTTPServer"}
-
-    def offenders(tree) -> list[str]:
-        hits = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                f = node.func
-                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
-                if name in banned:
-                    hits.append(name)
-        return hits
-
-    def toplevel_psycopg(tree) -> bool:
-        for node in tree.body:
-            if isinstance(node, ast.Import) and any(a.name.split(".")[0] == "psycopg" for a in node.names):
-                return True
-            if isinstance(node, ast.ImportFrom) and node.level == 0 and (node.module or "").split(".")[0] == "psycopg":
-                return True
-        return False
-
-    def source(module: str) -> ast.Module:
-        """The module's own text, located without importing it."""
-        spec = importlib.util.find_spec(module)
-        assert spec is not None and spec.origin, f"{module} must exist, as a file"
-        return ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
-
-    fleet_tree = source("homestead.keep.fleet_cli")
-    assert any(
-        isinstance(node, ast.FunctionDef) and node.name == "main" for node in fleet_tree.body
-    ), "fleet_cli must declare main() — `homestead-fleet ingest`'s entry point"
-    assert not offenders(fleet_tree), "the fleet ingest must never listen (I-30)"
-    assert not toplevel_psycopg(fleet_tree), "psycopg must be lazy, not a top-level import (I-27)"
-
-    store_tree = source("homestead.keep.store")
-    pg_class = next(
-        (n for n in ast.walk(store_tree) if isinstance(n, ast.ClassDef) and n.name == "PostgresAdapter"),
-        None,
-    )
-    assert pg_class is not None, "store.py must declare PostgresAdapter"
-    assert not offenders(pg_class), "PostgresAdapter must never listen (I-30)"
-    assert not toplevel_psycopg(store_tree), "psycopg must be lazy in store.py too (I-27)"
+#
+# I-39 (the fleet ingest never listens and lazy-imports psycopg) was promoted
+# to tests/test_invariants_fleet.py, unmarked, when E4-postgres-fleet built
+# `homestead.keep.fleet_cli` and `store.PostgresAdapter` — the sixth
+# occasion of this same promotion mechanism (dates, surfaces, record, cover,
+# sync, now fleet_cli). That file also carries the rest of the audit
+# checklist: lazy `psycopg` (constructing `PostgresAdapter` without the
+# `fleet` extra refuses by name), the table-name allow-list checked before
+# any SQL interpolation, the `ON CONFLICT` shape of `insert`/`write`, and
+# `keep/fleet_cli.py`'s own five refusals (bad schema, mismatched household,
+# an `L5` or unreadable rung, a non-`render` disposition, a re-ingested
+# `envelope_id`) — none of it needing a live Postgres, which is what keeps
+# that file in the default `invariants` matrix.
 
 
 @pending(

@@ -1,0 +1,753 @@
+"""Wave 4 · E4-postgres-fleet — `keep/store.PostgresAdapter` and
+`keep/fleet_cli.py`.
+
+Promotes `tests/test_invariants_pending.py`'s I-39 (provisional) out of that
+file, unmarked, and adds the rest of this bite's audit checklist — all
+without a live Postgres, which is what keeps this file in the default
+`invariants` matrix (no `fleet` extra installed there).
+`tests/test_fleet_postgres.py` (`@pytest.mark.fleet`) is the end-to-end
+counterpart, against a real database.
+
+Two tests below construct a real `PostgresAdapter`, which needs `psycopg`
+importable (not a live server, just the driver), so they
+`importorskip("psycopg")` and skip on a machine without the `fleet` extra.
+"""
+from __future__ import annotations
+
+import ast
+import importlib
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+PKG = ROOT / "homestead"
+FLEET_SRC = PKG / "keep" / "fleet_cli.py"
+STORE_SRC = PKG / "keep" / "store.py"
+
+#: `tests/test_invariants_shape.py`'s package-wide list, plus the three it
+#: deliberately leaves out. `bind` is not banned package-wide because tkinter
+#: spells event binding `widget.bind(...)` and the guard would be switched off
+#: within a week; neither of *these two* files has a widget in it, so here it
+#: is banned and `socket.bind` is caught. `start_server`/`start_unix_server`
+#: are asyncio's spelling, which the package-wide list never needed.
+_BANNED_CALLS = {
+    "listen", "serve_forever", "create_server", "ThreadingHTTPServer",
+    "bind", "start_server", "start_unix_server",
+}
+
+#: Modules that exist to listen, banned at *any* depth in these two files —
+#: not just at module level, because the point of `fleet_cli.py` is that it
+#: dials out inside a function, and a `import http.server` inside one would
+#: pass a top-level-only scan. `urllib` is not here: `_redact_dsn` imports
+#: `urllib.parse` inside a function on purpose, and splitting a URL is not
+#: listening.
+_BANNED_IMPORTS = {"socket", "socketserver", "http", "asyncio", "ssl"}
+
+
+def _offenders(tree) -> list[str]:
+    hits = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+            if name in _BANNED_CALLS:
+                hits.append(name)
+        elif isinstance(node, ast.Import):
+            hits += [a.name for a in node.names
+                     if a.name.split(".")[0] in _BANNED_IMPORTS]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            root = (node.module or "").split(".")[0]
+            if root in _BANNED_IMPORTS:
+                hits.append(node.module or "")
+    return hits
+
+
+def _toplevel_psycopg(tree) -> bool:
+    for node in tree.body:
+        if isinstance(node, ast.Import) and any(
+            a.name.split(".")[0] == "psycopg" for a in node.names
+        ):
+            return True
+        if (
+            isinstance(node, ast.ImportFrom) and node.level == 0
+            and (node.module or "").split(".")[0] == "psycopg"
+        ):
+            return True
+    return False
+
+
+# ── promoted from tests/test_invariants_pending.py (I-39, provisional) ──────
+
+def test_i39_the_fleet_ingest_never_listens_and_lazy_imports_psycopg():
+    """The failure this guards against: I-30's "nothing here listens" holding
+    for every module except the one built to talk to a shared Postgres, and
+    I-27's scan reading only `pyproject.toml`'s `dependencies` — so a
+    module-level `import psycopg` would run clean in CI and only fail on a
+    machine without the `fleet` extra. Static, over the source."""
+    fleet_tree = ast.parse(FLEET_SRC.read_text(encoding="utf-8"))
+    assert any(
+        isinstance(node, ast.FunctionDef) and node.name == "main" for node in fleet_tree.body
+    ), "fleet_cli must declare main() — homestead-fleet ingest's entry point"
+    assert not _offenders(fleet_tree), "the fleet ingest must never listen (I-30)"
+    assert not _toplevel_psycopg(fleet_tree), "psycopg must be lazy, not top-level (I-27)"
+
+    store_tree = ast.parse(STORE_SRC.read_text(encoding="utf-8"))
+    pg_class = next(
+        (n for n in ast.walk(store_tree)
+         if isinstance(n, ast.ClassDef) and n.name == "PostgresAdapter"),
+        None,
+    )
+    assert pg_class is not None, "store.py must declare PostgresAdapter"
+    assert not _offenders(pg_class), "PostgresAdapter must never listen (I-30)"
+    assert not _toplevel_psycopg(store_tree), "psycopg must be lazy in store.py too (I-27)"
+
+
+@pytest.mark.parametrize(
+    "plant",
+    [
+        pytest.param("def _oops():\n    serve_forever()\n", id="serve_forever"),
+        pytest.param("def _oops(s):\n    s.listen(5)\n", id="listen"),
+        pytest.param("def _oops(s):\n    s.bind(('0.0.0.0', 8080))\n", id="socket.bind"),
+        pytest.param("def _oops():\n    import socket\n", id="import-socket-in-a-function"),
+        pytest.param("import http.server\n", id="http.server"),
+        pytest.param("def _oops():\n    import http.server\n", id="http.server-in-a-function"),
+        pytest.param("from http.server import HTTPServer\n", id="from-http.server"),
+        pytest.param(
+            "async def _oops():\n    await asyncio.start_server(h, '0.0.0.0', 1)\n",
+            id="asyncio.start_server",
+        ),
+        pytest.param("import asyncio\n", id="import-asyncio"),
+        pytest.param("import socketserver\n", id="import-socketserver"),
+    ],
+)
+def test_i39_planted_listeners_are_caught(plant):
+    """A scan that has never fired has not been shown to check anything. Each
+    of these, appended to a parsed copy of `fleet_cli.py`'s own text, must be
+    caught by the same walk `test_i39_...` performs on the real file — and
+    the real file must be clean of all of them, which the test above asserts.
+
+    The list is the audit's own (E4-postgres-fleet, 2026-09-11): before it,
+    `_BANNED_CALLS` was the package-wide four, so `socket.bind`,
+    `asyncio.start_server` and an `import http.server` inside a function all
+    passed a guard whose whole purpose is that this file never grows a
+    listener."""
+    src = FLEET_SRC.read_text(encoding="utf-8")
+    assert _offenders(ast.parse(src + "\n" + plant)), (
+        "the I-39 scan must catch this plant"
+    )
+
+
+def test_i39_planted_toplevel_psycopg_is_caught():
+    """The other half: a top-level `import psycopg` — which would run clean
+    in CI (I-27's scan reads only `dependencies`) and fail only on a machine
+    without the `fleet` extra."""
+    src = FLEET_SRC.read_text(encoding="utf-8")
+    assert _toplevel_psycopg(ast.parse("import psycopg\n" + src))
+    assert not _toplevel_psycopg(ast.parse(src))
+
+
+# ── lazy import: the module imports fine with psycopg blocked ───────────────
+
+def test_store_and_fleet_cli_import_with_psycopg_blocked(monkeypatch):
+    """`sys.modules["psycopg"] = None` makes any `import psycopg` raise
+    `ImportError` immediately. Both modules must still import cleanly."""
+    monkeypatch.setitem(sys.modules, "psycopg", None)
+    for name in ("homestead.keep.store", "homestead.keep.fleet_cli"):
+        sys.modules.pop(name, None)
+        assert importlib.import_module(name) is not None
+
+
+def test_constructing_the_adapter_refuses_by_name_naming_the_extra(monkeypatch):
+    """With `psycopg` blocked, constructing `PostgresAdapter` refuses with
+    `MissingFleetExtra`, naming the extra — never a bare
+    `ModuleNotFoundError` a caller has to guess the fix for. `fleet_cli.
+    _connect` is the one place *it* reaches for `psycopg`, and refuses the
+    same way."""
+    monkeypatch.setitem(sys.modules, "psycopg", None)
+    sys.modules.pop("homestead.keep.store", None)
+    sys.modules.pop("homestead.keep.fleet_cli", None)
+    store = importlib.import_module("homestead.keep.store")
+    fleet_cli = importlib.import_module("homestead.keep.fleet_cli")
+
+    with pytest.raises(store.MissingFleetExtra) as e1:
+        store.PostgresAdapter("postgresql://x/y", household="hh-0123456789abcdef")
+    assert "fleet" in str(e1.value)
+
+    with pytest.raises(fleet_cli.MissingFleetExtra) as e2:
+        fleet_cli._connect("postgresql://x/y")
+    assert "fleet" in str(e2.value)
+
+
+# ── table-name validation, before any SQL interpolation ─────────────────────
+
+def test_table_validation_plants():
+    """`"sidecar; DROP TABLE envelopes"` and `"sidecar "` (a trailing space —
+    a real, different identifier) are both refused by `InvalidTable` before a
+    cursor is ever opened."""
+    pytest.importorskip("psycopg")
+    from homestead.keep import store
+
+    adapter = store.PostgresAdapter("postgresql://x/y", household="hh-0123456789abcdef")
+    for bad in ("sidecar; DROP TABLE envelopes", "sidecar ", "canonical\n", "junk"):
+        with pytest.raises(store.InvalidTable) as e:
+            adapter.read(bad, ("custody", "note", "n1"))
+        assert repr(bad) in str(e.value)
+
+
+# ── the SQL text of insert()/write() ─────────────────────────────────────────
+
+class _RecordingCursor:
+    def __init__(self):
+        self.executed: list[tuple[str, tuple]] = []
+        self.rowcount = 1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+
+    def fetchone(self):
+        return None
+
+    def fetchall(self):
+        return []
+
+
+class _RecordingConn:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+    def commit(self):
+        pass
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_insert_and_write_sql_shape(monkeypatch):
+    """`insert` is `ON CONFLICT DO NOTHING`, `write` is `ON CONFLICT ... DO
+    UPDATE` — the append-only/upsert split canonical/sidecar rely on — and
+    every value is a `%s` placeholder, never interpolated into the text."""
+    pytest.importorskip("psycopg")
+    from homestead.keep import store
+
+    adapter = store.PostgresAdapter("postgresql://x/y", household="hh-0123456789abcdef")
+    ref = ("custody", "note", "n1")
+
+    insert_cursor = _RecordingCursor()
+    monkeypatch.setattr(adapter, "_connect", lambda: _RecordingConn(insert_cursor))
+    count = adapter.insert(store.SIDECAR, ref, "blob", envelope="e1", synced_at="2026-01-01T00:00:00Z")
+    assert count == insert_cursor.rowcount
+    (sql, params) = insert_cursor.executed[0]
+    assert "ON CONFLICT" in sql and "DO NOTHING" in sql and "DO UPDATE" not in sql
+    assert "blob" not in sql and "%s" in sql
+    assert params == ("hh-0123456789abcdef", "custody", "note", "n1", "blob", "e1", "2026-01-01T00:00:00Z")
+
+    write_cursor = _RecordingCursor()
+    monkeypatch.setattr(adapter, "_connect", lambda: _RecordingConn(write_cursor))
+    adapter.write(store.CANONICAL, ref, "blob2", envelope="e2", synced_at="2026-01-01T00:00:00Z")
+    (sql2, _params2) = write_cursor.executed[0]
+    assert "ON CONFLICT" in sql2 and "DO UPDATE" in sql2
+    assert "blob2" not in sql2 and "%s" in sql2
+
+
+# ── fleet_cli.ingest(): the five refusals, no live Postgres needed ─────────
+
+class _FakeCursor:
+    def __init__(self, existing_envelopes=frozenset(), existing_canonical=frozenset()):
+        self.calls: list[tuple[str, tuple]] = []
+        self.rowcount = 0
+        self._existing_envelopes = set(existing_envelopes)
+        self._existing_canonical = set(existing_canonical)
+        self._fetch = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params))
+        text = sql.strip()
+        if text.startswith("SELECT 1 FROM envelopes"):
+            self._fetch = (1,) if tuple(params) in self._existing_envelopes else None
+        elif text.startswith("INSERT INTO canonical") and "DO NOTHING" in sql:
+            key = tuple(params[:4])
+            if key in self._existing_canonical:
+                self.rowcount = 0
+            else:
+                self.rowcount = 1
+                self._existing_canonical.add(key)
+        elif text.startswith("INSERT INTO sidecar"):
+            self.rowcount = 1
+        # CREATE TABLE / INSERT INTO envelopes / INSERT INTO anchors: no-ops
+
+    def fetchone(self):
+        return self._fetch
+
+
+class _FakeConn:
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self.committed = False
+        self.rolled_back = False
+        self.closed = False
+
+    def cursor(self):
+        return self._cursor
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+    def close(self):
+        self.closed = True
+
+
+def _row(**over):
+    row = {
+        "table": "sidecar", "matter": "custody", "item_type": "note", "item_id": "n1",
+        "rung": "L1", "disposition": "render", "value": "public value", "derived": None,
+    }
+    row.update(over)
+    return row
+
+
+def _envelope(rows=(), **over):
+    from homestead.keep import sync as sync_mod
+
+    identity = {
+        "schema": sync_mod.SCHEMA, "household": "hh-0123456789abcdef",
+        "composed_at": "2026-01-01T00:00:00+00:00", "head": "genesis",
+        "scope": {"matters": ["custody"], "item_types": None, "ceiling": "L3", "tables": ["sidecar"]},
+        "rows": list(rows), "count": len(rows),
+    }
+    identity.update(over)
+    envelope_id = sync_mod._envelope_id(identity)
+    return sync_mod.Envelope(
+        schema=identity["schema"], household=identity["household"],
+        composed_at=identity["composed_at"], head=identity["head"],
+        scope=identity["scope"], rows=tuple(identity["rows"]),
+        count=identity["count"], envelope_id=envelope_id,
+    )
+
+
+SECRET = "SECRET-VALUE-9f3ab1"
+
+
+@pytest.mark.parametrize(
+    "row_over, env_over, ingest_kw, expect",
+    [
+        pytest.param({}, {"schema": "homestead.sync/99"}, {}, "homestead.sync/99", id="bad-schema"),
+        pytest.param(
+            {}, {"household": "hh-aaaaaaaaaaaaaaaa"},
+            {"household": "hh-bbbbbbbbbbbbbbbb"}, None, id="household-mismatch",
+        ),
+        pytest.param({"rung": "L5"}, {}, {}, "n1", id="l5-rung"),
+        pytest.param({"rung": "not-a-rung"}, {}, {}, "n1", id="unreadable-rung"),
+        pytest.param({"disposition": "derive"}, {}, {}, "derive", id="derive-row"),
+    ],
+)
+def test_ingest_refuses_each_bad_input_by_name(row_over, env_over, ingest_kw, expect):
+    """A bad schema, a mismatched household, an `L5` or unreadable rung, and
+    a non-`render` row are each refused by name — a reference (schema
+    string, row id, rung, disposition), never the row's own value."""
+    from homestead.keep import fleet_cli
+
+    env = _envelope(rows=(_row(value=SECRET, **row_over),), **env_over)
+    with pytest.raises(fleet_cli.IngestRefused) as e:
+        fleet_cli.ingest(env, "postgresql://x/y", **ingest_kw)
+    if expect:
+        assert expect in str(e.value)
+    assert SECRET not in str(e.value)
+
+
+def test_ingest_refuses_a_reingest_before_writing_any_row(monkeypatch):
+    from homestead.keep import fleet_cli
+
+    env = _envelope(rows=(_row(value=SECRET),))
+    cursor = _FakeCursor(existing_envelopes={(env.household, env.envelope_id)})
+    conn = _FakeConn(cursor)
+    monkeypatch.setattr(fleet_cli, "_connect", lambda dsn: conn)
+
+    with pytest.raises(fleet_cli.IngestRefused) as e:
+        fleet_cli.ingest(env, "postgresql://x/y")
+    assert env.envelope_id in str(e.value) and SECRET not in str(e.value)
+    assert not any(c[0].strip().startswith("INSERT INTO sidecar") for c in cursor.calls), (
+        "no row is written once the re-ingest check fires"
+    )
+    assert conn.rolled_back and conn.closed
+
+
+def test_ingest_sidecar_upserts_and_canonical_is_insert_only(monkeypatch):
+    """The written/skipped counts by reference: a fresh sidecar row and a
+    fresh canonical row both count as written; a canonical row whose key
+    already exists counts as skipped, never overwritten."""
+    from homestead.keep import fleet_cli
+
+    rows = (
+        _row(item_id="n1", table="sidecar", value="a"),
+        _row(item_id="n2", table="canonical", value="b"),
+    )
+    env = _envelope(rows=rows)
+    conn = _FakeConn(_FakeCursor())
+    monkeypatch.setattr(fleet_cli, "_connect", lambda dsn: conn)
+
+    result = fleet_cli.ingest(env, "postgresql://x/y")
+    assert result.written == 2 and result.skipped == 0
+    assert conn.committed and not conn.rolled_back and conn.closed
+
+    env2 = _envelope(rows=rows, composed_at="2026-02-01T00:00:00+00:00")
+    cursor2 = _FakeCursor(existing_canonical={(env2.household, "custody", "note", "n2")})
+    conn2 = _FakeConn(cursor2)
+    monkeypatch.setattr(fleet_cli, "_connect", lambda dsn: conn2)
+
+    result2 = fleet_cli.ingest(env2, "postgresql://x/y")
+    assert result2.written == 1, "the sidecar row"
+    assert result2.skipped == 1, "the canonical row, already there, is skipped not overwritten"
+
+
+# ── main(): --yes skips only the confirm, never a refusal ───────────────────
+
+def test_yes_skips_the_confirm_but_never_a_refusal(monkeypatch, capsys, tmp_path):
+    from homestead.keep import fleet_cli
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(
+        AssertionError("input() must not be called with --yes")))
+    monkeypatch.setattr(
+        fleet_cli, "ingest",
+        lambda env, dsn, household=None, allow_stale=False: (_ for _ in ()).throw(
+            fleet_cli.IngestRefused("refused: planted")),
+    )
+
+    env = _envelope(rows=(_row(),))
+    path = tmp_path / "ok.json"
+    path.write_bytes(env.to_bytes())
+    rc = fleet_cli.main(["ingest", str(path), "--dsn", "postgresql://x/y", "--yes"])
+    assert rc == 1
+    assert "refused" in capsys.readouterr().err
+
+
+def test_without_yes_a_declined_confirm_never_calls_ingest(monkeypatch, capsys, tmp_path):
+    from homestead.keep import fleet_cli
+
+    called = []
+    monkeypatch.setattr(fleet_cli, "ingest", lambda *a, **k: called.append(1))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+
+    env = _envelope(rows=(_row(value=SECRET),))
+    path = tmp_path / "env.json"
+    path.write_bytes(env.to_bytes())
+
+    rc = fleet_cli.main(["ingest", str(path), "--dsn", "postgresql://x/y"])
+    assert rc == 1
+    assert not called, "a declined confirm never reaches ingest()"
+    out = capsys.readouterr()
+    assert SECRET not in out.out and SECRET not in out.err
+
+
+def test_the_confirm_prints_the_host_never_the_password_or_a_row(monkeypatch, capsys, tmp_path):
+    from homestead.keep import fleet_cli
+
+    monkeypatch.setattr(fleet_cli, "ingest", lambda *a, **k: fleet_cli.IngestResult(written=1, skipped=0))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+
+    env = _envelope(rows=(_row(value=SECRET),))
+    path = tmp_path / "env.json"
+    path.write_bytes(env.to_bytes())
+
+    rc = fleet_cli.main([
+        "ingest", str(path), "--dsn", "postgresql://alice:hunter2@db.example.invalid:5432/fleet",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "db.example.invalid" in out
+    assert "hunter2" not in out and "alice" not in out and SECRET not in out
+    assert env.envelope_id in out and str(env.count) in out
+
+
+def test_dsn_falls_back_to_the_env_var(monkeypatch, tmp_path):
+    """`--dsn` is preferred; else `HOMESTEAD_FLEET_DSN`; else a refusal
+    (exit 2), never a guess."""
+    from homestead.keep import fleet_cli
+
+    seen = {}
+
+    def fake_ingest(env, dsn, household=None, allow_stale=False):
+        seen["dsn"] = dsn
+        return fleet_cli.IngestResult(0, 0)
+
+    monkeypatch.setattr(fleet_cli, "ingest", fake_ingest)
+    env = _envelope(rows=(_row(),))
+    path = tmp_path / "env.json"
+    path.write_bytes(env.to_bytes())
+
+    monkeypatch.setenv("HOMESTEAD_FLEET_DSN", "postgresql://env-dsn/fleet")
+    assert fleet_cli.main(["ingest", str(path), "--yes"]) == 0
+    assert seen["dsn"] == "postgresql://env-dsn/fleet"
+
+    monkeypatch.delenv("HOMESTEAD_FLEET_DSN", raising=False)
+    assert fleet_cli.main(["ingest", str(path), "--yes"]) == 2
+
+
+# ── I-27: no new required dependency; markers registered ───────────────────
+
+def test_i27_fleet_is_an_optional_extra_not_a_dependency():
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'dependencies = ["holidays>=0.102,<1.0"]' in text, (
+        "the fleet extra must not widen the required dependency list"
+    )
+    assert 'fleet = ["psycopg[binary]>=3.1,<4"]' in text
+    assert '"fleet:' in text, "pytest -q must never warn about an unregistered marker"
+
+
+# ── the audit's own additions (E4-postgres-fleet audit, 2026-09-11) ─────────
+
+@pytest.mark.parametrize(
+    "dsn, must_show, must_not_show",
+    [
+        pytest.param(
+            "postgresql://alice:hunter2@db.example.invalid:5432/fleet",
+            ["db.example.invalid", "5432", "fleet"], ["hunter2", "alice"],
+            id="url-form",
+        ),
+        pytest.param(
+            "host=db.example.invalid port=5432 dbname=fleet user=alice password=hunter2",
+            ["db.example.invalid", "fleet"], ["hunter2", "alice"],
+            id="keyword-value-form",
+        ),
+        pytest.param(
+            "postgresql://alice:hunter2@h/d?sslmode=require&passfile=/etc/pgpass",
+            ["h"], ["hunter2", "passfile", "pgpass"],
+            id="url-with-a-credential-in-the-query",
+        ),
+        pytest.param(
+            "host=h sslpassword=hunter2 passfile=/etc/pgpass dbname=d",
+            ["h", "d"], ["hunter2", "passfile", "pgpass"],
+            id="keyword-value-other-credential-keywords",
+        ),
+        pytest.param("'unbalanced", [], ["unbalanced"], id="unparseable"),
+    ],
+)
+def test_redact_dsn_shows_the_destination_and_no_credential(dsn, must_show, must_not_show):
+    """libpq takes two DSN forms, and the confirm prints whichever the
+    operator typed. The keyword/value form is not a URL: `urlsplit` hands it
+    back whole, so the first version of `_redact_dsn` printed
+    `password=hunter2` to stdout (found by this audit). The allow-list means
+    a keyword it has never heard of is dropped rather than shown."""
+    from homestead.keep import fleet_cli
+
+    out = fleet_cli._redact_dsn(dsn)
+    for want in must_show:
+        assert want in out, f"the operator must still see the destination: {want}"
+    for never in must_not_show:
+        assert never not in out, f"{never!r} must never be printed"
+
+
+def test_the_confirm_never_prints_a_keyword_value_password(monkeypatch, capsys, tmp_path):
+    """The same thing end to end, through `main()`'s own confirm — the leak
+    was in what the prompt printed, not in a helper nobody called."""
+    from homestead.keep import fleet_cli
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    env = _envelope(rows=(_row(value=SECRET),))
+    path = tmp_path / "env.json"
+    path.write_bytes(env.to_bytes())
+
+    rc = fleet_cli.main([
+        "ingest", str(path),
+        "--dsn", "host=db.example.invalid port=5432 dbname=fleet user=alice password=hunter2",
+    ])
+    assert rc == 1
+    out = capsys.readouterr()
+    assert "db.example.invalid" in out.out
+    assert "hunter2" not in out.out + out.err
+    assert SECRET not in out.out + out.err
+
+
+@pytest.mark.parametrize(
+    "row_over, drop, id_hint",
+    [
+        pytest.param({"item_id": "n\x001"}, None, "item_id", id="nul-in-item-id"),
+        pytest.param({"value": "a\x00b"}, None, "value", id="nul-in-value"),
+        pytest.param({}, "matter", "matter", id="row-missing-matter"),
+        pytest.param({}, "item_type", "item_type", id="row-missing-item-type"),
+        pytest.param({}, "value", "value", id="row-missing-value"),
+        pytest.param({"value": 1234}, None, "value", id="value-is-not-text"),
+        pytest.param({"matter": "  "}, None, "matter", id="whitespace-matter"),
+        pytest.param({"matter": "../etc"}, None, "matter", id="separator-in-matter"),
+    ],
+)
+def test_ingest_refuses_an_unstorable_row_by_name_never_by_traceback(row_over, drop, id_hint):
+    """Every field that reaches a statement is checked before one is built.
+
+    The failure this guards against: an envelope hashes correctly over
+    whatever it carries (`Envelope.from_bytes` proves only that the bytes
+    were not edited after composition), so a row can be missing `matter`
+    entirely or carry a NUL byte Postgres cannot hold. Before this audit
+    those came out of `ingest()` as a bare `KeyError` or a
+    `psycopg.DataError` stack — not a refusal by name (I-11), and on the
+    `DataError` path only after a connection had been opened.
+    """
+    from homestead.keep import fleet_cli
+
+    row = _row(value=SECRET)
+    row.update(row_over)
+    if drop:
+        row.pop(drop)
+    env = _envelope(rows=(row,))
+    with pytest.raises(fleet_cli.IngestRefused) as e:
+        fleet_cli.ingest(env, "postgresql://x/y")
+    assert id_hint in str(e.value)
+    assert SECRET not in str(e.value), "a refusal names the field, never the value (I-15)"
+
+
+def test_ingest_refuses_a_row_that_is_not_an_object():
+    from homestead.keep import fleet_cli
+
+    env = _envelope(rows=("not-a-row",))
+    with pytest.raises(fleet_cli.IngestRefused) as e:
+        fleet_cli.ingest(env, "postgresql://x/y")
+    assert "JSON object" in str(e.value)
+
+
+def test_an_l4_render_row_is_accepted(monkeypatch):
+    """S4 with a declared purpose renders up to `L4` (the sync ruling), so an
+    `L4`/`render` row is the ordinary case, not an edge one — `L5` and
+    `derive` are what refuse."""
+    from homestead.keep import fleet_cli
+
+    conn = _FakeConn(_FakeCursor())
+    monkeypatch.setattr(fleet_cli, "_connect", lambda dsn: conn)
+    result = fleet_cli.ingest(_envelope(rows=(_row(rung="L4"),)), "postgresql://x/y")
+    assert result.written == 1 and conn.committed
+
+
+def test_main_refuses_by_name_when_the_database_cannot_be_reached(tmp_path, capsys):
+    """A mistyped `--dsn` ended the command in a `psycopg.OperationalError`
+    traceback before this audit. The exception class is named, the
+    destination is the redacted form, and the driver's own message — built
+    from the conninfo — is deliberately not echoed."""
+    pytest.importorskip("psycopg")
+    from homestead.keep import fleet_cli
+
+    env = _envelope(rows=(_row(value=SECRET),))
+    path = tmp_path / "env.json"
+    path.write_bytes(env.to_bytes())
+
+    rc = fleet_cli.main([
+        "ingest", str(path), "--yes",
+        "--dsn", "postgresql://alice:hunter2@127.0.0.1:1/nothing-listens-here",
+    ])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "refused:" in err and "nothing was ingested" in err
+    assert "hunter2" not in err and SECRET not in err
+
+
+@pytest.mark.parametrize(
+    "composed_at, anchored_at, stale",
+    [
+        ("2026-05-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", False),
+        ("2026-01-01T00:00:00+00:00", "2026-05-01T00:00:00+00:00", True),
+        # Equal is not stale: `sync._now_iso()` has second resolution, and two
+        # envelopes composed in the same second are ordinary.
+        ("2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", False),
+        # Fail closed: an ordering that cannot be established is not one.
+        ("2026-01-01", "2026-01-01T00:00:00+00:00", True),
+        ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00+00:00", True),
+        (None, "2026-01-01T00:00:00+00:00", True),
+    ],
+)
+def test_stale_is_decided_on_composed_at_and_fails_closed(composed_at, anchored_at, stale):
+    """`head` is a hash chain head — it has no order, and two heads cannot be
+    compared without walking a chain the fleet does not have. `composed_at`
+    is ordered, and for `sync._now_iso()`'s one fixed-width UTC format byte
+    order *is* time order, so it is compared as text rather than through
+    `fromisoformat`, which I-1/I-2 ban package-wide."""
+    from homestead.keep import fleet_cli
+
+    assert fleet_cli._is_stale(composed_at, anchored_at) is stale
+
+
+def test_ingest_carries_no_row_sql_of_its_own():
+    """The two code paths are one. `ingest()` writes rows through
+    `store.PostgresAdapter.insert/write` and holds them open with
+    `adapter.transaction()`; it does not carry a second copy of their
+    statements, which is what let the two drift on columns or on either `ON
+    CONFLICT` clause with nothing checking that they agreed.
+
+    Structural, over `ingest`'s own source: no string constant inside it may
+    insert into a record table. The `envelopes`/`anchors` statements stay —
+    they are this command's bookkeeping, not the record store's contract."""
+    tree = ast.parse(FLEET_SRC.read_text(encoding="utf-8"))
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "ingest")
+    literals = [
+        n.value.lower() for n in ast.walk(fn)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str)
+    ]
+    for table in ("sidecar", "canonical"):
+        assert not any(f"insert into {table}" in lit for lit in literals), (
+            f"ingest() must not re-spell the {table} insert — "
+            "PostgresAdapter owns that statement"
+        )
+    assert any("insert into envelopes" in lit for lit in literals)
+    assert any("insert into anchors" in lit for lit in literals)
+
+
+def test_the_transaction_context_does_not_nest_and_rolls_back(monkeypatch):
+    """`transaction()` is the seam that made one code path possible, so its
+    own contract is pinned: the statements inside commit nothing, a clean
+    exit commits once, any exception rolls back, and it refuses to nest
+    rather than quietly sharing one connection between two blocks."""
+    pytest.importorskip("psycopg")
+    from homestead.keep import store
+
+    conn = _RecordingConn(_RecordingCursor())
+    conn.rolled_back = False
+    conn.committed = False
+    conn.commit = lambda: setattr(conn, "committed", True)
+    conn.rollback = lambda: setattr(conn, "rolled_back", True)
+    adapter = store.PostgresAdapter(
+        "postgresql://x/y", household="hh-0123456789abcdef", connect=lambda dsn: conn
+    )
+
+    with adapter.transaction():
+        adapter.write(store.SIDECAR, ("custody", "note", "n1"), "b",
+                      envelope="e1", synced_at="2026-01-01T00:00:00+00:00")
+        assert not conn.committed, "a row inside the transaction commits nothing"
+        with pytest.raises(RuntimeError):
+            with adapter.transaction():
+                pass
+    assert conn.committed and not conn.rolled_back
+
+    conn2 = _RecordingConn(_RecordingCursor())
+    conn2.rolled_back = False
+    conn2.committed = False
+    conn2.commit = lambda: setattr(conn2, "committed", True)
+    conn2.rollback = lambda: setattr(conn2, "rolled_back", True)
+    adapter2 = store.PostgresAdapter(
+        "postgresql://x/y", household="hh-0123456789abcdef", connect=lambda dsn: conn2
+    )
+    with pytest.raises(ValueError):
+        with adapter2.transaction():
+            raise ValueError("planted")
+    assert conn2.rolled_back and not conn2.committed
