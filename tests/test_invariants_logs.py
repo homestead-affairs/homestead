@@ -55,6 +55,20 @@ def test_living_replaced_records_the_forgetting_lane_motion(keep):
     assert "body" not in entry and "text" not in entry and "value" not in entry
 
 
+def test_record_added_is_a_closed_member_with_no_body_parameter(keep):
+    """Health currently borrows `RECORD_SYNCED` for "a record was entered by the
+    operator" — a name that means something else (sync is Phase 4+, and will
+    need `RECORD_SYNCED` for its own, real, meaning). `RECORD_ADDED` gives
+    that motion its own name, on the same closed enum, with the same
+    reference-only shape — no new parameter on `VisibleLog.record` for it."""
+    log = keep.VisibleLog()
+    log.record(keep.Event.RECORD_ADDED, ref=("custody", "atom", "ATM-002"))
+    (entry,) = log.read()
+    assert entry["event"] == "record_added"
+    assert entry["ref"] == "custody/atom/ATM-002"
+    assert "body" not in entry and "text" not in entry and "value" not in entry
+
+
 def test_i15_visible_log_refuses_free_text_in_any_position(keep):
     """The first version asserted only that a kwarg *named* `body` raised —
     a test of Python's calling convention. The leak had simply moved to

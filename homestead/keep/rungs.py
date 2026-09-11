@@ -128,6 +128,7 @@ __all__ = [
     "compose",
     "context_rung",
     "classify_schema",
+    "derived_of",
     "UnclassifiedField",
     "UnknownSurface",
     "UndeclaredPurpose",
@@ -966,3 +967,52 @@ def classify_schema(schema: Mapping[str, Any]) -> dict[str, Rung]:
             reason=reason,
         )
     return classified
+
+
+def derived_of(schema: Mapping[str, Any], field: str) -> str | None:
+    """A field's declared **derived form** — the sentence a pack author wrote to
+    stand in for its payload — or `None` if it declared none.
+
+    This reads the `"derived"` key of `field`'s declaration in `schema`, the way
+    `classify_schema` reads `"rung"`. It is **not** a payload path: it returns
+    the *stand-in sentence itself* (`"A case number is on file"`), never a
+    lookup key, a field name, or the record's value — a caller reaching for the
+    payload through this function has misread what it names. Composing the
+    `Classified` a surface actually receives (rung + payload + this sentence)
+    is a pack's job, at seed or write time; this function only recovers the
+    sentence from the schema so a caller — a surface, a test, `derived_of`'s
+    own contract test — can ask for it without reaching into the mapping by
+    hand.
+
+    Absence is quiet, not a build failure: unlike a missing rung, a missing
+    `"derived"` key does not stop `classify_schema` (decision 3 — that
+    function keeps ignoring the key entirely), so this returns `None` for a
+    field that declared none, an unknown field name, or a declaration that is
+    not a mapping. Whether a field's rung *requires* one is `Classified`'s
+    `__post_init__`'s job (`_NEEDS_DERIVED`, checked at construction), not
+    this function's — this is a read, not a validator.
+
+    **A record is not a schema, and being handed one is refused.**
+    `keep/record.py` serializes a `Classified` to `{"rung", "payload",
+    "derived"}` — the same *shape* as a declaration carrying a derived form, so
+    a mapping of field name to serialized record would read through this
+    function without complaint and hand back stored record content under a
+    docstring promising schema content. That is not a payload reach (this never
+    reads `"payload"`), but it is the near miss that would make one look
+    reasonable, so the one key a declaration can never legitimately carry is
+    the tell: a declaration with a `"payload"` in it is a record, and reading a
+    record's insides is the gate's job (I-16, `serve()`), not this function's.
+    """
+    declaration = schema.get(field)
+    if not isinstance(declaration, Mapping):
+        return None
+    if "payload" in declaration:
+        raise TypeError(
+            f"derived_of({field!r}) was handed a record, not a schema "
+            "declaration: it carries a 'payload' key, which a declaration "
+            "never does. A stored record is read through serve() (I-16), and "
+            "its derived form is Served.value — not this function, which "
+            "reads the pack's schema. Pass matter(<name>).schema."
+        )
+    derived = declaration.get("derived")
+    return derived if isinstance(derived, str) and derived.strip() else None

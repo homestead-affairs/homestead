@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from _strikethrough import live
 from homestead.keep import registry as registry_mod
 from homestead.keep.registry import (
     REGISTRY,
@@ -106,13 +107,19 @@ def test_matter_is_strict_about_an_unknown_name():
 
 # ── the import-time guard fires — BUG-6's shape, from each side ───────────────
 
-def _fake_pack(name: str, *, jurisdiction: str = "US-CA") -> types.ModuleType:
+def _fake_pack(
+    name: str,
+    *,
+    jurisdiction: str = "US-CA",
+    jurisdictions: tuple[str, ...] = ("US-CA",),
+) -> types.ModuleType:
     """A stand-in pack with the attributes `_entry`/`_validate` read. Built for
     the guard tests the way `test_invariants_surfaces` builds fake modules for
     the schema scan — a real module object, not a mock."""
     mod = types.ModuleType(f"homestead.packs._fake_{name}")
     mod.MATTER = name
     mod.JURISDICTION = jurisdiction
+    mod.JURISDICTIONS = jurisdictions
     mod.FIELDS = {"case_number": Rung.L3}
     mod.SCHEMA = {"case_number": {"rung": Rung.L3, "matter": name}}
     return mod
@@ -280,6 +287,76 @@ def test_the_structural_guard_fires_on_a_planted_enumeration(tmp_path):
         "a bare display string is not an enumeration and must not be caught — "
         "the ban is on hand-keeping the set, not on the word appearing"
     )
+
+
+# ── the docs do not claim only custody is registered ─────────────────────────
+
+_STALE_PHRASES = (
+    "Only custody is built",
+    "only custody is registered",
+    "Phase 3 and not built",
+)
+
+_README = Path(__file__).resolve().parents[1] / "README.md"
+_PACKS_INIT = PKG / "packs" / "__init__.py"
+_REGISTRY_PY = PKG / "keep" / "registry.py"
+
+
+def _live_text_for(path: Path) -> str:
+    """Everything the file still asserts: the whole file, struck spans gone,
+    whitespace flattened.
+
+    *Whole file*, not just the module docstring: the registry's stale claim
+    lived in two places — the module docstring and the `#:` comment over
+    `REGISTRY` — and a docstring-only reading polices one of them.
+
+    *Flattened*, because these documents are hard-wrapped and the phrases
+    below are not. The first version of this guard compared against raw text,
+    so "only custody is registered" could never match the README sentence it
+    was written for (wrapped as "Only custody is\\nregistered") — the README
+    leg passed on the very prose it was added to catch.
+    """
+    return live(path.read_text("utf-8"))
+
+
+def _stale_hits(text: str) -> list[str]:
+    return [p for p in _STALE_PHRASES if p.lower() in text.lower()]
+
+
+def test_registry_docs_do_not_claim_only_custody():
+    """Bankruptcy is registered alongside custody (`REGISTRY` and
+    `test_custody_and_bankruptcy_are_registered` above both say so); a doc that
+    still claims only custody is registered, or that the registry itself is
+    unbuilt, is stale prose disagreeing with the code it describes. History
+    stays struck through, never deleted, so the check only looks at what is
+    still asserted live."""
+    offenders = {
+        str(p): hits
+        for p in (_REGISTRY_PY, _PACKS_INIT, _README)
+        if (hits := _stale_hits(_live_text_for(p)))
+    }
+    assert not offenders, (
+        f"stale 'only custody' claims outside a struck-through span: {offenders}"
+    )
+
+
+@pytest.mark.parametrize("suffix", [".py", ".md"])
+def test_the_stale_claim_check_fires_on_a_planted_phrase(tmp_path, suffix):
+    """A scan that has never fired has not been shown to check anything.
+
+    The plant runs through `_live_text_for` — the same helper the real check
+    calls — rather than re-composing its parts, so a helper that silently
+    strips too much, or reads the wrong part of a file, fails here instead of
+    quietly disarming the check above. Both file kinds the guard scans are
+    planted, and the live phrase is **hard-wrapped**: that is the shape the
+    README leg was blind to."""
+    planted = tmp_path / f"planted{suffix}"
+    planted.write_text("A pack is a pack.\nOnly custody is\nregistered here.\n", "utf-8")
+    assert _stale_hits(_live_text_for(planted)) == ["only custody is registered"]
+
+    struck = tmp_path / f"struck{suffix}"
+    struck.write_text("~~Only custody is\nregistered here.~~ Now two are.\n", "utf-8")
+    assert not _stale_hits(_live_text_for(struck))
 
 
 def test_the_guard_would_catch_the_registry_itself_if_it_were_not_exempt():

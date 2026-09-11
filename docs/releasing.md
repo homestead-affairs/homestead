@@ -44,20 +44,33 @@ by accident either.
    publisher, since the project does not exist on PyPI yet):
    PyPI → your account → *Publishing* → *Add a pending publisher*
    - PyPI Project Name: `homestead-affairs`
-   - Owner: `rudi193-cmd`   ·   Repository: `homestead`
+   - ~~Owner: `rudi193-cmd`~~ (struck 2026-09-11: the repo lives in the
+     `homestead-affairs` org, not a personal account) — Owner:
+     `homestead-affairs`   ·   Repository: `homestead`
    - Workflow name: `release.yml`   ·   Environment name: `pypi`
 
 2. **GitHub environment** named `pypi`: repo *Settings → Environments → New
    environment → `pypi`*. (Add reviewers there if you want a manual gate before
    each upload.)
 
-3. **`RELEASE_PLEASE_TOKEN` secret**: a fine-grained PAT scoped to this repo with
-   **Contents: read/write** and **Pull requests: read/write** (classic
-   equivalent: `repo`), stored as repo secret `RELEASE_PLEASE_TOKEN`. This is not
-   optional and its absence fails silently in the worst way — a bot token
-   (`GITHUB_TOKEN`) generates no workflow runs, so the release PR would merge and
-   the publish would never fire. `release-please.yml`'s comment header explains
-   the three releases the fleet lost learning this.
+3. ~~**`RELEASE_PLEASE_TOKEN` secret**: a fine-grained PAT scoped to this repo
+   with **Contents: read/write** and **Pull requests: read/write** (classic
+   equivalent: `repo`), stored as repo secret `RELEASE_PLEASE_TOKEN`. This is
+   not optional and its absence fails silently in the worst way — a bot token
+   (`GITHUB_TOKEN`) generates no workflow runs, so the release PR would merge
+   and the publish would never fire. `release-please.yml`'s comment header
+   explains the three releases the fleet lost learning this.~~ (struck
+   2026-09-11: the PAT is retired. `release-please.yml` now mints a short-lived
+   installation token from the **willow-ci GitHub App** (app id `4749508`) via
+   `actions/create-github-app-token`, reading the org variable
+   `WILLOW_CI_APP_ID` and the org secret `WILLOW_CI_PRIVATE_KEY`. Same failure
+   mode it guards against — `GITHUB_TOKEN` generates no workflow runs, so a tag
+   or auto-merge armed with it would never fire `release.yml` — but nothing to
+   rotate or scope by hand: the App must be installed on the
+   `homestead-affairs` org with **Contents: read/write** and **Pull requests:
+   read/write**, and the org must carry `WILLOW_CI_APP_ID` and
+   `WILLOW_CI_PRIVATE_KEY`. Without them the mint step fails loudly, rather
+   than degrading to `GITHUB_TOKEN` the way the retired PAT's absence used to.)
 
 4. **Auto-merge + a required check** (only needed for hands-off releases):
    *Settings → General →* enable **Allow auto-merge**, and add a branch-protection

@@ -36,18 +36,29 @@ member, cross-checked at import against the set of members that actually exist,
 so one added and forgotten stops the build instead of failing open on the day
 something iterates it. The value shape is a frozen dataclass rather than the
 raw module for the same reason `SurfaceFacts` is one — a consumer reads a small
-closed contract (`name`, `jurisdiction`, `fields`, `schema`) instead of
-rummaging a module's namespace for whatever it happens to expose.
+closed contract (`name`, `jurisdiction`, `jurisdictions`, `fields`, `schema`)
+instead of rummaging a module's namespace for whatever it happens to expose.
+`jurisdiction` is the default a new instance of the matter starts under and
+`jurisdictions` is every jurisdiction it may be filed in (decision 1); the
+guard below holds the first inside the second.
 
-## Only custody is built
+## Custody and bankruptcy are built
 
-Custody is the one pack in v1 — *"one pack proves the seam; three prove nothing
-that one does not."* Bankruptcy and workers' comp are the two other types the
-model discusses (a case number is `L1` in a bankruptcy, `L3` in a family
-matter), and they are **Phase 5, not built**. They are not in this registry,
-and inventing a stub for either would be the hand-kept phantom this invariant
-forbids — a matter name in a list with no pack behind it, which is the missing
-half of BUG-6.
+~~Custody is the one pack in v1 — "one pack proves the seam; three prove
+nothing that one does not." Bankruptcy and workers' comp are the two other
+types the model discusses (a case number is `L1` in a bankruptcy, `L3` in a
+family matter), and they are Phase 5, not built. They are not in this
+registry, and inventing a stub for either would be the hand-kept phantom this
+invariant forbids — a matter name in a list with no pack behind it, which is
+the missing half of BUG-6.~~ (struck 2026-09-11: bankruptcy landed — a case
+number is `L1` there, `L3` in custody, so the two packs already prove the seam
+carries a real rung difference for the same field name.)
+
+Custody and bankruptcy are both registered below. Workers' comp is the
+remaining type the model discusses and is **Phase 5, not built**; it is not in
+this registry, and inventing a stub for it would be the hand-kept phantom this
+invariant forbids — a matter name in a list with no pack behind it, which is
+the missing half of BUG-6.
 
 ## What it does not hold
 
@@ -104,6 +115,16 @@ class MatterType:
         from, carrying each field's rung, matter and jurisdiction."""
         return self.pack.SCHEMA
 
+    @property
+    def jurisdictions(self) -> tuple[str, ...]:
+        """Every jurisdiction an instance of this matter may be filed under —
+        `pack.JURISDICTIONS`, read live like `fields`/`schema` so there is one
+        tuple and the registry cannot carry a stale copy of it. `jurisdiction`
+        above is the *default* a new instance starts with (decision 1); this is
+        the full set `set_jurisdiction` (Wave 3) may move an instance within,
+        and `_validate` requires the default itself be one of its members."""
+        return self.pack.JURISDICTIONS
+
 
 def _entry(pack: ModuleType) -> MatterType:
     """A `MatterType` from a pack, reading the name and jurisdiction it declares.
@@ -119,7 +140,9 @@ def _entry(pack: ModuleType) -> MatterType:
 #: The one enumeration (I-23). Keyed by matter name → its `MatterType`. Authored
 #: here, the way `surfaces.FACTS` is authored — add a pack by importing it and
 #: adding a line, and everything that iterates `all_matters()` picks it up with
-#: no other change. Only `custody` is built (bankruptcy, workers' comp: Phase 5).
+#: no other change. `custody` and `bankruptcy` are built and registered; workers'
+#: comp is Phase 5, not built. ~~Only `custody` is built (bankruptcy, workers'
+#: comp: Phase 5).~~ (struck 2026-09-11: bankruptcy landed.)
 REGISTRY: dict[str, MatterType] = {
     bankruptcy.MATTER: _entry(bankruptcy),
     custody.MATTER: _entry(custody),
@@ -159,6 +182,16 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
       which is the workers'-comp-out-of-the-queue failure precisely;
     * a registry entry for a pack that is not on disk — a phantom matter, a name
       in the list with nothing behind it.
+    * a pack whose `JURISDICTIONS` is missing, empty, holds a blank member, or
+      does not contain its own `JURISDICTION` — decision 1's default-outside-the-
+      supported-tuple failure: a pack whose default jurisdiction is not itself
+      one it lists could never satisfy `set_jurisdiction`'s own refusal on the
+      instance it starts every matter in;
+    * an entry whose `jurisdiction` disagrees with its pack's `JURISDICTION` —
+      the key check one field over. `jurisdiction` is the only part of an entry
+      that is copied out of the pack instead of read live, so it is the only
+      part that can drift, and the drift is invisible without this check now
+      that `jurisdictions` next to it *is* live.
     """
     for key, entry in registry.items():
         if not isinstance(entry, MatterType):
@@ -171,6 +204,38 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
                 f"({entry.pack.MATTER!r}) — a matter is keyed by the name its "
                 "pack declares, read once, so the two cannot drift. A key kept "
                 "by hand next to a name set elsewhere is BUG-6's shape."
+            )
+        jurisdictions = getattr(entry.pack, "JURISDICTIONS", None)
+        if (
+            not isinstance(jurisdictions, tuple)
+            or not jurisdictions
+            or not all(isinstance(j, str) and j.strip() for j in jurisdictions)
+        ):
+            raise RuntimeError(
+                f"{key!r}: JURISDICTIONS must be a non-empty tuple of non-empty "
+                f"strings, not {jurisdictions!r}. A pack with none, or with a "
+                "blank member, has an unreadable jurisdiction set — the exact "
+                "shape absence takes elsewhere in this module (I-11's building "
+                "failing closed) applied to decision 1's per-matter jurisdiction."
+            )
+        if entry.jurisdiction != entry.pack.JURISDICTION:
+            raise RuntimeError(
+                f"{key!r}: the entry's jurisdiction {entry.jurisdiction!r} "
+                f"disagrees with its pack's JURISDICTION "
+                f"{entry.pack.JURISDICTION!r}. `jurisdiction` is the one field "
+                "on an entry that is a *copy* rather than a property over the "
+                "pack (`fields`, `schema` and `jurisdictions` all read through "
+                "live), so it is the one that can drift — and a copy that has "
+                "drifted from the thing it copies is BUG-6, the same shape as "
+                "the key check above."
+            )
+        if entry.jurisdiction not in jurisdictions:
+            raise RuntimeError(
+                f"{key!r}: JURISDICTION {entry.jurisdiction!r} is not in "
+                f"its own JURISDICTIONS {jurisdictions!r}. A pack's default "
+                "jurisdiction must be one of the jurisdictions it supports — "
+                "every new instance starts at the default, and a default "
+                "outside the supported tuple is a matter that cannot open."
             )
 
     unregistered = sorted(set(on_disk) - set(registry))
@@ -187,8 +252,8 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
         raise RuntimeError(
             f"registry entries with no pack: {phantom}. A matter name in the "
             "enumeration with no pack behind it is the hand-kept phantom I-23 "
-            "forbids — enumerate only what is built (custody; bankruptcy and "
-            "workers' comp are Phase 5)."
+            "forbids — enumerate only what is built (custody and bankruptcy; "
+            "workers' comp is Phase 5)."
         )
 
 
