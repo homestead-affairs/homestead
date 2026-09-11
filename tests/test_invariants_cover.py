@@ -268,3 +268,190 @@ def test_a_planted_matter_name_never_appears_in_result_or_error_text():
             overdue=2,
         )
     assert planted not in str(unknown_matter.value)
+
+
+# ── audit E4: the distribution is checked before it is read ──────────────────
+#
+# `by_matter` is the gate's *evidence*. Evidence that cannot be reasoned about
+# is refused, never partially believed (I-11) — and every refusal names only the
+# category, which is a key, never a matter or a share (I-15).
+
+
+def test_a_negative_share_is_refused_by_category_name():
+    """A count is a count of things; below zero there is nothing to count. A
+    negative share is refused rather than summed, and the refusal names only the
+    category."""
+    with pytest.raises(ValueError) as refusal:
+        cover_counts(
+            matters=["custody", "estate"],
+            by_matter={"custody": {"overdue": -1}, "estate": {"overdue": 3}},
+            overdue=2,
+        )
+    assert "overdue" in str(refusal.value)
+    assert "custody" not in str(refusal.value)
+
+
+def test_a_negative_share_cannot_launder_a_single_matter_spread():
+    """The reason the sign matters, and not merely the type. `{3, 1, -2}` totals
+    2, clears the totals check, and presents *two* contributors — so the old
+    code showed `overdue=2` for a spread no household has. Refused now: a term
+    that subtracts makes the sum stop being a count."""
+    with pytest.raises(ValueError):
+        cover_counts(
+            matters=["custody", "estate", "tenancy"],
+            by_matter={
+                "custody": {"overdue": 3},
+                "estate": {"overdue": 1},
+                "tenancy": {"overdue": -2},
+            },
+            overdue=2,
+        )
+
+
+def test_a_stranger_share_is_refused_under_every_category():
+    """Bools, floats, strings and `None` are all refused by name — including
+    under a category whose *aggregate* is itself a stranger and would be dropped
+    anyway. The shares are checked before any of them is summed, so a bad
+    distribution is never silently skipped on the way to a dropped count."""
+    for share in (True, 1.0, "1", None):
+        with pytest.raises(ValueError):
+            cover_counts(
+                matters=["custody", "estate"],
+                by_matter={"custody": {"overdue": share}, "estate": {"overdue": 1}},
+                overdue=2,
+            )
+    with pytest.raises(ValueError):
+        cover_counts(
+            matters=["custody", "estate"],
+            by_matter={"custody": {"overdue": 1.5}, "estate": {"overdue": 1}},
+            overdue="2",  # a stranger aggregate does not excuse a stranger share
+        )
+
+
+def test_a_malformed_by_matter_is_refused_not_crashed():
+    """A `by_matter` that is not a mapping of matter to share table is refused by
+    name (I-11), not left to raise whatever `TypeError` the arithmetic happens to
+    hit — a refusal is a decision, an `AttributeError` is an accident."""
+    with pytest.raises(ValueError):
+        cover_counts(matters=["custody", "estate"], by_matter=["custody"], overdue=2)
+    with pytest.raises(ValueError):
+        cover_counts(matters=["custody"], by_matter={"custody": 2}, overdue=2)
+    with pytest.raises(ValueError):
+        cover_counts(matters=["custody"], by_matter={"custody": "two"}, overdue=2)
+
+
+def test_a_category_distributed_but_never_counted_is_refused():
+    """The totals check runs over the *union* of the two sides. A category the
+    distribution knows and the aggregate does not is an inconsistency in itself —
+    including when its shares are all zero, where arithmetic alone (0 == 0) would
+    have waved it through."""
+    with pytest.raises(ValueError) as nonzero:
+        cover_counts(
+            matters=["custody", "estate"],
+            by_matter={"custody": {"due_soon": 1}, "estate": {"due_soon": 1}},
+            overdue=2,
+        )
+    assert "due_soon" in str(nonzero.value)
+
+    with pytest.raises(ValueError):
+        cover_counts(
+            matters=["custody", "estate"],
+            by_matter={"custody": {"due_soon": 0}, "estate": {"due_soon": 0}},
+            overdue=0,
+        )
+
+
+def test_a_counted_category_the_distribution_omits_is_refused():
+    """The other side of the union: an aggregate with no shares behind it is a
+    distribution that does not cover its own count."""
+    with pytest.raises(ValueError) as refusal:
+        cover_counts(
+            matters=["custody", "estate"],
+            by_matter={"custody": {"overdue": 1}, "estate": {"overdue": 1}},
+            overdue=2,
+            due_soon=5,
+        )
+    assert "due_soon" in str(refusal.value)
+
+
+# ── the roster is a set of matters, not a list of spellings ──────────────────
+
+
+def test_one_matter_named_twice_is_still_one_matter():
+    """The matters gate counts *distinct* matters. A roster that repeats a name
+    is one matter wearing two spellings, and the household is still that matter —
+    counting the list would show '5 overdue' about the only matter there is."""
+    assert cover_counts(matters=["custody", "custody"], overdue=5) == {}
+    assert cover_counts(matters=["custody", "custody", "custody"], overdue=9) == {}
+    # and the same roster with a genuine second matter still passes
+    assert cover_counts(matters=["custody", "custody", "estate"], overdue=5) == {
+        "overdue": 5
+    }
+
+
+# ── I-15, again, over every path a matter name can reach ─────────────────────
+
+
+def test_no_matter_name_or_share_reaches_any_exception_surface():
+    """A planted matter name and a planted share (7919 — findable, and no
+    count this suite otherwise uses) must appear in neither `str`, `args` nor
+    `__notes__` of any refusal, on every refusal path there is. An exception
+    built from a dict `repr` would fail this."""
+    planted = "zzz-planted-matter-name-zzz"
+    share = 7919
+
+    def caught(**kwargs):
+        with pytest.raises(Exception) as raised:
+            cover_counts(**kwargs)
+        error = raised.value
+        surface = " ".join(
+            [str(error), repr(error.args), repr(getattr(error, "__notes__", None))]
+        )
+        assert planted not in surface, surface
+        assert str(share) not in surface, surface
+        return error
+
+    caught(  # outside the roster
+        matters=["custody"],
+        by_matter={planted: {"overdue": share}},
+        overdue=share,
+    )
+    caught(  # totals disagree
+        matters=["custody", planted],
+        by_matter={"custody": {"overdue": share}, planted: {"overdue": 1}},
+        overdue=3,
+    )
+    caught(  # a stranger share
+        matters=["custody", planted],
+        by_matter={"custody": {"overdue": float(share)}, planted: {"overdue": 1}},
+        overdue=3,
+    )
+    caught(  # a negative share
+        matters=["custody", planted],
+        by_matter={"custody": {"overdue": -share}, planted: {"overdue": 1}},
+        overdue=1,
+    )
+    caught(  # a share table that is not a mapping
+        matters=["custody", planted],
+        by_matter={"custody": {"overdue": 1}, planted: planted},
+        overdue=1,
+    )
+    caught(  # a category the aggregate never counted
+        matters=["custody", planted],
+        by_matter={"custody": {"drafts_unsent": 1}, planted: {"drafts_unsent": share}},
+        overdue=2,
+    )
+
+
+def test_the_result_carries_counts_and_never_a_matter():
+    """The survivor path: the returned mapping is category → int. No matter name
+    reaches its keys, and its values are the aggregate — never a share."""
+    planted = "zzz-planted-matter-name-zzz"
+    counts = cover_counts(
+        matters=["custody", planted],
+        by_matter={"custody": {"overdue": 4}, planted: {"overdue": 3}},
+        overdue=7,
+    )
+    assert counts == {"overdue": 7}
+    assert all(isinstance(value, int) for value in counts.values())
+    assert planted not in repr(counts)
