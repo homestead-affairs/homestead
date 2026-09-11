@@ -48,6 +48,15 @@ are below and they move the question rather than answering it.
 
 ---
 
+> **Annotated 2026-09-11 (X7-drift audit).** Three of the test names this
+> section measures under were renamed by the very change it argued for — the
+> measurement stands, the pointers did not. Each is struck in place with the
+> current name beside it; the line numbers are left as this section recorded
+> them, because a line number is a measurement's timestamp, not a pointer
+> anyone should follow. `tests/test_docs_drift.py::
+> test_no_doc_pins_a_test_name_that_no_longer_exists` is the guard that keeps
+> the *names* honest from here.
+
 ## The mechanical facts, measured
 
 ### 1 · A seventh member changes no answer. Zero cells, out of twenty-five.
@@ -92,7 +101,10 @@ act on their own record*.
 
 ### 3 · So the pinned test's stated reason for existing is mechanically false.
 
-`test_the_purpose_enum_is_the_six_that_were_published`
+~~`test_the_purpose_enum_is_the_six_that_were_published`~~
+`test_the_purpose_enum_is_the_set_that_was_ratified` *(renamed; annotated
+2026-09-11, X7-drift audit — the old name is the one this section measured
+under, and it no longer exists)*
 (`tests/test_invariants_surfaces.py:647`) justifies the pin like this:
 
 > A seventh member is a lift nobody ratified: it is one more call site that can
@@ -239,8 +251,8 @@ files, not the two the question assumed:
 
 | test | file:line | why it fails |
 |---|---|---|
-| `test_the_purpose_enum_is_the_six_that_were_published` | `test_invariants_surfaces.py:647` | pins the name→value dict |
-| `test_the_six_members_are_exactly_the_six_that_were_ratified` | `test_purpose_corpus.py:160` | pins names, values, and `len(values) == 6` |
+| ~~`test_the_purpose_enum_is_the_six_that_were_published`~~ `test_the_purpose_enum_is_the_set_that_was_ratified` *(renamed 2026-09-11)* | `test_invariants_surfaces.py:647` | pins the name→value dict |
+| ~~`test_the_six_members_are_exactly_the_six_that_were_ratified`~~ `test_the_members_are_exactly_those_that_were_ratified` *(renamed 2026-09-11)* | `test_purpose_corpus.py:160` | pins names, values, and `len(values) == 6` |
 | `test_this_corpus_has_not_been_hollowed_out` | `test_purpose_corpus.py:971` | `len(Purpose) == 6`, `len(VALID_PURPOSES) == 7` |
 | `test_the_corpus_has_not_been_hollowed_out` | `test_surfaces_corpus.py:1956` | same two, with the seventh-member message attached |
 
@@ -297,7 +309,9 @@ Rewriting `FILING`'s trailing comment and nothing else: **1621 passed /
 
 ### A cost the suite will not report
 
-`test_all_six_members_are_interchangeable_at_the_decision_function`
+~~`test_all_six_members_are_interchangeable_at_the_decision_function`~~
+`test_all_members_are_interchangeable_at_the_decision_function` *(renamed
+2026-09-11)*
 (`tests/test_purpose_corpus.py:588`) **passes with seven members**, because it
 iterates `Purpose`. Its name would then be false and green. That is the defect
 the last brief renamed `test_the_ceiling_table_did_not_move` for — *a test whose

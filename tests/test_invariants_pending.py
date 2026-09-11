@@ -114,12 +114,17 @@ UNBUILT = {
     #     written against a **provisional** API (`reveal.open`/`reveal.expire`)
     #     — see their docstrings.
     #
-    # These invariant numbers are themselves provisional (~~I-37…I-40~~ I-39;
-    # the plan's Decision 10) until an audit ratifies them alongside the code
-    # that builds each module — the reason string on every one of these tests
-    # says so. I-37/I-38/I-40 were ratified at those numbers by the
-    # E4-sync-core audit, 2026-09-11 (`docs/DECISION-sync-envelope-and-
-    # consent.md`); I-39 waits on `E4-postgres-fleet`, and I-32/I-33 on the
+    # These invariant numbers are themselves provisional (~~I-37…I-40~~ ~~I-39~~
+    # none of the sync/fleet four, any more; the plan's Decision 10) until an
+    # audit ratifies them alongside the code that builds each module — the
+    # reason string on every one of these tests says so. I-37/I-38/I-40 were
+    # ratified at those numbers by the E4-sync-core audit, 2026-09-11
+    # (`docs/DECISION-sync-envelope-and-consent.md`); ~~I-39 waits on
+    # `E4-postgres-fleet`~~ — **corrected 2026-09-11 (X7-drift audit): it did
+    # not wait, it landed. I-39 was ratified at that number by
+    # `E4-postgres-fleet` (`docs/DECISION-fleet-ingest.md`, "I-39 is promoted
+    # out") and its test moved to tests/test_invariants_fleet.py, unmarked, as
+    # the paragraph four below already records.** I-32/I-33 still wait on the
     # reveal pane.
     #
     # 2026-09-11 — E4-sync-core built `homestead.keep.sync` and

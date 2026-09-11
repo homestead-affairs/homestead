@@ -5,6 +5,16 @@ Four counting functions read one rule table: `court_days` (forward, FRCP
 (6(d)/9006(f)) and `business_days`. See `RULES` and `RuleStatus` — a rule this
 module has not checked is refused, never guessed at.
 
+**Three jurisdictions, not one.** `US-federal` (FRBP 9006(a) = FRCP 6(a)),
+`US-NM` (Rule 1-006 NMRA; NMSA 12-2A-7) and `US-OR` (ORCP 10 A/C).
+`JURISDICTIONS` is `tuple(RULES)`, so the list and the table cannot disagree;
+`docs/PHASE1-DATES.md` carries the per-branch verification status, and every
+`UNCERTAIN` branch refuses rather than computing. *(Annotated 2026-09-11,
+X7-drift audit: the opening line says "the FRCP 6(a) counting rules" and said
+nothing else from 0.3.0 onward, while `RULES` grew its two state rows in
+0.6.0. The line stays as written — it is true of the federal row and it is
+what this module was when it was one jurisdiction wide.)*
+
 **A missed deadline is not a bug ticket; it is harm.** Everything below is
 shaped by that, and by four defects that already happened in the application
 this one replaces.

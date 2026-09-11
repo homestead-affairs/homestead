@@ -315,14 +315,41 @@ def test_the_real_registry_passes_the_jurisdiction_checks():
 
 # ── derived_of is not a payload path, held structurally ──────────────────────
 
-def _derived_of_source() -> ast.FunctionDef:
-    """The `derived_of` definition, parsed out of the shipped `keep/rungs.py`."""
-    source = (Path(__file__).resolve().parent.parent
-              / "homestead" / "keep" / "rungs.py").read_text("utf-8")
+def _derived_of_source(source: str | None = None) -> ast.FunctionDef:
+    """The `derived_of` definition, parsed out of the shipped `keep/rungs.py`
+    — or out of `source`, when one is handed in, so the guard below can be
+    run against a *planted* `derived_of` as well as the real one. It read
+    only the shipped file until X7-drift's meta-scan pointed out that a scan
+    with nowhere to put a violation is a scan that has never fired."""
+    if source is None:
+        source = (PKG / "keep" / "rungs.py").read_text("utf-8")
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.FunctionDef) and node.name == "derived_of":
             return node
     raise AssertionError("derived_of is not defined in homestead/keep/rungs.py")
+
+
+def _derived_of_offences(fn: ast.FunctionDef) -> list[str]:
+    """Every way the `derived_of` definition `fn` could reach a stored value.
+
+    Factored out of the test below (X7-drift) for the reason this suite
+    factors every scan out: the real run and the planted run must be the
+    same check, or the plant proves nothing about the check that ships. The
+    two reach scans are the chokepoint's own, imported rather than copied.
+    """
+    from tests.test_invariants_chokepoint import _payload_reaches, _reflection_reaches
+
+    offences: list[str] = []
+    if _payload_reaches(fn):
+        offences.append("reaches a .payload")
+    if _reflection_reaches(fn):
+        offences.append("uses a reflection primitive")
+    names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)} | {
+        a.attr for a in ast.walk(fn) if isinstance(a, ast.Attribute)
+    }
+    if "Classified" in names:
+        offences.append("names Classified")
+    return offences
 
 
 def test_derived_of_reaches_no_payload_and_reflects_on_nothing():
@@ -342,25 +369,48 @@ def test_derived_of_reaches_no_payload_and_reflects_on_nothing():
     mention of `Classified` at all — there is no expression in it that could
     reach a stored value, whatever a caller passes.
     """
-    from tests.test_invariants_chokepoint import _payload_reaches, _reflection_reaches
+    assert not _derived_of_offences(_derived_of_source()), (
+        "derived_of reaches a stored value. It reads the schema a pack "
+        "declared; a payload is reached through serve() and nowhere else "
+        "(I-16), by name or by reflection, and this function living in the "
+        "gate's file is not a licence to do it here. A Classified holds a "
+        "payload, so naming one is the third way in."
+    )
 
-    fn = _derived_of_source()
-    assert not _payload_reaches(fn), (
-        "derived_of reaches a .payload. It reads the schema a pack declared; a "
-        "payload is reached through serve() and nowhere else (I-16), and this "
-        "function living in the gate's file is not a licence to do it here."
+
+def test_the_derived_of_reflection_scan_fires_on_a_planted_definition():
+    """The plant this scan never had — found by X7-drift's meta-scan, which
+    noticed that `test_invariants_pack_contract.py` had four plant-named
+    tests and not one of them ran *this* scan. Each of the three offences is
+    planted into a `derived_of` of its own and must be caught by name, and a
+    clean definition must come back empty so the scan is not simply
+    answering "guilty"."""
+    payload_reach = _derived_of_source(
+        "def derived_of(schema, field):\n"
+        "    return schema[field].payload\n"
     )
-    assert not _reflection_reaches(fn), (
-        "derived_of uses a reflection primitive — the by-computed-name read the "
-        "chokepoint audit used to walk past the literal .payload scan."
+    assert _derived_of_offences(payload_reach) == ["reaches a .payload"]
+
+    reflected = _derived_of_source(
+        "def derived_of(schema, field):\n"
+        '    return getattr(schema[field], "pay" + "load")\n'
     )
-    names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)} | {
-        a.attr for a in ast.walk(fn) if isinstance(a, ast.Attribute)
-    }
-    assert "Classified" not in names, (
-        "derived_of names Classified. A Classified holds a payload; a function "
-        "that never touches one cannot return what one holds."
+    assert _derived_of_offences(reflected) == ["uses a reflection primitive"]
+
+    names_classified = _derived_of_source(
+        "def derived_of(schema, field):\n"
+        "    declaration = schema[field]\n"
+        "    if isinstance(declaration, Classified):\n"
+        "        return None\n"
+        '    return declaration["derived"]\n'
     )
+    assert _derived_of_offences(names_classified) == ["names Classified"]
+
+    clean = _derived_of_source(
+        "def derived_of(schema, field):\n"
+        '    return schema[field]["derived"]\n'
+    )
+    assert _derived_of_offences(clean) == []
 
 
 def test_derived_of_refuses_a_record_that_is_shaped_like_a_declaration():

@@ -28,7 +28,12 @@ household resolver. `resolver_for()`/`verify_ledger()` raise
 `SeamNotBoundError` if `bind()` has not run: unbound, the ledger would
 otherwise write to `data/ledger.jsonl` relative to cwd. Nestor is imported
 lazily inside `bind()`, so a checkout without the `entity` extra still
-imports the seam cleanly. Pinned at `v0.2.0`, a tag (fleet rule R14).
+imports the seam cleanly. ~~Pinned at `v0.2.0`, a tag (fleet rule R14).~~
+**Corrected 2026-09-11 (X7-drift):** pinned to `nestor-meaning>=0.11.0,<1.0`
+on PyPI, bumped from the VCS tag `v0.2.0` this was written against — a
+release range still satisfies fleet rule R14 (never a branch), it is simply
+no longer a single tag. See `homestead/keep/nestor_seam.py`'s own docstring
+and `pyproject.toml`'s `entity` extra.
 
 **Forge** — `nestor_available()` gate, degrade to full-Socratic.
 `checkpoint_memory._nestor()` imports Nestor lazily, caching success only;
@@ -48,7 +53,7 @@ resolve-it-yourself move homestead makes.
 | Availability check | `SeamNotBoundError` on first unbound call | `nestor_available()`, checked first |
 | Ledger/path resolution | homestead's `keep/paths.py`, never Nestor's | Forge's own `root`, never Nestor's cwd default |
 | Absent-Nestor behavior | refuse (fail closed) once a call is attempted | degrade to full-Socratic (never attempted) |
-| Pin | `v0.2.0`, tag | git SHA at promotion (unset in dev) |
+| Pin | ~~`v0.2.0`, tag~~ `nestor-meaning>=0.11.0,<1.0`, PyPI range (2026-09-11) | git SHA at promotion (unset in dev) |
 
 They differ on *when* Nestor's absence is allowed to surface — homestead
 refuses at the call site, Forge decides upstream and never calls — but both
