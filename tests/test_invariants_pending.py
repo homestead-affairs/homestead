@@ -12,7 +12,12 @@ to prevent, in an app that has already produced that failure once.
 """
 from __future__ import annotations
 
+import ast
+import importlib
 import importlib.util
+import inspect
+import json
+from pathlib import Path
 
 import pytest
 
@@ -83,6 +88,33 @@ UNBUILT = {
     # promotion (dates, surfaces, record, then cover). test_pending_liveness
     # failed the moment the module existed and would not go green again until it
     # was moved and struck from this dict.
+    #
+    # 2026-09-11 — E1-pending (docs/PLAN-affairs-face.md,
+    # "so-lets-plan-it-sparkling-shell") reseeds this dict for the sync/fleet
+    # wave, four modules at once rather than one:
+    #
+    #   * `homestead.keep.sync` and `homestead.keep.household` — Wave 4
+    #     (E4-sync-core). I-37 (sync is an operator-authored act — a refused
+    #     confirm ledgers nothing), I-38 (an envelope is ledgered once, with
+    #     references only) key on `sync`.
+    #   * `homestead.keep.fleet_cli` — Wave 4 (E4-postgres-fleet). I-39 (the
+    #     fleet ingest never listens and lazy-imports psycopg) keys on it.
+    #   * `homestead.keep.sync` again for I-40 (an unnamed scope syncs
+    #     nothing) — `SyncScope` is declared there per the plan's Decision 5.
+    #   * `homestead.app.reveal` — a later UI wave (I-32/I-33), carried over
+    #     from Phase 2's own list ("Deliberately not included": *"the I-32
+    #     reveal timer (pending test only)"*) and PHASE2-SURFACES.md's open
+    #     items 2 ("May the rung indicator say something is sealed?") and its
+    #     "No `L4` timeout" gap. Both tests are written against a **provisional**
+    #     API (`reveal.open`/`reveal.expire`) — see their docstrings.
+    #
+    # These invariant numbers are themselves provisional (I-37…I-40; the plan's
+    # Decision 10) until an audit ratifies them alongside the code that builds
+    # each module — the reason string on every one of these five tests says so.
+    "homestead.keep.sync": "Wave 4 (E4-sync-core)",
+    "homestead.keep.household": "Wave 4 (E4-sync-core)",
+    "homestead.keep.fleet_cli": "Wave 4 (E4-postgres-fleet)",
+    "homestead.app.reveal": "a later UI wave (I-32/I-33)",
 }
 
 
@@ -142,3 +174,264 @@ def test_pending_liveness():
 # I-18 (`homestead.keep.patterns`) was promoted to
 # tests/test_invariants_patterns.py — the last pending invariant to land, leaving
 # UNBUILT empty. Every claim this file once made red is now built and green.
+
+
+# ── Wave 4/5 · sync, the fleet, and a reveal that expires ───────────────────
+#
+# Seeded 2026-09-11, E1-pending (docs/PLAN-affairs-face.md). Every module named
+# below imports inside the test body, per the mechanism this file documents —
+# so each of these fails today (`ModuleNotFoundError`, or here and there a
+# missing name on a module that already exists for another reason), is caught
+# by `xfail(strict=True)`, and goes XPASS-strict — a build failure, on purpose
+# — the day the real module makes it pass. That is the promotion signal; the
+# assertions below are what should still be true once it fires.
+
+
+def _lines(path):
+    """Every JSON line at `path`, or `[]` if it does not exist yet — the shape
+    `test_invariants_export.py` reads `IntegrityLog` with, reused here because
+    `IntegrityLog` deliberately has no public `read()` (see `keep/logs.py`)."""
+    if not path.exists():
+        return []
+    return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+
+
+@pending(
+    "homestead.keep.sync",
+    "I-37 (provisional): sync is an operator-authored act, never background — "
+    "a refused confirm ledgers nothing",
+)
+def test_i37_a_sync_is_an_operator_authored_act(tmp_path, monkeypatch):
+    """The failure this guards against: a sync that fires without an operator
+    confirming exactly what will leave — F-3's shape, egress that acts *for*
+    someone rather than *at their direction*. `keep.egress.send` already
+    refuses with no `confirm`; Decision 5 says the sync act inherits that same
+    refusal rather than re-deciding it, so `sync.deliver(envelope, confirm=None)`
+    must raise the identical `EgressRefused` — and because a refused act is not
+    an act, it must not touch either log: no `IntegrityLog` entry, no
+    `VisibleLog` line.
+
+    Provisional I-37 (the plan's Decision 10, ratified by audit alongside the
+    code). Promotes to tests/test_invariants_sync.py when Wave 4's
+    E4-sync-core builds `homestead.keep.sync`.
+    """
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    from homestead.keep import logs, sync
+    from homestead.keep.egress import EgressRefused
+    from homestead.keep.rungs import Classified, Rung
+    from homestead.keep.store import Sidecar
+
+    Sidecar().put("custody", "deadline", "primary.hearing", Classified(Rung.L1, "2026-10-06"))
+    scope = sync.SyncScope(matters=("custody",), item_types=None, ceiling=Rung.L3, tables=("sidecar",))
+    envelope = sync.compose({"sidecar": Sidecar()}, scope)
+
+    with pytest.raises(EgressRefused):
+        sync.deliver(envelope, confirm=None)
+
+    assert _lines(logs.IntegrityLog().path) == [], "a refused sync writes no integrity entry"
+    assert logs.VisibleLog().read() == [], "a refused sync writes no visible line"
+
+
+@pending(
+    "homestead.keep.sync",
+    "I-38 (provisional): an envelope is ledgered once, with references only",
+)
+def test_i38_an_envelope_is_ledgered_once_with_references_only(tmp_path, monkeypatch):
+    """The failure this guards against: F-4's shape landing on the sync path — a
+    served value (here, a court date an adversary should not get for free out of
+    an audit trail) copied into the very `IntegrityLog` entry that exists to
+    *prove the act happened*, not to hold a second copy of the record. One
+    delivery must write exactly one integrity entry, naming the act by
+    reference (`act`, `household`, `envelope`, `purpose`, `scope`, `rows`,
+    `destination`) and carrying none of `value`/`payload`/`derived`, nor any
+    substring of a served value; and exactly one `VisibleLog` line
+    (`RECORD_SYNCED`) whose `ref` is `(household, envelope_id)` — a reference an
+    operator can look up, never the content.
+
+    Provisional I-38. Promotes to tests/test_invariants_sync.py alongside I-37.
+    """
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    from homestead.keep import logs, sync
+    from homestead.keep.rungs import Classified, Rung
+    from homestead.keep.store import Sidecar
+
+    SECRET_DATE = "2026-10-06"
+    Sidecar().put("custody", "deadline", "primary.hearing", Classified(Rung.L1, SECRET_DATE))
+    scope = sync.SyncScope(matters=("custody",), item_types=None, ceiling=Rung.L3, tables=("sidecar",))
+    envelope = sync.compose({"sidecar": Sidecar()}, scope)
+
+    sync.deliver(envelope, confirm=lambda wire: True, drop_dir=tmp_path / "drop")
+
+    entries = _lines(logs.IntegrityLog().path)
+    assert len(entries) == 1, "exactly one integrity entry per delivered envelope"
+    (entry,) = entries
+    assert entry["act"] == "record_synced"
+    for field in ("household", "envelope", "purpose", "scope", "rows", "destination"):
+        assert field in entry, f"missing {field!r} — the entry must name the act by reference"
+    for banned in ("value", "payload", "derived"):
+        assert banned not in entry, f"the ledger carries references, never content ({banned!r})"
+    raw = json.dumps(entry)
+    assert SECRET_DATE not in raw, "no served value may appear in the ledger (I-15)"
+    assert entry["household"] == envelope.household
+    assert entry["envelope"] == envelope.envelope_id
+
+    (visible,) = logs.VisibleLog().read()
+    assert visible["event"] == logs.Event.RECORD_SYNCED.value
+    assert visible["ref"] == f"{envelope.household}/{envelope.envelope_id}"
+    assert SECRET_DATE not in json.dumps(visible)
+
+
+@pending(
+    "homestead.keep.fleet_cli",
+    "I-39 (provisional): the fleet ingest never listens and lazy-imports psycopg",
+)
+def test_i39_the_fleet_ingest_never_listens_and_lazy_imports_psycopg():
+    """The failure this guards against: I-30's "nothing here listens" holding
+    for every module except the one built to talk to a shared Postgres — an
+    ingest command is exactly the code someone reaches for `socketserver` in,
+    and I-27's import scan reads only `pyproject.toml`'s `dependencies`, so a
+    module-level `import psycopg` would run clean in CI and only fail on a
+    machine without the `fleet` extra installed. Two static checks, over the
+    actual source (an AST scan, not a runtime import of `psycopg`-touching
+    code): `homestead/keep/fleet_cli.py` contains none of the I-30 banned call
+    names (`tests/test_invariants_shape.py`'s list); and neither it nor the
+    `PostgresAdapter` region of `homestead/keep/store.py` imports `psycopg` at
+    module level — it may only be reached inside a function body.
+
+    Provisional I-39. Promotes to tests/test_invariants_fleet.py when Wave 4's
+    E4-postgres-fleet builds `homestead.keep.fleet_cli` and `store.PostgresAdapter`.
+    """
+    banned = {"listen", "serve_forever", "create_server", "ThreadingHTTPServer"}
+
+    def offenders(tree) -> list[str]:
+        hits = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                f = node.func
+                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+                if name in banned:
+                    hits.append(name)
+        return hits
+
+    def toplevel_psycopg(tree) -> bool:
+        for node in tree.body:
+            if isinstance(node, ast.Import) and any(a.name.split(".")[0] == "psycopg" for a in node.names):
+                return True
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and (node.module or "").split(".")[0] == "psycopg":
+                return True
+        return False
+
+    fleet_cli = importlib.import_module("homestead.keep.fleet_cli")
+    fleet_tree = ast.parse(Path(inspect.getfile(fleet_cli)).read_text(encoding="utf-8"))
+    assert not offenders(fleet_tree), "the fleet ingest must never listen (I-30)"
+    assert not toplevel_psycopg(fleet_tree), "psycopg must be lazy, not a top-level import (I-27)"
+
+    from homestead.keep import store
+
+    store_tree = ast.parse(Path(inspect.getfile(store)).read_text(encoding="utf-8"))
+    pg_class = next(
+        (n for n in ast.walk(store_tree) if isinstance(n, ast.ClassDef) and n.name == "PostgresAdapter"),
+        None,
+    )
+    assert pg_class is not None, "store.py must declare PostgresAdapter"
+    assert not offenders(pg_class), "PostgresAdapter must never listen (I-30)"
+    assert not toplevel_psycopg(store_tree), "psycopg must be lazy in store.py too (I-27)"
+
+
+@pending(
+    "homestead.keep.sync",
+    "I-40 (provisional): an unnamed scope syncs nothing",
+)
+def test_i40_an_unnamed_scope_syncs_nothing(tmp_path, monkeypatch):
+    """The failure this guards against: `--matters all` — a scope that syncs
+    whatever exists rather than what the operator named, which turns a new
+    matter added next month into something that leaves the machine the next
+    time sync runs, with no act authorizing *that* matter. A `SyncScope` with
+    no matters, and one whose `ceiling` is `L5` (an explicit invitation to the
+    one rung `serve()` never crosses), must both refuse at construction — not
+    compose an envelope with nothing or everything in it.
+
+    Provisional I-40. Promotes to tests/test_invariants_sync.py alongside
+    I-37/I-38.
+    """
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    from homestead.keep import sync
+    from homestead.keep.rungs import Rung
+
+    with pytest.raises(Exception):
+        sync.SyncScope(matters=(), item_types=None, ceiling=Rung.L3, tables=("sidecar",))
+    with pytest.raises(Exception):
+        sync.SyncScope(matters=("custody",), item_types=None, ceiling=Rung.L5, tables=("sidecar",))
+
+
+@pending(
+    "homestead.app.reveal",
+    "I-32 (provisional): a reveal expires back to derived",
+)
+def test_i32_a_reveal_expires_back_to_derived():
+    """The failure this guards against: PHASE2-SURFACES.md names it directly —
+    "No `L4` timeout. I-32 — a reveal expires back to derived — needs a running
+    surface. `S1_DETAIL` here says *may*, not *for how long*." An `L4` opened on
+    the detail pane and left on screen (a shared machine, F-1's reader) must
+    stop showing the payload after its window closes and fall back to the
+    derived instruction — the same `DERIVE` a surface gets when no reveal was
+    ever granted, not a lower rung and not a crash.
+
+    **The API below is provisional** — `homestead.app.reveal` does not exist,
+    and `open()`/`expire()` are a guess against the surface's own language,
+    kept only so the test compiles. The strict xfail does not lock in that
+    shape; it proves one claim cannot be quietly satisfied — *an opened `L4`
+    reveal reads back as derived once it has expired* — no matter what the
+    real API turns out to be. Promotion should rewrite this test to whatever
+    `reveal` module lands, keeping that one assertion.
+
+    Promotes to tests/test_invariants_reveal.py in a later UI wave.
+    """
+    from homestead.app import reveal
+    from homestead.keep.rungs import Classified, Rung
+
+    item = Classified(Rung.L4, "he was drunk at pickup", derived="a parenting-time note")
+    handle = reveal.open(item)
+    assert handle.value == item.payload, "freshly opened, a reveal shows the payload"
+
+    reveal.expire(handle)
+
+    assert handle.value == item.derived, "expired, it falls back to the derived form"
+    assert handle.value != item.payload, "never the payload once expired"
+
+
+@pending(
+    "homestead.app.reveal",
+    "I-33 (provisional): one rung indicator per pane",
+)
+def test_i33_one_rung_indicator_per_pane():
+    """The failure this guards against: decision 2's own question — "may the
+    rung indicator say that something is sealed?" — answered either way by a
+    *design* that shows one indicator per field instead of one per pane, which
+    turns "showing derived · `L4` present" into a per-row badge an operator can
+    count, and counting badges is exactly the re-identification channel I-31
+    exists to close on the cover. A pane with a mix of rungs must summarize to
+    a single indicator, not one per field.
+
+    **The API below is provisional** — `homestead.app.reveal` does not exist,
+    and `pane_indicators()` is a guess kept only so the test compiles; see the
+    same note on `test_i32_a_reveal_expires_back_to_derived` above. The strict
+    xfail proves one claim — *a pane's rung indicator is singular* — survives
+    whatever the real API turns out to be.
+
+    Promotes to tests/test_invariants_reveal.py in a later UI wave.
+    """
+    from homestead.app import reveal
+    from homestead.keep.rungs import Classified, Rung
+
+    items = [
+        Classified(Rung.L1, "2026-10-06", derived="a hearing date"),
+        Classified(Rung.L2, "case no. 12", derived="a case reference"),
+        Classified(Rung.L4, "he was drunk at pickup", derived="a parenting-time note"),
+    ]
+    indicators = reveal.pane_indicators(items)
+    assert len(indicators) == 1, (
+        "one indicator per pane, not one per field (I-33) — a list of per-field "
+        "badges is the shape this test exists to forbid"
+    )
+    assert "L4" in indicators[0], "the pane's single indicator names its highest rung"
