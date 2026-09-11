@@ -57,7 +57,14 @@ from pathlib import Path
 
 import pytest
 
-from homestead.keep.dates import Deadline, court_days, parse_deadline
+from homestead.keep.dates import (
+    Deadline,
+    add_mail_days,
+    business_days,
+    court_days,
+    court_days_before,
+    parse_deadline,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 KEEP = ROOT / "homestead" / "keep"
@@ -1000,3 +1007,117 @@ def test_the_corpus_has_not_been_hollowed_out():
     assert len(LEXICOGRAPHIC_TRAPS) >= 8
     assert not accepted & refused, accepted & refused
     assert len(FEDERAL_HOLIDAYS) >= 70
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 8 · Backward counting, mail days, business days, district-state — hand-worked
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Every case below was worked by hand against the anchor days this file
+# already established (Sept 7 2026 Labor Day/Monday, Nov 26 2026 Thanksgiving/
+# Thursday, Dec 25 2026 Christmas/Friday, Jan 1 2027 New Year/Friday, July 4
+# 2026 Independence Day/Saturday observed Friday July 3), the same way the
+# `holidays`-derived `FEDERAL_HOLIDAYS` table above is cross-checked rather
+# than trusted as an oracle. Each comment states the weekday arithmetic so the
+# expected value can be re-derived without running the code.
+#
+#   FRCP 6(a)(5) / FRBP 9006(a)(5) — "the 'next day' is determined by
+#     continuing to count forward when the period is measured after an event
+#     and backward when measured before an event."
+#   FRCP 6(d) / FRBP 9006(f) — 3 days added after the period would otherwise
+#     expire under (a), when service is by mail, by leaving with the clerk, or
+#     by another consented means (not electronic service, since 2016-12-01).
+#   FRBP 9006(a)(6)(C) — the holidays of the state where the district court
+#     sits are added for a period measured AFTER an event.
+
+
+@pytest.mark.parametrize("end,n,expected,why", [
+    # FRCP 6(a)(5): exclude the event day, count backward, roll BACKWARD off a
+    # closed day. Wed 2026-08-12 minus 4 lands raw on Sat 2026-08-08 (closed)
+    # -> back one more day to Fri 2026-08-07 (open).
+    ("2026-08-12", 4, "2026-08-07", "raw lands Saturday -> rolls back to Friday"),
+    # Thu 2026-12-24 minus 8: Thu - 8 days = Wed (8 mod 7 = 1, one weekday
+    # earlier than Thu) = Wed 2026-12-16 -- open, nothing rolls.
+    ("2026-12-24", 8, "2026-12-16", "raw lands on an open Wednesday -> unchanged"),
+    # Fri 2026-11-27 (the day after Thanksgiving, not itself a federal
+    # holiday) minus 5: Fri - 5 = Sun 2026-11-22 (closed) -> back through Sat
+    # 2026-11-21 (closed) -> Fri 2026-11-20 (open).
+    ("2026-11-27", 5, "2026-11-20", "raw lands Sunday -> rolls back over Saturday too"),
+    # Wed 2026-07-08 minus 5: Wed - 5 = Fri 2026-07-03 -- Independence Day
+    # OBSERVED (July 4 2026 is a Saturday) -- closed, rolls back to Thu
+    # 2026-07-02 (open).
+    ("2026-07-08", 5, "2026-07-02", "raw lands on the OBSERVED July 4 holiday, a Friday"),
+    # Tue 2027-01-05 (Jan 1 2027 is a Friday, so Jan 5 is the next Tuesday)
+    # minus 3: Tue - 3 = Sat 2027-01-02 (closed) -> Fri 2027-01-01 (New Year's
+    # Day, ALSO closed) -> Thu 2026-12-31 (open) -- a double-closure roll
+    # across a year boundary.
+    ("2027-01-05", 3, "2026-12-31", "rolls back through a holiday AND a weekend, across New Year"),
+])
+def test_backward_counting_hand_worked(end, n, expected, why):
+    assert court_days_before(end, n).iso == expected, why
+
+
+@pytest.mark.parametrize("end,expected,why", [
+    # FRCP 6(d) / FRBP 9006(f): 3 days added AFTER the period expires under
+    # (a). Fri 2026-09-25 + 3 raw days = Mon 2026-09-28 (Fri->Sat->Sun->Mon),
+    # already open -- the addition needs no re-roll here.
+    ("2026-09-25", "2026-09-28", "raw +3 already lands on an open Monday"),
+    # Thu 2026-12-31 + 3 raw = Sun 2027-01-03 -- closed -> rolls forward to
+    # Mon 2027-01-04 (open, and after New Year's Day 2027-01-01 has passed).
+    ("2026-12-31", "2027-01-04", "raw +3 lands Sunday -> rolls forward one day"),
+    # Fri 2027-01-01 (New Year's Day itself, as the deadline being mailed
+    # from) + 3 raw = Mon 2027-01-04 -- open.
+    ("2027-01-01", "2027-01-04", "starting ON a holiday still adds 3 calendar days, then checks the landing"),
+    # Wed 2026-07-01 + 3 raw = Sat 2026-07-04 -- Independence Day AND a
+    # Saturday -- rolls forward through Sunday 2026-07-05 to Mon 2026-07-06.
+    ("2026-07-01", "2026-07-06", "raw +3 lands on a holiday that also falls on a weekend"),
+    # Wed 2026-11-25 (the day before Thanksgiving) + 3 raw = Sat 2026-11-28 --
+    # closed -> rolls forward through Sunday to Mon 2026-11-30 (open; the day
+    # after Thanksgiving, Fri 2026-11-27, is not a federal holiday and is not
+    # reached by this roll anyway).
+    ("2026-11-25", "2026-11-30", "raw +3 lands on a Saturday just past Thanksgiving week"),
+])
+def test_mail_days_hand_worked(end, expected, why):
+    assert add_mail_days(parse_deadline(end)).iso == expected, why
+
+
+@pytest.mark.parametrize("start,n,expected,why", [
+    # `business_days` skips CLOSED days while counting (unlike `court_days`,
+    # which counts them and only rolls the last day). Mon 2026-11-23 + 4 OPEN
+    # days: Tue 24 (1), Wed 25 (2), Thu 26 Thanksgiving (skip), Fri 27 (3),
+    # Sat 28 (skip), Sun 29 (skip), Mon 30 (4).
+    ("2026-11-23", 4, "2026-11-30", "skips Thanksgiving and the following weekend while counting"),
+    # Fri 2026-12-18 + 6 OPEN days: Sat/Sun skipped, Mon 21 (1), Tue 22 (2),
+    # Wed 23 (3), Thu 24 (4), Fri 25 Christmas (skip), Sat/Sun skipped,
+    # Mon 28 (5), Tue 29 (6).
+    ("2026-12-18", 6, "2026-12-29", "skips Christmas and two weekends while counting"),
+    # Thu 2026-01-01 (New Year's Day) + 5 OPEN days: the start day itself is
+    # excluded (not counted, not rolled -- n is not 0), so counting begins
+    # the next day even though the start was itself a holiday: Fri 2 (1),
+    # Sat/Sun skipped, Mon 5 (2), Tue 6 (3), Wed 7 (4), Thu 8 (5).
+    ("2026-01-01", 5, "2026-01-08", "starting ON a holiday does not change how counting begins the next day"),
+])
+def test_business_days_hand_worked(start, n, expected, why):
+    assert business_days(start, n).iso == expected, why
+
+
+def test_district_state_holiday_extends_a_forward_count_only():
+    """FRBP 9006(a)(6)(C): a period measured after an event adds the holidays
+    of the state where the district court sits. 2026-03-31 is Cesar Chavez
+    Day, a California state holiday and not a federal one (cross-checked
+    against the installed `holidays` package, the same way `FEDERAL_HOLIDAYS`
+    is, rather than assumed) — and a Tuesday, so nothing else would close it.
+    """
+    if _holidays is None:
+        pytest.skip("holidays package not installed")
+    assert date(2026, 3, 31) in _holidays.US(subdiv="CA", years=2026)
+    assert date(2026, 3, 31) not in _holidays.US(years=2026)
+
+    # 2026-03-17 + 14 raw days = 2026-03-31.
+    assert court_days("2026-03-17", 14).iso == "2026-03-31"                  # federal calendar: open
+    assert court_days("2026-03-17", 14, district_state="CA").iso == "2026-04-01"  # CA: closed, rolls one day
+
+    # The same addition has no backward analogue at all -- there is no
+    # `district_state` parameter on `court_days_before` to apply it with.
+    import inspect
+    assert "district_state" not in inspect.signature(court_days_before).parameters

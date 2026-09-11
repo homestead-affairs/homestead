@@ -13,16 +13,24 @@ from __future__ import annotations
 
 import ast
 import importlib.metadata as md
+import inspect
 import re
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import holidays
 import pytest
 
 from homestead.keep.dates import (
+    RULES,
     Deadline,
+    RuleStatus,
     UnparseableDate,
+    add_mail_days,
+    business_days,
     court_days,
+    court_days_before,
     parse_deadline,
 )
 
@@ -409,3 +417,248 @@ def test_i27_holidays_is_declared_and_installed_and_mit():
     )
     assert "MIT" in license_text, license_text
     assert md.version("holidays")
+
+
+# ── I-41 (provisional) · backward counting, mail days, business days ────────
+#
+# Provisional per the plan (E1-dates-a): backward counting under FRCP 6(a)(5)
+# / FRBP 9006(a)(5), mail days under 6(d)/9006(f), a business-day counter, and
+# 9006(a)(6)(C)'s forward-only state-holiday addition. `RuleStatus.UNCERTAIN`
+# is the fail-closed half of the same invariant I-11 already names: a rule
+# this module has not verified against a primary source is refused, never
+# guessed at — the assertion below plants one to prove the refusal actually
+# fires rather than assuming it would.
+
+def test_jurisdictions_is_derived_from_rules_not_hand_kept():
+    """`JURISDICTIONS` must be computed from `RULES`'s keys, not a second,
+    separately maintained tuple — the shape that lets the two drift apart the
+    moment one is edited and the other is not."""
+    from homestead.keep import dates as dates_module
+
+    assert dates_module.JURISDICTIONS == tuple(dates_module.RULES)
+    assert dates_module.JURISDICTIONS == tuple(RULES)
+    assert "US-federal" in RULES and RULES["US-federal"].status is RuleStatus.VERIFIED
+
+
+def test_i41_an_unverified_rule_is_refused_never_guessed(monkeypatch):
+    """Plant an `UNCERTAIN` rule in a scratch copy of `RULES` and prove every
+    function that would need it refuses by name, rather than computing an
+    answer from a rule this module has not checked."""
+    fake = replace(
+        RULES["US-federal"],
+        jurisdiction="US-fake",
+        source="a citation nobody has read",
+        mail_days_source="a mail-days citation nobody has read",
+        status=RuleStatus.UNCERTAIN,
+    )
+    monkeypatch.setitem(RULES, "US-fake", fake)
+
+    for call in (
+        lambda: court_days("2026-08-10", 14, jurisdiction="US-fake"),
+        lambda: court_days_before("2026-08-10", 14, jurisdiction="US-fake"),
+        lambda: add_mail_days(parse_deadline("2026-08-10"), jurisdiction="US-fake"),
+        lambda: business_days("2026-08-10", 14, jurisdiction="US-fake"),
+    ):
+        with pytest.raises(UnparseableDate) as exc:
+            call()
+        message = str(exc.value)
+        assert message.startswith("UNCERTAIN:"), message
+        assert "US-fake" in message, message
+
+    # Supplying holiday_calendar= bypasses the RULES lookup entirely, so the
+    # same uncertain jurisdiction computes fine once the caller owns the
+    # calendar — this is the documented seam, not a bug in the plant.
+    got = court_days(
+        "2026-08-10", 14, jurisdiction="US-fake",
+        holiday_calendar=frozenset(),
+    )
+    assert isinstance(got, Deadline)
+
+
+# ── backward counting · FRCP 6(a)(5) / FRBP 9006(a)(5) ───────────────────────
+
+def test_backward_count_excludes_the_event_day():
+    """6(a)(5)/(1)(A): the event day itself is not counted. One day before a
+    Wednesday hearing is Tuesday, not Wednesday."""
+    assert court_days_before("2026-08-12", 1).iso == "2026-08-11"    # Wed -> Tue
+
+
+def test_backward_count_rolls_backward_off_a_weekend():
+    """6(a)(5): a period measured before an event rolls BACKWARD off a
+    Saturday, Sunday or legal holiday — never forward, which would land the
+    computed date after the event it was counted back from."""
+    # Hearing Monday 2026-09-21; 7 days before is Monday 2026-09-14 (both open
+    # weekdays, nothing rolls — the baseline case).
+    assert court_days_before("2026-09-21", 7).iso == "2026-09-14"
+
+    # Hearing Tuesday 2026-09-08; 7 days before, raw, is Tuesday 2026-09-01 —
+    # also open. Labor Day (Monday 2026-09-07) falls one day INSIDE this span
+    # (day 1 of the backward count, counted like any other day under
+    # 6(a)(1)(B)) but is not the LAST day, so nothing rolls because of it.
+    assert court_days_before("2026-09-08", 7).iso == "2026-09-01"
+
+    # Day 7 lands on a Sunday: 2026-08-30 is a Sunday, so 7 days before it,
+    # raw, is 2026-08-23 — also a Sunday (7 days preserves the weekday).
+    # Rolling BACKWARD from a Sunday passes Saturday 2026-08-22 too, landing
+    # on Friday 2026-08-21.
+    assert date(2026, 8, 30).weekday() == 6 and date(2026, 8, 23).weekday() == 6
+    assert court_days_before("2026-08-30", 7).iso == "2026-08-21"
+
+
+def test_backward_count_has_no_district_state_parameter():
+    """9006(a)(6)(C) adds a state's holidays only for periods measured AFTER
+    an event; accepting `district_state` here would invite applying that
+    addition backward, which is not the rule."""
+    assert "district_state" not in inspect.signature(court_days_before).parameters
+    with pytest.raises(TypeError):
+        court_days_before("2026-08-10", 7, district_state="NM")  # type: ignore[call-arg]
+
+
+def test_negative_n_still_refused_on_court_days_and_names_court_days_before():
+    """`court_days` keeps refusing a negative period — it is not this
+    function's rule to guess at — and the refusal names the function that
+    does implement it, not just the fact that the input was rejected."""
+    with pytest.raises(UnparseableDate) as exc:
+        court_days("2026-08-10", -7)
+    assert "court_days_before" in str(exc.value)
+
+    # court_days_before refuses a negative n from the other end: it already
+    # counts backward, so a negative n has no meaning to guess at either.
+    with pytest.raises(UnparseableDate):
+        court_days_before("2026-08-10", -7)
+
+
+def test_backward_count_refuses_the_same_garbage_the_parser_does():
+    for bad in ("next week", "2026", "", "08/11/2026", None):
+        with pytest.raises((ValueError, TypeError)):
+            court_days_before(bad, 14)
+    for bad in (1.0, "14", None, True):
+        with pytest.raises(UnparseableDate):
+            court_days_before("2026-08-10", bad)
+
+
+def test_backward_count_result_is_never_a_saturday_sunday_or_holiday():
+    cal = holidays.US()
+    start = date(2026, 1, 1)
+    for n in range(0, 400):
+        got = court_days_before(start + timedelta(days=n), n).date
+        assert got.weekday() < 5 and got not in cal, (n, got)
+        assert got <= start + timedelta(days=n)
+
+
+# ── mail days · FRCP 6(d) / FRBP 9006(f) ─────────────────────────────────────
+
+def test_mail_days_are_added_after_the_rolled_end_and_roll_again():
+    """9006(f)/6(d): the 3 days are added to the END that 6(a)/9006(a) already
+    rolled, and the sum is itself rolled forward again if it lands closed."""
+    # A 14-day period from Friday 2026-09-11 ends Friday 2026-09-25 (both
+    # open, nothing to roll under (a)). +3 raw days is Monday 2026-09-28
+    # (Fri -> Sat -> Sun -> Mon) — already open, so the "roll again" step is a
+    # no-op here, which is itself worth pinning down.
+    end = court_days("2026-09-11", 14)
+    assert end.iso == "2026-09-25"
+    assert add_mail_days(end).iso == "2026-09-28"
+
+
+def test_mail_days_refuses_when_the_mail_branch_is_uncertain(monkeypatch):
+    fake = replace(
+        RULES["US-federal"], jurisdiction="US-fake",
+        mail_days_source="unread", status=RuleStatus.UNCERTAIN,
+    )
+    monkeypatch.setitem(RULES, "US-fake", fake)
+    with pytest.raises(UnparseableDate) as exc:
+        add_mail_days(parse_deadline("2026-08-10"), jurisdiction="US-fake")
+    assert str(exc.value).startswith("UNCERTAIN:")
+
+
+def test_mail_days_refuses_when_the_rule_records_no_figure(monkeypatch):
+    fake = replace(RULES["US-federal"], jurisdiction="US-fake", mail_days=None)
+    monkeypatch.setitem(RULES, "US-fake", fake)
+    with pytest.raises(UnparseableDate):
+        add_mail_days(parse_deadline("2026-08-10"), jurisdiction="US-fake")
+
+
+# ── business days ─────────────────────────────────────────────────────────────
+
+def test_business_days_skip_intermediate_closures():
+    """Unlike `court_days`, `business_days` skips a closure WHILE counting —
+    the property `court_days`'s own docstring says it deliberately lacks."""
+    # Friday 2026-09-04. court_days would land on Sept 4 + 3 = Sept 7 (Labor
+    # Day, Monday) -> rolled forward once to Tuesday 2026-09-08.
+    assert court_days("2026-09-04", 3).iso == "2026-09-08"
+    # business_days skips Sat 9/5, Sun 9/6 AND Labor Day 9/7 while counting,
+    # landing three OPEN days later: Tue 9/8, Wed 9/9, Thu 9/10.
+    assert business_days("2026-09-04", 3).iso == "2026-09-10"
+
+
+def test_business_days_zero_is_the_day_itself_rolled():
+    assert business_days("2026-08-04", 0).iso == "2026-08-04"      # a Tuesday
+    assert business_days("2026-08-08", 0).iso == "2026-08-10"      # a Saturday
+
+
+def test_business_days_refuses_a_negative_period():
+    with pytest.raises(UnparseableDate):
+        business_days("2026-08-10", -3)
+
+
+def test_business_days_never_lands_on_a_weekend_or_holiday():
+    cal = holidays.US()
+    start = date(2026, 1, 1)
+    for n in (0, 1, 5, 10, 30, 90):
+        got = business_days(start, n).date
+        assert got.weekday() < 5 and got not in cal, (n, got)
+
+
+# ── district-state holidays · FRBP 9006(a)(6)(C), forward only ──────────────
+
+def test_district_state_holidays_apply_forward_only():
+    """A state holiday extends a FORWARD count (9006(a)(6)(C)) but must never
+    reach a backward one — `court_days_before` cannot even be asked, and
+    `court_days` with `district_state` differs from the federal-only answer
+    exactly when a state-only holiday falls on the raw last day."""
+    # Cesar Chavez Day, 2026-03-31, is a California state holiday and not a
+    # federal one — confirmed against the installed `holidays` package rather
+    # than hardcoded as a fact about a future year.
+    day = date(2026, 3, 31)
+    assert day in holidays.US(subdiv="CA", years=2026)
+    assert day not in holidays.US(years=2026)
+    assert day.weekday() < 5                        # a Tuesday: only the state closes it
+
+    # 14 days from 2026-03-17 lands raw on 2026-03-31.
+    federal_only = court_days("2026-03-17", 14)
+    assert federal_only.iso == "2026-03-31"          # federal calendar: open, no roll
+
+    with_ca = court_days("2026-03-17", 14, district_state="CA")
+    assert with_ca.iso == "2026-04-01"               # CA calendar: closed, rolls one day
+
+    # The asymmetry: nothing about court_days_before can be asked to add a
+    # state's holidays at all.
+    assert "district_state" not in inspect.signature(court_days_before).parameters
+
+
+def test_district_state_is_rejected_with_an_explicit_holiday_calendar():
+    """`holiday_calendar` already replaces the jurisdiction's calendar
+    entirely; combining it with `district_state` would leave it ambiguous
+    which calendar actually governs, so the combination refuses."""
+    with pytest.raises(UnparseableDate):
+        court_days(
+            "2026-03-17", 14, district_state="CA",
+            holiday_calendar=frozenset({date(2026, 3, 31)}),
+        )
+
+
+def test_district_state_refuses_an_unrecognized_code():
+    with pytest.raises(UnparseableDate):
+        court_days("2026-03-17", 14, district_state="ZZ")
+
+
+def test_a_holiday_calendar_override_replaces_the_calendar_not_the_counting_rule(monkeypatch):
+    """The seam replaces only the calendar. A jurisdiction whose counting
+    rule is UNCERTAIN still uses this module's own roll logic once a calendar
+    is supplied — only which days are closed comes from the caller."""
+    fake = replace(RULES["US-federal"], jurisdiction="US-fake", status=RuleStatus.UNCERTAIN)
+    monkeypatch.setitem(RULES, "US-fake", fake)
+    closed = frozenset(d for d in holidays.US(years=2026))
+    got = court_days("2026-08-04", 21, jurisdiction="US-fake", holiday_calendar=closed)
+    expected = court_days("2026-08-04", 21, jurisdiction="US-federal")
+    assert got.iso == expected.iso
