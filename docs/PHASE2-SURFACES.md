@@ -910,4 +910,5 @@ actually about*.
    difference decides whether one "medical" click unlocks a session or a widget.
 
 6. **Carried forward from Phase 1, still open:** slash date forms, basic ISO,
-   backward counting.
+   ~~backward counting~~ (backward counting was settled 2026-09-11 —
+   `dates.court_days_before`, FRCP 6(a)(5); see `docs/PHASE1-DATES.md`).
