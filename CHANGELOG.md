@@ -20,6 +20,18 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.12.0](https://github.com/homestead-affairs/homestead/compare/v0.11.0...v0.12.0) (2026-09-11)
+
+
+### Added
+
+* IntegrityLog.read_entries — the one public door for a log's content, refusing by name ([08570a8](https://github.com/homestead-affairs/homestead/commit/08570a8cc1b3daa52aba01968214e3d1a9104af2))
+
+
+### Fixed
+
+* no reader hands back a short log — not via sealed=False, not via a truncated tail (E7 audit) ([94c3459](https://github.com/homestead-affairs/homestead/commit/94c34590aa948f48acfca3c3c980c5612281c899))
+
 ## [0.11.0](https://github.com/homestead-affairs/homestead/compare/v0.10.0...v0.11.0) (2026-09-11)
 
 
