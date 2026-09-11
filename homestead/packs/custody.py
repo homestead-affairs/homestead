@@ -98,10 +98,18 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "the parenting schedule — resolves to the child (step 2), which "
         "homestead-rungs.md § Custody classifies L3. The operator sees it on "
         "their own list; a model prompt (S2, ceiling L2) gets only the derived "
-        "'a recurring parenting-time obligation on Tue/Thu' — the doc's worked "
-        "example for this field. Not L4: it resolves to the child but does not "
-        "itself carry a protected category the way a diagnosis does.",
-        derived="A recurring parenting-time obligation on Tue/Thu",
+        "form. Not L4: it resolves to the child but does not itself carry a "
+        "protected category the way a diagnosis does.\n"
+        "The doc's worked example of a derived form for this field is 'a "
+        "recurring parenting-time obligation on Tue/Thu' (PHASE2-SURFACES.md), "
+        "and that sentence is a *record's* stand-in, composed for one schedule "
+        "that really does fall on those days. A schema declares one sentence "
+        "for every instance of the field, so it may not name the days: on the "
+        "household whose schedule is Mon/Wed it would be false, and on the "
+        "household whose schedule is Tue/Thu it would restate exactly the "
+        "value the derived form exists to withhold. The declaration below "
+        "carries the shape of the obligation and nothing that varies.",
+        derived="A recurring parenting-time obligation is on file",
     ),
     "diagnosis": _field(
         Rung.L4,

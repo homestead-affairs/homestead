@@ -36,8 +36,11 @@ member, cross-checked at import against the set of members that actually exist,
 so one added and forgotten stops the build instead of failing open on the day
 something iterates it. The value shape is a frozen dataclass rather than the
 raw module for the same reason `SurfaceFacts` is one — a consumer reads a small
-closed contract (`name`, `jurisdiction`, `fields`, `schema`) instead of
-rummaging a module's namespace for whatever it happens to expose.
+closed contract (`name`, `jurisdiction`, `jurisdictions`, `fields`, `schema`)
+instead of rummaging a module's namespace for whatever it happens to expose.
+`jurisdiction` is the default a new instance of the matter starts under and
+`jurisdictions` is every jurisdiction it may be filed in (decision 1); the
+guard below holds the first inside the second.
 
 ## Only custody is built
 
@@ -173,7 +176,12 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
       does not contain its own `JURISDICTION` — decision 1's default-outside-the-
       supported-tuple failure: a pack whose default jurisdiction is not itself
       one it lists could never satisfy `set_jurisdiction`'s own refusal on the
-      instance it starts every matter in.
+      instance it starts every matter in;
+    * an entry whose `jurisdiction` disagrees with its pack's `JURISDICTION` —
+      the key check one field over. `jurisdiction` is the only part of an entry
+      that is copied out of the pack instead of read live, so it is the only
+      part that can drift, and the drift is invisible without this check now
+      that `jurisdictions` next to it *is* live.
     """
     for key, entry in registry.items():
         if not isinstance(entry, MatterType):
@@ -200,9 +208,20 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
                 "shape absence takes elsewhere in this module (I-11's building "
                 "failing closed) applied to decision 1's per-matter jurisdiction."
             )
-        if entry.pack.JURISDICTION not in jurisdictions:
+        if entry.jurisdiction != entry.pack.JURISDICTION:
             raise RuntimeError(
-                f"{key!r}: JURISDICTION {entry.pack.JURISDICTION!r} is not in "
+                f"{key!r}: the entry's jurisdiction {entry.jurisdiction!r} "
+                f"disagrees with its pack's JURISDICTION "
+                f"{entry.pack.JURISDICTION!r}. `jurisdiction` is the one field "
+                "on an entry that is a *copy* rather than a property over the "
+                "pack (`fields`, `schema` and `jurisdictions` all read through "
+                "live), so it is the one that can drift — and a copy that has "
+                "drifted from the thing it copies is BUG-6, the same shape as "
+                "the key check above."
+            )
+        if entry.jurisdiction not in jurisdictions:
+            raise RuntimeError(
+                f"{key!r}: JURISDICTION {entry.jurisdiction!r} is not in "
                 f"its own JURISDICTIONS {jurisdictions!r}. A pack's default "
                 "jurisdiction must be one of the jurisdictions it supports — "
                 "every new instance starts at the default, and a default "
