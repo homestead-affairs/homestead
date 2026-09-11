@@ -20,6 +20,19 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.11.0](https://github.com/homestead-affairs/homestead/compare/v0.10.0...v0.11.0) (2026-09-11)
+
+
+### Added
+
+* Phase 4 sealing for IntegrityLog (E6-integrity-encrypt) ([2564df5](https://github.com/homestead-affairs/homestead/commit/2564df52ba9156d1bb36344b634a8dab6480c261))
+* seal the IntegrityLog with AES-256-GCM behind the sealed extra ([#66](https://github.com/homestead-affairs/homestead/issues/66)) ([92c5f40](https://github.com/homestead-affairs/homestead/commit/92c5f40f3b4cfd1bbf7cfe6a2a2c0cfe32f7b44d))
+
+
+### Fixed
+
+* refuse every route that downgrades a sealed IntegrityLog (E6 audit) ([ff6c374](https://github.com/homestead-affairs/homestead/commit/ff6c37409b5e35c271491135bf72c8e445758f63))
+
 ## [0.10.0](https://github.com/homestead-affairs/homestead/compare/v0.9.0...v0.10.0) (2026-09-11)
 
 
