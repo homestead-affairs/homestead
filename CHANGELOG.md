@@ -25,7 +25,6 @@ against. From 0.0.2 on there is one, so the tool handles it automatically.
 
 ### Added
 
-* a consented sync envelope, delivered once and ledgered by reference ([#60](https://github.com/homestead-affairs/homestead/issues/60)) ([3e3d591](https://github.com/homestead-affairs/homestead/commit/3e3d591c1be074ad864a562b78f09ac636ce90ab))
 * sync core — SyncScope, Envelope, and a household id (E4-sync-core) ([d57b948](https://github.com/homestead-affairs/homestead/commit/d57b948c42e5336447abe7b89d6d790715870e48))
 
 
