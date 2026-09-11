@@ -24,15 +24,23 @@ writes, is handed this function rather than importing its own.
 (I-15):** (1) the file does not read as a `homestead.sync/1` envelope
 (`Envelope.from_bytes`'s `TamperedEnvelope`); (2) `envelope.schema` is not
 `SCHEMA`; (3) `--household` was given and disagrees; (4) any row's `rung` is
-`L5`/unreadable, or its `disposition` is not `render` — belt and braces,
-since `compose()` never emits such a row, and one bad row refuses the
-**whole** envelope (I-11) rather than a silent per-row skip; (5)
-`envelope.envelope_id` is already in the fleet's `envelopes` table — a
+`L5`/unreadable, or a row whose `disposition` is not `render` carries a
+`value` anyway (a derived or dropped row must not smuggle one across) —
+belt and braces, since `compose()` never emits such a row, and one bad row
+refuses the **whole** envelope (I-11) rather than a silent per-row skip;
+(5) `envelope.envelope_id` is already in the fleet's `envelopes` table — a
 re-ingest, checked before a single row is written; (6) the envelope was
 composed *before* the one this household's anchor points at — ingesting it
 would move the anchor backwards, so it is refused unless `--allow-stale`,
 which ingests the rows and still leaves the anchor where it is. The anchor
 only ever moves forward.
+
+**A row's `value` may be `str`, a mapping, a list, a `bool`, a number, or
+`None` (E7b, 2026-09-11).** `serve()` returns exactly one of those six
+shapes, and `keep/store.canonical_value_text` is what turns whichever one
+arrived into the JSON text `PostgresAdapter.insert`/`.write` actually store
+— see `docs/DECISION-fleet-ingest.md` § "Structured values". `decode_value`
+below is the reverse, for a caller reading a row back out.
 
 **Sidecar rows upsert; canonical rows insert-only** — the fleet's own copy
 of I-6's read-only canonical record: an existing key is counted as skipped,
@@ -59,11 +67,15 @@ from .store import (
     InvalidKey,
     MissingFleetExtra,
     PostgresAdapter,
+    canonical_value_text,
     key as _record_key,
 )
 from .sync import SCHEMA, Envelope, TamperedEnvelope
 
-__all__ = ["main", "ensure_schema", "ingest", "IngestRefused", "IngestResult"]
+__all__ = [
+    "main", "ensure_schema", "ingest", "IngestRefused", "IngestResult",
+    "decode_value",
+]
 
 _TABLES = (CANONICAL, SIDECAR)
 _READABLE_RUNGS = {"L1", "L2", "L3", "L4"}   # L5, or anything else, is refused
@@ -177,16 +189,26 @@ def _validate_rows(envelope: Envelope) -> None:
                 f"row {row.get('item_id')!r} carries rung {rung!r} — L5 or "
                 "unreadable rows are never accepted by the fleet (I-39)"
             )
-        if row.get("disposition") != "render":
+        disposition = row.get("disposition")
+        if disposition != "render" and row.get("value") is not None:
+            # `compose()` never emits this shape (a DENY row carries no
+            # value and is dropped before the envelope is frozen; a DERIVE
+            # row's `value` is the derived stand-in, never None) — belt and
+            # braces against a forged or hand-built envelope, refused by
+            # name rather than let a non-rendered row's value cross anyway
+            # (E7b, 2026-09-11 — see `docs/DECISION-fleet-ingest.md` §
+            # "Structured values").
             raise IngestRefused(
                 f"row {row.get('item_id')!r} carries disposition "
-                f"{row.get('disposition')!r}, not 'render' — refused by name"
+                f"{disposition!r}, not 'render', and a value anyway — a "
+                "derived or dropped row must not smuggle one across, "
+                "refused by name"
             )
         # Every field that reaches a statement, checked before one is built.
         # A forged envelope hashes correctly over whatever it likes, so a row
-        # can be missing `matter` entirely, or carry an integer, or a NUL
-        # byte psycopg refuses outright — each of which came out of `ingest()`
-        # as a bare `KeyError`/`DataError` traceback before the
+        # can be missing `matter` entirely, or carry a NUL byte inside an
+        # identifier psycopg refuses outright — each of which came out of
+        # `ingest()` as a bare `KeyError`/`DataError` traceback before the
         # E4-postgres-fleet audit (2026-09-11) rather than a refusal by name
         # (I-11). `store.key()` is the same validator the household side's own
         # `Sidecar.put` runs (I-7), so the fleet accepts exactly the keys the
@@ -198,13 +220,32 @@ def _validate_rows(envelope: Envelope) -> None:
                 f"row {n} of this envelope is not keyed by a usable "
                 f"(matter, item_type, item_id): {e} — refused by name"
             ) from e
-        value = row.get("value")
-        if not isinstance(value, str) or "\x00" in value:
+        # `value` may be `str`, a mapping, a list, a `bool`, a number, or
+        # `None` (E7b, 2026-09-11) — anything `serve()` can return. What is
+        # refused is anything `json.dumps` cannot turn into text at all (a
+        # Python `bytes` object is the planted case): that can only reach
+        # this function from a hand-built `Envelope`, since a row that came
+        # through `Envelope.from_bytes()` already round-tripped through JSON
+        # and so is always one of the six shapes above.
+        try:
+            canonical_value_text(row.get("value"))
+        except TypeError as e:
             raise IngestRefused(
-                f"row {row['item_id']!r} carries a value that is not storable "
-                "text (a non-string, or a NUL byte Postgres cannot hold) — "
-                "refused by name, and the value itself is not echoed (I-15)"
-            )
+                f"row {row.get('item_id')!r} carries a value json cannot "
+                "serialize as text — refused by name, and the value itself "
+                "is not echoed (I-15)"
+            ) from e
+
+
+def decode_value(text: str) -> Any:
+    """The reverse of `store.canonical_value_text` — parse a fleet row's
+    stored `value` column back into the JSON it started as: `str`, a
+    mapping, a list, a `bool`, a number, or `None`. Nothing in `ingest()`
+    itself calls this (a household's own record is never read back through
+    the fleet); it is here for whoever does read a row off the fleet's own
+    Postgres, so that reader is not left to re-derive `json.loads` on its
+    own (E7b, 2026-09-11)."""
+    return json.loads(text)
 
 
 def ensure_schema(conn: Any) -> None:
@@ -212,10 +253,16 @@ def ensure_schema(conn: Any) -> None:
     ingest so a fresh Postgres just works.
 
     `canonical`/`sidecar`: `(household, matter, item_type, item_id, value,
-    envelope, synced_at)`, primary key on the first four. `envelopes`: one
-    row per ingested envelope, primary key `(household, envelope)` — the
-    re-ingest check. `anchors`: one row per household, `head` set to the
-    most recently ingested envelope's `head`, and only ever moved forward.
+    envelope, synced_at)`, primary key on the first four. `value` is `TEXT`,
+    never `JSONB` — the fleet is a mirror, not a judge (nothing here queries
+    *into* a value), and `TEXT` keeps this DDL symmetric with
+    `SQLiteAdapter`'s own `value TEXT` column; what it holds is canonical
+    JSON text (`store.canonical_value_text`), not necessarily a bare string
+    (E7b, 2026-09-11 — `docs/DECISION-fleet-ingest.md` § "Structured
+    values"). `envelopes`: one row per ingested envelope, primary key
+    `(household, envelope)` — the re-ingest check. `anchors`: one row per
+    household, `head` set to the most recently ingested envelope's `head`,
+    and only ever moved forward.
 
     Commits its own DDL, so it is not part of the envelope's transaction: a
     rolled-back ingest can be re-run against tables that are still there.

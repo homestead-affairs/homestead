@@ -380,17 +380,19 @@ def test_the_adapter_and_the_ingest_write_the_same_row():
     duplication it replaced: the same row, written each way into two
     households, must come back identical column for column, and the two
     `ON CONFLICT` clauses must behave as claimed (canonical insert-only,
-    sidecar upsert)."""
+    sidecar upsert). The value is a mapping (E7b, 2026-09-11), read back
+    through `fleet_cli.decode_value` — both paths canonicalize it the same
+    way, through `store.canonical_value_text`."""
     from homestead.keep import fleet_cli
     from homestead.keep.store import CANONICAL, SIDECAR, PostgresAdapter
 
-    blob = '{"rung": "L1", "payload": "the same blob", "derived": null}'
+    value = {"rung": "L1", "payload": "the same value", "derived": None}
     ha, hb = _hh("path-ingest"), _hh("path-adapter")
-    env = _envelope_for(ha, [_hostile_row(item_id="cmp", value=blob)])
+    env = _envelope_for(ha, [_hostile_row(item_id="cmp", value=value)])
     fleet_cli.ingest(env, DSN)
 
     adapter = PostgresAdapter(DSN, household=hb)
-    adapter.write(SIDECAR, ("custody", "note", "cmp"), blob,
+    adapter.write(SIDECAR, ("custody", "note", "cmp"), value,
                   envelope=env.envelope_id, synced_at="2026-01-01T00:00:00+00:00")
 
     cols = "matter, item_type, item_id, value, envelope"
@@ -400,11 +402,14 @@ def test_the_adapter_and_the_ingest_write_the_same_row():
     ), "the two paths must write the same row"
 
     ts = "2026-01-01T00:00:00+00:00"
-    assert adapter.insert(CANONICAL, ("custody", "note", "c"), blob, envelope="e1", synced_at=ts) == 1
+    assert adapter.insert(CANONICAL, ("custody", "note", "c"), value, envelope="e1", synced_at=ts) == 1
     assert adapter.insert(CANONICAL, ("custody", "note", "c"), "OTHER", envelope="e2", synced_at=ts) == 0
-    assert _query_one(
+    (stored,) = _query_one(
         DSN, "SELECT value FROM canonical WHERE household=%s AND item_id='c'", (hb,)
-    ) == (blob,), "canonical is insert-only — DO NOTHING, never overwritten"
+    )
+    assert fleet_cli.decode_value(stored) == value, (
+        "canonical is insert-only — DO NOTHING, never overwritten"
+    )
 
 
 def test_a_stale_envelope_is_refused_and_allow_stale_leaves_the_anchor():
@@ -438,7 +443,9 @@ def test_a_stale_envelope_is_refused_and_allow_stale_leaves_the_anchor():
 def test_two_households_in_one_database_never_see_each_others_rows():
     """Every statement is scoped to the household the adapter was
     constructed with, and the primary key carries it — the same key in two
-    households is two rows, and a read of one never returns the other."""
+    households is two rows, and a read of one never returns the other.
+    `.read()`/`.read_matter()` hand back the stored text as-is —
+    `fleet_cli.decode_value` is what turns it back into "one"/"two"."""
     from homestead.keep import fleet_cli
     from homestead.keep.store import SIDECAR, PostgresAdapter
 
@@ -446,11 +453,14 @@ def test_two_households_in_one_database_never_see_each_others_rows():
     fleet_cli.ingest(_envelope_for(h1, [_hostile_row(item_id="same", value="one")]), DSN)
     fleet_cli.ingest(_envelope_for(h2, [_hostile_row(item_id="same", value="two")]), DSN)
 
-    assert PostgresAdapter(DSN, household=h1).read(SIDECAR, ("custody", "note", "same")) == "one"
-    assert PostgresAdapter(DSN, household=h2).read(SIDECAR, ("custody", "note", "same")) == "two"
-    assert PostgresAdapter(DSN, household=h1).read_matter(SIDECAR, "custody") == [
-        (("custody", "note", "same"), "one")
-    ]
+    assert fleet_cli.decode_value(
+        PostgresAdapter(DSN, household=h1).read(SIDECAR, ("custody", "note", "same"))
+    ) == "one"
+    assert fleet_cli.decode_value(
+        PostgresAdapter(DSN, household=h2).read(SIDECAR, ("custody", "note", "same"))
+    ) == "two"
+    [(ref, stored)] = PostgresAdapter(DSN, household=h1).read_matter(SIDECAR, "custody")
+    assert ref == ("custody", "note", "same") and fleet_cli.decode_value(stored) == "one"
     assert _query_one(
         DSN, "SELECT count(*) FROM sidecar WHERE item_id='same' AND household IN (%s,%s)", (h1, h2)
     ) == (2,)

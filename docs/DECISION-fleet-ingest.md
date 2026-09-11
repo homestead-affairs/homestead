@@ -126,12 +126,17 @@ I-30's *"nothing here listens"*.
 
 `ingest()` also checks every field that reaches a statement — that the row
 is an object at all, that `(matter, item_type, item_id)` pass `store.key()`
-(the same validator the household's own `Sidecar.put` runs, I-7), and that
-`value` is text without a NUL byte. The audit found each of those coming out
-as a bare `KeyError` or a `psycopg.DataError` traceback instead of a refusal
-by name, and the `DataError` only after a connection had been opened. A row
-missing `matter`, or carrying an integer, or a NUL, is not a crash: it is
-refused by name, naming the field and never the value (I-15).
+(the same validator the household's own `Sidecar.put` runs, I-7), and
+~~that `value` is text without a NUL byte~~ **that `value` is something
+`json.dumps` can turn into text at all** — see § "Structured values (E7b)",
+below, for what that check used to be and why it changed. The audit found
+each of those coming out as a bare `KeyError` or a `psycopg.DataError`
+traceback instead of a refusal by name, and the `DataError` only after a
+connection had been opened. A row missing `matter`, or ~~carrying an
+integer~~ **carrying something JSON cannot serialize (a `bytes` object is
+the planted case)**, or a NUL ~~in `value`~~ **in `matter`/`item_type`/
+`item_id`**, is not a crash: it is refused by name, naming the field and
+never the value (I-15).
 
 `compose()` already drops any `DENY`-disposed or above-ceiling row before
 freezing an envelope, so a well-formed one never carries an `L5` row, an
@@ -182,3 +187,69 @@ is fixed.
   built from the conninfo this command is the one place to hold.
 - **`ensure_schema()` runs with whatever privileges the DSN's role has** — a
   deployment choice for whoever provisions the fleet's Postgres.
+
+## § Structured values (E7b)
+
+Status: **Proposed, 2026-09-11.**
+author: the build seat
+verified_by:
+
+Found by the G5-sync audit (2026-09-11): the ledger's `transfers` pair is an
+`L2` served value that is a mapping, `{counterpart, from, to}` — the sample
+row in `docs/DECISION-sync-envelope-and-consent.md`'s own § "The envelope"
+only ever showed a plain string (`"value":"2026-10-06"`), and `_validate_rows`
+took that as the whole contract: it refused any row whose `value` was not a
+Python `str`. So a ledger envelope carrying a transfer pair was refused
+before the dial, never reaching Postgres at all.
+
+**The contract, settled here: `value` is stored as canonical JSON text, not
+`JSONB`.** `keep/sync.py`'s `Envelope`/`envelope_id`/`SCHEMA` are unchanged —
+the envelope was already canonical JSON, and the served value inside a row
+stays exactly what `serve()` returned (`str`, a mapping, a list, a `bool`, a
+number, or `None`; `docs/DECISION-sync-envelope-and-consent.md` is not
+amended). What changes is only the fleet's own storage: `store.
+canonical_value_text(value)` — sorted keys, no whitespace, unicode kept
+literal, the same shape `sync._canonical_bytes` freezes an envelope with —
+is what `PostgresAdapter.insert`/`.write` now put in the `value` column, and
+`fleet_cli.decode_value(text)` is `json.loads` on the way back out. A JSON
+`null` stores as the four-byte text `null`; the column stays `TEXT NOT
+NULL`, unchanged, and no migration touches a row already there (every stored
+value was already a JSON string literal, which is itself valid canonical
+JSON text — `json.loads` of it returns the same Python `str` it always did).
+
+**Why `TEXT`, not `JSONB`.** Two reasons, both already in the plan's
+decision 5. First, the fleet is a mirror, never a judge: nothing on the
+engine side queries *into* a value (no `->`, no `@>`, no index on a field
+inside one), so `JSONB`'s one real advantage — indexed, in-database
+querying — is never asked for here. Second, `TEXT` keeps this adapter
+symmetric with `SQLiteAdapter`, whose `value` column is `TEXT` and always
+will be (SQLite has no first-class JSON column type); a `JSONB` column on
+one backing and not the other would make the two adapters disagree about
+what they store, for no capability this codebase uses.
+
+**What `_validate_rows` refuses, restated.** An `L5` or unreadable `rung`
+(unchanged). A `value` on a row whose `disposition` is not `"render"` — a
+derived or dropped row must not smuggle one across; `compose()` never emits
+this shape, so it is belt and braces against a forged or hand-built
+envelope, same as before. And anything `json.dumps` cannot serialize — a
+Python `bytes` object is the planted case — which can only reach this
+function from an `Envelope` built by hand (every test in this repo, and any
+future direct construction), since a row that arrived through `Envelope.
+from_bytes()` already round-tripped through JSON and so is always one of
+the six shapes above.
+
+~~It no longer refuses a bare number or a NUL byte inside a string value.~~
+Both stopped being refusals because both are handled safely by
+canonicalization, not because the underlying hazard went away unaddressed:
+a number is simply a valid JSON value now, and a NUL byte inside a JSON
+string is escaped to the six characters `\u0000` by `json.dumps` itself —
+`canonical_value_text`'s output never contains a literal NUL byte, so the
+thing the old check was guarding against (Postgres's `TEXT` type rejecting
+one) cannot occur through this path at all.
+
+**The ledger's own floor.** `homestead-ledger`'s `test_the_fleet_refuses_a_
+structured_pair_value_by_name` (G5-sync) is written against the *old*
+contract, asserting the refusal this bite removes, and is expected to flip
+from a pass to a failure the day the ledger's engine floor rises to include
+this bite's release — recorded here rather than fixed there, since the
+ledger's own floor bump is its bite, not this one's.
