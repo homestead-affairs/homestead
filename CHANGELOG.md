@@ -20,6 +20,21 @@ once for the `#12` merge that carried its title) and deduped by hand here,
 because there was no prior tag for `tools/changelog_dedup.py` to anchor its range
 against. From 0.0.2 on there is one, so the tool handles it automatically.
 
+## [0.3.0](https://github.com/homestead-affairs/homestead/compare/v0.2.3...v0.3.0) (2026-09-11)
+
+
+### Added
+
+* JURISDICTIONS tuple and derived-form key on engine packs ([21f8dd2](https://github.com/homestead-affairs/homestead/commit/21f8dd28668137e2fd5a2162ba6866915b1d3159))
+* packs declare their supported jurisdictions and their derived forms ([#48](https://github.com/homestead-affairs/homestead/issues/48)) ([1f14e03](https://github.com/homestead-affairs/homestead/commit/1f14e03405798149c01af767452e182242be07c7))
+
+
+### Fixed
+
+* audit E1-pack-contract — a leaky derived form, a drifting jurisdiction copy, and derived_of held to the schema ([85b2151](https://github.com/homestead-affairs/homestead/commit/85b2151d2530c777474c3738961106e729925033))
+* name the engine's console script for the engine, and correct the registry docs ([#47](https://github.com/homestead-affairs/homestead/issues/47)) ([d5ddda0](https://github.com/homestead-affairs/homestead/commit/d5ddda076cf481f4f0362b2b9a02f836106358c5))
+* rename the engine console script to homestead, correct registry docs ([4f5d212](https://github.com/homestead-affairs/homestead/commit/4f5d212a68ce5ca06382e9edb70e34cbd7184006))
+
 ## [0.2.3](https://github.com/homestead-affairs/homestead/compare/v0.2.2...v0.2.3) (2026-08-25)
 
 ## [0.2.2](https://github.com/homestead-affairs/homestead/compare/v0.2.1...v0.2.2) (2026-08-25)
