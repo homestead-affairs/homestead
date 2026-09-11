@@ -449,8 +449,13 @@ def test_i41_an_unverified_rule_is_refused_never_guessed(monkeypatch):
         RULES["US-federal"],
         jurisdiction="US-fake",
         source="a citation nobody has read",
+        short_period_source="a short-period citation nobody has read",
+        backward_source="a backward citation nobody has read",
         mail_days_source="a mail-days citation nobody has read",
         status=RuleStatus.UNCERTAIN,
+        short_period_status=RuleStatus.UNCERTAIN,
+        backward_status=RuleStatus.UNCERTAIN,
+        mail_status=RuleStatus.UNCERTAIN,
     )
     monkeypatch.setitem(RULES, "US-fake", fake)
 
@@ -564,7 +569,7 @@ def test_mail_days_are_added_after_the_rolled_end_and_roll_again():
 def test_mail_days_refuses_when_the_mail_branch_is_uncertain(monkeypatch):
     fake = replace(
         RULES["US-federal"], jurisdiction="US-fake",
-        mail_days_source="unread", status=RuleStatus.UNCERTAIN,
+        mail_days_source="unread", mail_status=RuleStatus.UNCERTAIN,
     )
     monkeypatch.setitem(RULES, "US-fake", fake)
     with pytest.raises(UnparseableDate) as exc:
@@ -672,18 +677,30 @@ def test_a_holiday_calendar_override_replaces_the_calendar_not_the_counting_rule
 
 
 def _undisclosed(rule) -> list[str]:
-    """Which of a VERIFIED rule's citation strings fail to say where the text
-    was read. Factored out so the plant below can run the same check the real
-    table is held to."""
-    if rule.status is not RuleStatus.VERIFIED:
-        return []
+    """Which of a rule's citation strings are VERIFIED on that branch but fail
+    to say where the text was read. Factored out so the plant below can run
+    the same check the real table is held to.
+
+    A `CountingRule` carries four independent branches (forward, short-period,
+    backward, mail — see `CountingRule`'s docstring) and each is checked
+    against its OWN status: a row can be VERIFIED on its forward branch and
+    UNCERTAIN on its backward one, and the backward branch's undisclosed text
+    is not this function's business until backward is VERIFIED too.
+    """
     missing = []
-    for name in ("source", "mail_days_source"):
-        text = getattr(rule, name)
-        if rule.mail_days is None and name == "mail_days_source":
+    for source_name, status in (
+        ("source", rule.status),
+        ("short_period_source", rule.short_period_status),
+        ("backward_source", rule.backward_status),
+        ("mail_days_source", rule.mail_status),
+    ):
+        if status is not RuleStatus.VERIFIED:
+            continue
+        if source_name == "mail_days_source" and rule.mail_days is None:
             continue                    # a rule with no mail figure cites none
+        text = getattr(rule, source_name)
         if "PROVENANCE" not in text or not re.search(r"\d{4}-\d{2}-\d{2}", text):
-            missing.append(name)
+            missing.append(source_name)
     return missing
 
 
@@ -733,7 +750,19 @@ def test_i41_the_provenance_check_fires_on_a_row_that_hides_its_basis():
     assert "source" in _undisclosed(undated)
 
     # And an UNCERTAIN row is exempt: it is not claiming to have been checked.
-    assert _undisclosed(replace(hidden, status=RuleStatus.UNCERTAIN)) == []
+    # All four branches must drop to UNCERTAIN for the row to be fully exempt
+    # — dropping only the forward one would still leave the still-hidden
+    # `mail_days_source` flagged, which is the point: each branch answers for
+    # itself.
+    fully_uncertain = replace(
+        hidden,
+        status=RuleStatus.UNCERTAIN,
+        short_period_status=RuleStatus.UNCERTAIN,
+        backward_status=RuleStatus.UNCERTAIN,
+        mail_status=RuleStatus.UNCERTAIN,
+    )
+    assert _undisclosed(fully_uncertain) == []
+    assert _undisclosed(replace(hidden, status=RuleStatus.UNCERTAIN)) == ["mail_days_source"]
 
 
 def test_i41_rule_status_cannot_be_confused_with_the_gate_enums():
@@ -937,7 +966,7 @@ def test_i41_an_explicit_calendar_replaces_the_calendar_on_every_function():
     jurisdiction's and the `RULES` status check is bypassed — and three of them
     had nobody checking."""
     fake = replace(RULES["US-federal"], jurisdiction="US-fake",
-                   status=RuleStatus.UNCERTAIN)
+                   status=RuleStatus.UNCERTAIN, mail_status=RuleStatus.UNCERTAIN)
     RULES["US-fake"] = fake
     try:
         closed = frozenset(holidays.US(years=range(2025, 2029)))
@@ -979,7 +1008,7 @@ def test_i41_mail_days_do_not_let_a_calendar_buy_out_the_status_check():
     the two agreeing.
     """
     fake = replace(RULES["US-federal"], jurisdiction="US-fake",
-                   status=RuleStatus.UNCERTAIN)
+                   status=RuleStatus.UNCERTAIN, mail_status=RuleStatus.UNCERTAIN)
     RULES["US-fake"] = fake
     try:
         cal = frozenset(holidays.US(years=2026))
@@ -1017,12 +1046,14 @@ def test_i41_an_explicit_calendar_does_not_make_the_weekend_open():
     lambda j: add_mail_days("2026-08-04", jurisdiction=j),
     lambda j: business_days("2026-08-04", 14, jurisdiction=j),
 ], ids=["court_days", "court_days_before", "add_mail_days", "business_days"])
-@pytest.mark.parametrize("unknown", ["US-NM", "US-OR", "US-CA", "federal", "US_FEDERAL"])
+@pytest.mark.parametrize("unknown", ["US-WA", "US-TX", "US-CA", "federal", "US_FEDERAL"])
 def test_i41_an_unknown_jurisdiction_is_refused_by_name_listing_what_exists(call, unknown):
     """I-11 on all four doors, not just the one the corpus knocks on. The
     refusal must name the jurisdiction asked for AND the set that is
-    implemented — `US-NM` and `US-OR` are in the plan and not in the table yet,
-    and "no counting rules for 'US-NM'" with no list leaves the caller unable
+    implemented. `US-NM` and `US-OR` landed in E1-dates-b (see the tests
+    below this one) and are no longer good examples of "unknown" — a
+    genuinely unimplemented state (`US-WA`, `US-TX`) makes the same point
+    "no counting rules for 'US-WA'" with no list leaves the caller unable
     to tell a typo from a gap."""
     with pytest.raises(UnparseableDate) as exc:
         call(unknown)
@@ -1108,3 +1139,279 @@ def test_i1_i2_i3_the_counting_functions_add_no_second_parser_and_one_type():
     assert computed.overdue is True
     assert computed.overdue is (computed.days_until < 0)
     assert "overdue" not in vars(computed)             # a property, not a field
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# E1-dates-b · US-NM and US-OR — the second and third jurisdictions
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# `US-federal` shipped one `status` per row because every branch of FRCP 6 /
+# FRBP 9006 rested on the same secondary-restatement basis. `US-NM` and
+# `US-OR` do not: each is VERIFIED-secondary on its forward branch (and, for
+# `US-OR` only, its short-period branch too) and UNCERTAIN on backward and
+# mail — nothing tried from this environment settles either. Tried and
+# blocked, both build and audit pass: supremecourt.nmcourts.gov,
+# law.justia.com, nmonesource.com and oregon.public.law are all refused by
+# the egress proxy (`EGRESS_BLOCKED`) before the request leaves the box —
+# see `RULES["US-NM"]` and `RULES["US-OR"]`'s citation strings for exactly
+# which branch that leaves VERIFIED and which it leaves refusing.
+
+
+def test_jurisdictions_is_still_derived_from_rules():
+    """The E1-dates-a version of this check (`test_jurisdictions_is_derived_
+    from_rules_not_hand_kept`) pins the *mechanism* (`tuple(RULES)`); this one
+    pins the *result* the plan promised — `US-NM` and `US-OR` land, in that
+    order, and nothing else sneaks in."""
+    assert JURISDICTIONS == ("US-federal", "US-NM", "US-OR")
+    assert JURISDICTIONS == tuple(RULES)
+
+
+def test_nm_eleven_day_period_counts_every_day_and_rolls():
+    """Rule 1-006(A) NMRA, VERIFIED-secondary for periods of 11 days or more:
+    count every day, roll the last day forward off a Saturday, Sunday or
+    legal holiday — checked against NM's own calendar (federal ∪ NM), not
+    the federal one.
+
+    Fri 2026-11-13 + 11 raw days = Tue 2026-11-24, an ordinary Tuesday in
+    both calendars — nothing to roll, and NOT less than `short_period_max`
+    (11), so this is the ordinary branch, not the short-period one.
+    """
+    assert date(2026, 11, 13).weekday() == 4                    # a Friday
+    assert court_days("2026-11-13", 11, jurisdiction="US-NM").iso == "2026-11-24"
+
+    # A case where the ordinary roll actually moves something: Wed
+    # 2026-11-12 + 14 raw days = Thu 2026-11-26, Thanksgiving in EVERY
+    # calendar -> rolls forward. In NM the very next day, Fri 2026-11-27, is
+    # ALSO closed (NM's own Presidents' Day — see the test below) -> rolls
+    # again, across the weekend, to Mon 2026-11-30. The federal-only answer
+    # for the same period stops one roll earlier, at that Friday.
+    assert court_days("2026-11-12", 14, jurisdiction="US-NM").iso == "2026-11-30"
+    assert court_days("2026-11-12", 14, jurisdiction="US-federal").iso == "2026-11-27"
+
+
+def test_nm_presidents_day_is_the_friday_after_thanksgiving():
+    """New Mexico keeps Presidents' Day on the Friday after Thanksgiving
+    instead of the third Monday in February — `holidays.US(subdiv="NM")`
+    drops Washington's Birthday and adds this day instead, which is exactly
+    why `RULES["US-NM"].calendar()` must be the UNION with the federal
+    calendar (`_nm_calendar`), not the NM subdivision alone: substituting it
+    would silently un-close 2026-02-16 (see `test_i41_a_district_state_
+    calendar_may_only_add_closures_never_remove_one`, the federal analogue
+    of this same trap)."""
+    friday = date(2026, 11, 27)
+    assert friday.weekday() == 4
+    assert friday not in holidays.US(years=2026)
+    assert friday in RULES["US-NM"].calendar()
+    assert date(2026, 2, 16) in RULES["US-NM"].calendar(), (
+        "the NM row's calendar must be federal UNION NM, not NM alone — "
+        "holidays.US(subdiv='NM') alone drops Washington's Birthday"
+    )
+
+
+def test_nm_short_period_is_uncertain_and_refuses_by_name():
+    """`short_period_max=11` is set (NM's boundary is known from secondary
+    summaries) but `short_period_status` is UNCERTAIN — none of the three
+    tried sources (the NMRA rule PDF, the NMSA statute, nmonesource) loads
+    from this environment. I-11: refuse the short branch rather than guess
+    at the exact exclusion set, even though the boundary number itself is
+    not in doubt."""
+    with pytest.raises(UnparseableDate) as exc:
+        court_days("2026-11-16", 5, jurisdiction="US-NM")
+    message = str(exc.value)
+    assert message.startswith("UNCERTAIN:")
+    assert "US-NM" in message
+    assert re.search(r"\.(gov|com|org|do|law)\b", message), message
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="US-NM short-period rule UNCERTAIN until Rule 1-006 text is quoted",
+)
+def test_nm_short_period_excludes_weekends_and_holidays_when_verified():
+    """The case this module WOULD compute if `RULES["US-NM"].short_period_
+    status` were VERIFIED: a period under 11 days excludes intermediate
+    Saturdays, Sundays and legal holidays while counting (the `business_days`
+    shape), rather than counting them and only rolling the last day.
+
+    Mon 2026-11-16 + 8 OPEN days, skipping Thanksgiving (Thu 11/26) AND NM's
+    own Presidents' Day (Fri 11/27) as well as both intervening weekends:
+    Tue 17 (1), Wed 18 (2), Thu 19 (3), Fri 20 (4), [Sat/Sun skip], Mon 23
+    (5), Tue 24 (6), Wed 25 (7), [Thu 26 Thanksgiving skip], [Fri 27
+    Presidents' Day skip], [Sat/Sun skip], Mon 30 (8) -> landing 2026-11-30.
+
+    Today this raises `UnparseableDate` (UNCERTAIN) instead, which is why
+    this test is `xfail(strict=True)`: the day `short_period_status` flips to
+    VERIFIED, this assertion starts passing, `strict=True` turns that XPASS
+    into a failure, and whoever flipped it is told to delete this marker.
+    """
+    assert court_days("2026-11-16", 8, jurisdiction="US-NM").iso == "2026-11-30"
+
+
+def test_nm_backward_and_mail_are_uncertain_and_refuse_by_name():
+    """Neither branch is stated in anything this module could read — I-11,
+    refuse rather than assume New Mexico mirrors FRCP 6(a)(5) or the federal
+    mail-days figure's re-roll behaviour."""
+    with pytest.raises(UnparseableDate) as exc:
+        court_days_before("2026-11-16", 5, jurisdiction="US-NM")
+    assert str(exc.value).startswith("UNCERTAIN:") and "US-NM" in str(exc.value)
+
+    with pytest.raises(UnparseableDate) as exc:
+        add_mail_days(court_days("2026-11-13", 11, jurisdiction="US-NM"), jurisdiction="US-NM")
+    assert str(exc.value).startswith("UNCERTAIN:") and "US-NM" in str(exc.value)
+
+
+def test_or_seven_day_period_counts_every_day():
+    """ORCP 10 A, VERIFIED-secondary at or above the 7-day boundary: count
+    every day, including intermediate closures, and roll only the last one.
+
+    Tue 2026-11-24 + 7 raw days = Tue 2026-12-01, which spans Thanksgiving
+    (Thu 2026-11-26) as an INTERMEDIATE day — counted like any other, not
+    skipped — and lands on an open Tuesday, so nothing rolls.
+    """
+    assert date(2026, 11, 24).weekday() == 1                    # a Tuesday
+    assert court_days("2026-11-24", 7, jurisdiction="US-OR").iso == "2026-12-01"
+
+
+def test_or_six_day_period_excludes_intermediate_closures():
+    """The same start, one day shorter and on the other side of ORCP 10 A's
+    7-day boundary: `short_period_max=7`, VERIFIED-secondary, excludes
+    Thanksgiving and both intervening weekends WHILE counting.
+
+    Tue 2026-11-24 + 6 OPEN days: Wed 25 (1), [Thu 26 Thanksgiving skip],
+    Fri 27 (2), [Sat/Sun skip], Mon 30 (3), Tue Dec 1 (4), Wed Dec 2 (5),
+    Thu Dec 3 (6) -> landing 2026-12-03 — two days LATER than the seven-day
+    ordinary answer above, which is the whole point of the exclusion: it
+    protects the number of *open* days, not the number of calendar days.
+    """
+    assert court_days("2026-11-24", 6, jurisdiction="US-OR").iso == "2026-12-03"
+
+
+def test_or_presidents_day_third_monday_of_february_is_closed():
+    """Unlike New Mexico, Oregon keeps Washington's Birthday (Presidents' Day)
+    on its ordinary third-Monday-in-February date — `holidays.US(subdiv=
+    "OR")` does not drop it, so the union with the federal calendar
+    (`_or_calendar`) closes it either way."""
+    day = date(2026, 2, 16)
+    assert day.weekday() == 0
+    assert day in RULES["US-OR"].calendar()
+    assert court_days("2026-02-02", 14, jurisdiction="US-OR").iso == "2026-02-17"
+
+
+def test_or_backward_is_uncertain_and_mail_names_the_letter_uncertainty():
+    """Backward: not stated in anything read here, same as NM. Mail: ORCP
+    10 C's addition is reported secondarily, but the section LETTER itself
+    may have moved in a biennial Council on Court Procedures amendment since
+    *Harvey v. Christie* (2010) — the refusal names that specifically, not
+    just "not verified.\""""
+    with pytest.raises(UnparseableDate) as exc:
+        court_days_before("2026-11-24", 5, jurisdiction="US-OR")
+    assert str(exc.value).startswith("UNCERTAIN:") and "US-OR" in str(exc.value)
+
+    with pytest.raises(UnparseableDate) as exc:
+        add_mail_days("2026-08-10", jurisdiction="US-OR")
+    message = str(exc.value)
+    assert message.startswith("UNCERTAIN:") and "US-OR" in message
+    assert "letter" in message.lower()
+
+
+def test_us_federal_with_district_state_nm_and_us_nm_agree_on_long_forward_periods_and_differ_on_short():
+    """The jurisdiction-confusion attack the audit is named for: `"US-federal"`
+    with `district_state="NM"` and `"US-NM"` read the SAME union calendar
+    (federal ∪ NM) — but they are not interchangeable, because only one of
+    them is a `CountingRule` with a short-period branch at all.
+
+    At or above NM's `short_period_max` (11 days) the two AGREE exactly,
+    because both apply the identical ordinary FRCP-shaped roll to the
+    identical calendar.
+
+    Below it they DIFFER in kind, not just in value: `"US-federal"` has
+    `short_period_max=None`, so `district_state="NM"` still computes the
+    ordinary answer for a 5-day period — federal law has no short-period
+    concept to consult. `"US-NM"` has `short_period_max=11`, so the same
+    5-day period is short enough to require the (UNCERTAIN) short branch,
+    and refuses instead of silently falling back to the ordinary shape. A
+    caller who confused the two jurisdictions would get a confident wrong
+    answer for the short period, not a refusal that flags the confusion —
+    which is exactly why they must stay separate rows in `RULES`.
+    """
+    for n in (11, 14, 21):
+        agree_start = "2026-11-02"
+        federal_side = court_days(agree_start, n, district_state="NM")
+        nm_side = court_days(agree_start, n, jurisdiction="US-NM")
+        assert federal_side.iso == nm_side.iso, (n, federal_side.iso, nm_side.iso)
+
+    short_start = "2026-11-16"
+    federal_short = court_days(short_start, 5, district_state="NM")
+    assert federal_short.iso == "2026-11-23"          # a real, ordinary answer
+
+    with pytest.raises(UnparseableDate) as exc:
+        court_days(short_start, 5, jurisdiction="US-NM")
+    assert str(exc.value).startswith("UNCERTAIN:")
+
+
+def test_a_holiday_calendar_override_keeps_the_jurisdictions_counting_rule():
+    """A `holiday_calendar` override replaces WHICH DAYS ARE CLOSED, never
+    WHICH ALGORITHM RUNS. `US-NM`'s short-period branch is UNCERTAIN (so
+    `court_days("...", 3, jurisdiction="US-NM")` alone refuses), but supply a
+    calendar and the short-period SHAPE still applies — `short_period_max=11`
+    still comes from `RULES["US-NM"]`, only the closed days come from the
+    caller.
+
+    Mon 2026-11-16, `n=3`, with an artificial single-weekday closure on
+    2026-11-18 (not a real holiday — a stand-in for a county closure):
+
+    * SHORT shape (what must run, since 3 < 11): Tue 17 (open, 1),
+      [Wed 18 closed by the override, skip], Thu 19 (open, 2), Fri 20
+      (open, 3) -> landing 2026-11-20.
+    * ORDINARY shape (what would run if the override silently discarded the
+      counting rule too): 2026-11-16 + 3 raw days = Fri 2026-11-19, not
+      closed by the override -> landing 2026-11-19, UNCHANGED.
+
+    The two disagree, so which one actually ran is observable — and it is
+    the short one.
+    """
+    closed = frozenset({date(2026, 11, 18)})
+    with pytest.raises(UnparseableDate):
+        court_days("2026-11-16", 3, jurisdiction="US-NM")          # unverified, alone
+
+    got = court_days("2026-11-16", 3, jurisdiction="US-NM", holiday_calendar=closed)
+    assert got.iso == "2026-11-20", (
+        "the override replaced the calendar but the ordinary (roll-only) "
+        "shape ran instead of NM's short-period shape — the counting rule "
+        "was replaced too, which the seam must not do"
+    )
+
+
+def test_every_uncertain_branch_refuses_by_name_with_its_url():
+    """Every branch this module has not verified fails closed (I-11), and
+    the refusal names both the jurisdiction AND a URL a human can go read —
+    not just "not verified," which gives no next step. Self-discovering
+    rather than hardcoded to NM/OR by name, so a future UNCERTAIN row is
+    covered the moment it lands."""
+    branches = (
+        ("short_period_status", "short_period_source",
+         lambda j, rule: court_days("2026-08-04", rule.short_period_max - 1, jurisdiction=j)),
+        ("backward_status", "backward_source",
+         lambda j, rule: court_days_before("2026-08-04", 5, jurisdiction=j)),
+        ("mail_status", "mail_days_source",
+         lambda j, rule: add_mail_days("2026-08-04", jurisdiction=j)),
+    )
+    checked = 0
+    for name, rule in RULES.items():
+        for status_attr, source_attr, call in branches:
+            if status_attr == "short_period_status" and rule.short_period_max is None:
+                continue
+            if getattr(rule, status_attr) is not RuleStatus.UNCERTAIN:
+                continue
+            with pytest.raises(UnparseableDate) as exc:
+                call(name, rule)
+            message = str(exc.value)
+            assert message.startswith("UNCERTAIN:"), message
+            assert name in message, message
+            assert getattr(rule, source_attr) in message, message
+            assert re.search(r"\.(gov|com|org|do|law)\b", message), message
+            checked += 1
+    assert checked >= 5, (
+        f"expected at least NM's short/backward/mail and OR's backward/mail "
+        f"branches to be UNCERTAIN and checked here; only {checked} were"
+    )

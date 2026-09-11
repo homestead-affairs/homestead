@@ -58,7 +58,10 @@ from pathlib import Path
 import pytest
 
 from homestead.keep.dates import (
+    JURISDICTIONS,
+    RULES,
     Deadline,
+    UnparseableDate,
     add_mail_days,
     business_days,
     court_days,
@@ -1337,4 +1340,161 @@ def test_the_audit_section_has_not_been_hollowed_out():
     assert section.count('("20') >= 25, (
         "section 9's hand-worked tables have shrunk; each row is a case with a "
         "derivation written above it and none of them is redundant"
+    )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 10 · US-NM and US-OR — the second and third jurisdictions
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Section 9 pinned `US-federal` alone. E1-dates-b adds two more rows, each
+# VERIFIED-secondary on its forward branch (`US-OR` also on its short-period
+# branch) and UNCERTAIN on backward and mail — see `RULES["US-NM"]` and
+# `RULES["US-OR"]`'s citation strings, which name every URL tried and record
+# that all of them are refused by this environment's egress proxy
+# (`EGRESS_BLOCKED`) before the request leaves the box. Every case below
+# names the rule it exercises and the calendar it was checked against, the
+# same discipline section 8/9 held `US-federal` to.
+
+
+@pytest.mark.parametrize("start,n,expected,why", [
+    # Rule 1-006(A) NMRA, calendar: federal UNION NM. Fri 2026-11-13 + 11 raw
+    # days = Tue 2026-11-24, an ordinary Tuesday in both calendars -- 11 is
+    # NOT less than short_period_max=11, so this is the ordinary (>=11-day)
+    # branch, not the short one.
+    ("2026-11-13", 11, "2026-11-24", "Rule 1-006(A) NMRA, >=11 days: nothing closed, no roll"),
+    # Same rule, calendar: federal UNION NM. Thu 2026-11-05 + 12 raw days =
+    # Tue 2026-11-17 -- open in both calendars, no roll.
+    ("2026-11-05", 12, "2026-11-17", "Rule 1-006(A) NMRA, >=11 days: a plain Tuesday landing"),
+    # Same rule. Wed 2026-11-12 + 14 raw days = Thu 2026-11-26, Thanksgiving
+    # in every calendar -> rolls forward to Fri 2026-11-27, which is ALSO
+    # closed under the NM calendar (NM's own Presidents' Day) -> rolls again
+    # across the weekend to Mon 2026-11-30.
+    ("2026-11-12", 14, "2026-11-30", "Rule 1-006(A) NMRA: rolls twice, off Thanksgiving then NM's own Presidents' Day"),
+    # Same rule. Mon 2026-01-05 + 14 raw days = Mon 2026-01-19, Martin Luther
+    # King Jr. Day (federal, and NM does not drop it) -> rolls to Tue 1/20.
+    ("2026-01-05", 14, "2026-01-20", "Rule 1-006(A) NMRA: rolls off a federal Monday holiday NM also observes"),
+])
+def test_nm_ordinary_forward_hand_worked(start, n, expected, why):
+    assert court_days(start, n, jurisdiction="US-NM").iso == expected, why
+
+
+@pytest.mark.parametrize("start,n,expected,why", [
+    # ORCP 10 A, calendar: federal UNION OR. Tue 2026-11-24 + 7 raw days =
+    # Tue 2026-12-01, spanning Thanksgiving (Thu 11/26) as an INTERMEDIATE
+    # day -- counted, not skipped -- landing on an open Tuesday.
+    ("2026-11-24", 7, "2026-12-01", "ORCP 10 A, >=7 days: Thanksgiving is intermediate, counted not skipped"),
+    # Same rule. Fri 2026-10-09 (Columbus Day, a Friday -- OR drops it, but
+    # federal keeps it, and the union calendar closes it) + 7 raw days =
+    # Fri 2026-10-16, open in both -- no roll, and Columbus Day itself,
+    # being the START day, is excluded from the count either way.
+    ("2026-10-09", 7, "2026-10-16", "ORCP 10 A, >=7 days: Columbus Day as the excluded start day"),
+    # Same rule. Wed 2026-12-16 + 9 raw days = Fri 2026-12-25, Christmas ->
+    # rolls forward through the weekend to Mon 2026-12-28.
+    ("2026-12-16", 9, "2026-12-28", "ORCP 10 A, >=7 days: rolls off Christmas Friday across the weekend"),
+])
+def test_or_ordinary_forward_hand_worked(start, n, expected, why):
+    assert court_days(start, n, jurisdiction="US-OR").iso == expected, why
+
+
+@pytest.mark.parametrize("start,n,expected,why", [
+    # ORCP 10 A's short-period exclusion, calendar: federal UNION OR. Tue
+    # 2026-11-24 + 6 OPEN days, skipping Thanksgiving and both weekends:
+    # Wed 25 (1), [Thu 26 Thanksgiving skip], Fri 27 (2), [Sat/Sun skip],
+    # Mon 30 (3), Tue Dec 1 (4), Wed Dec 2 (5), Thu Dec 3 (6).
+    ("2026-11-24", 6, "2026-12-03", "ORCP 10 A, <7 days: excludes Thanksgiving while counting"),
+    # Same rule. Fri 2026-10-09 + 5 OPEN days, calendar federal UNION OR:
+    # [Sat 10, Sun 11 skip], [Mon 12 Columbus Day skip -- closed under the
+    # UNION calendar even though OR's own subdivision list drops it], Tue 13
+    # (1), Wed 14 (2), Thu 15 (3), Fri 16 (4), [Sat 17, Sun 18 skip], Mon 19
+    # (5) -> landing 2026-10-19, four calendar days later than the raw +5.
+    ("2026-10-09", 5, "2026-10-19", "ORCP 10 A, <7 days: excludes the UNION calendar's Columbus Day"),
+])
+def test_or_short_period_hand_worked(start, n, expected, why):
+    assert court_days(start, n, jurisdiction="US-OR").iso == expected, why
+
+
+def test_or_presidents_day_hand_worked():
+    """Oregon keeps Washington's Birthday on its ordinary third-Monday-in-
+    February date (unlike New Mexico's Friday-after-Thanksgiving version);
+    ORCP 10 A, calendar federal UNION OR. Wed 2026-02-04 + 8 raw days = Thu
+    2026-02-12, open -- the CONTROL, and >=7 days so the ordinary (not
+    short-period) branch. Mon 2026-02-09 + 7 raw days = Mon 2026-02-16,
+    Washington's Birthday -> rolls to Tue 2026-02-17."""
+    assert court_days("2026-02-04", 8, jurisdiction="US-OR").iso == "2026-02-12"
+    assert court_days("2026-02-09", 7, jurisdiction="US-OR").iso == "2026-02-17"
+
+
+def test_nm_and_or_backward_and_mail_refuse_uncertain():
+    """Neither jurisdiction states a backward rule or a settled mail-days
+    figure in anything read here (see `RULES["US-NM"]`/`RULES["US-OR"]`'s
+    `backward_source` / `mail_days_source`, both UNCERTAIN, both naming the
+    URLs tried and blocked). I-11: refuse rather than guess."""
+    for jurisdiction in ("US-NM", "US-OR"):
+        with pytest.raises(UnparseableDate) as exc:
+            court_days_before("2026-11-24", 5, jurisdiction=jurisdiction)
+        assert str(exc.value).startswith("UNCERTAIN:")
+
+        with pytest.raises(UnparseableDate) as exc:
+            add_mail_days("2026-11-24", jurisdiction=jurisdiction)
+        assert str(exc.value).startswith("UNCERTAIN:")
+
+
+def test_district_state_nm_and_us_nm_agree_forward_differ_short():
+    """The jurisdiction-confusion attack: `"US-federal"` with
+    `district_state="NM"` and `"US-NM"` read the identical UNION calendar,
+    but only `"US-NM"` has a short-period branch at all. At or above NM's
+    11-day boundary the two agree exactly; below it, `"US-federal"` (which
+    has no short-period concept) still computes an ordinary answer while
+    `"US-NM"` refuses (its short branch is UNCERTAIN)."""
+    for n in (11, 14, 21):
+        a = court_days("2026-11-02", n, district_state="NM")
+        b = court_days("2026-11-02", n, jurisdiction="US-NM")
+        assert a.iso == b.iso, (n, a.iso, b.iso)
+
+    assert court_days("2026-11-16", 5, district_state="NM").iso == "2026-11-23"
+    with pytest.raises(UnparseableDate):
+        court_days("2026-11-16", 5, jurisdiction="US-NM")
+
+
+def test_holiday_calendar_override_keeps_nms_short_period_shape():
+    """`holiday_calendar` replaces which days are closed, never which
+    counting shape runs. `US-NM`'s short branch is UNCERTAIN and refuses
+    alone; supplied a calendar, `short_period_max=11` from `RULES["US-NM"]`
+    still selects the short (exclude-while-counting) shape rather than the
+    ordinary roll-only one — see the invariants test of the same name for
+    the full worked arithmetic."""
+    closed = frozenset({date(2026, 11, 18)})
+    got = court_days("2026-11-16", 3, jurisdiction="US-NM", holiday_calendar=closed)
+    assert got.iso == "2026-11-20"
+
+
+def test_nm_and_or_rows_are_present_and_verified_as_documented():
+    """The corpus's own guard on the rule table, mirroring `test_the_corpus_
+    has_not_been_hollowed_out` for section 7: the jurisdictions, the
+    boundaries, and which branches are VERIFIED vs UNCERTAIN are pinned
+    here, not just exercised incidentally by the arithmetic above."""
+    from homestead.keep.dates import RuleStatus
+
+    assert JURISDICTIONS == ("US-federal", "US-NM", "US-OR")
+
+    nm, orr = RULES["US-NM"], RULES["US-OR"]
+    assert nm.short_period_max == 11 and orr.short_period_max == 7
+    assert nm.status is RuleStatus.VERIFIED
+    assert nm.short_period_status is RuleStatus.UNCERTAIN
+    assert nm.backward_status is RuleStatus.UNCERTAIN
+    assert nm.mail_status is RuleStatus.UNCERTAIN
+    assert orr.status is RuleStatus.VERIFIED
+    assert orr.short_period_status is RuleStatus.VERIFIED
+    assert orr.backward_status is RuleStatus.UNCERTAIN
+    assert orr.mail_status is RuleStatus.UNCERTAIN
+
+
+def test_section_10_has_not_been_hollowed_out():
+    import inspect
+    source = inspect.getsource(inspect.getmodule(test_nm_and_or_rows_are_present_and_verified_as_documented))
+    section = source.split("# 10 · US-NM and US-OR", 1)[1]
+    assert section.count('("20') >= 10, (
+        "section 10's hand-worked NM/OR tables have shrunk below the plan's "
+        "≥10 hand-computed rows"
     )

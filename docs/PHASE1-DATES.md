@@ -202,3 +202,50 @@ mail days from a Friday onto a Monday holiday, `business_days` across both
 Christmas and New Year in an observed-on-Friday year, and the backward `n=0`
 degenerate case — which must *not* answer what the forward one answers, since
 the direction of the roll is the only reason there are two functions.
+
+---
+
+## US-NM and US-OR — 2026-09-11 (E1-dates-b)
+
+`RULES` grew to three rows: `JURISDICTIONS == ("US-federal", "US-NM",
+"US-OR")`, still `tuple(RULES)`. `CountingRule` grew from one `status` per
+row to four independent `(status, source)` pairs — forward, short-period,
+backward, mail — because a state's forward-counting rule can be corroborated
+while its backward and mail rules are not stated in anything read here. The
+federal row was refactored to the same shape, all four branches `VERIFIED`;
+its computed answers are byte-identical (the unchanged federal corpus still
+passes with no value changed).
+
+Every URL below was tried on 2026-09-11 and every one is refused by the
+egress proxy (`EGRESS_BLOCKED`) before the request leaves the box:
+`supremecourt.nmcourts.gov/…/Rule-1-006-NMRA.pdf`, `law.justia.com/codes/
+new-mexico/…/section-12-2a-7/`, `nmonesource.com/nmos/nmra/…`, `oregon.
+public.law/rules-of-civil-procedure/orcp-10-time/`.
+
+| jurisdiction | forward (≥ threshold) | short period | backward | mail |
+|---|---|---|---|---|
+| `US-NM` | Rule 1-006(A) NMRA (eff. 2024-11-01) — VERIFIED-secondary, ≥ 11 days | `short_period_max=11` — **UNCERTAIN** | **UNCERTAIN** | 3 days recorded, **UNCERTAIN** |
+| `US-OR` | ORCP 10 A — VERIFIED-secondary, ≥ 7 days | `short_period_max=7` — VERIFIED-secondary | **UNCERTAIN** | 3 days recorded (ORCP 10 C, letter UNCERTAIN), **UNCERTAIN** |
+
+Three things worth knowing before touching this table again:
+
+* The short-period shape is `business_days`'s loop (`_count_open_days`), not
+  a second copy of it — `court_days` picks it whenever `n` is strictly below
+  `RULES[jurisdiction].short_period_max`, so the two can never drift apart.
+* A `holiday_calendar` override replaces the calendar, never which shape
+  runs: `short_period_max` still comes from `RULES[jurisdiction]` even when
+  the caller supplies their own calendar — see
+  `test_a_holiday_calendar_override_keeps_the_jurisdictions_counting_rule`.
+* `"US-federal"` + `district_state="NM"` and `"US-NM"` read the identical
+  union calendar and agree exactly at or above NM's 11-day threshold, but
+  only `"US-NM"` has a short-period concept — below it the federal call
+  still computes while `"US-NM"` refuses. Confusing the two jurisdictions
+  produces a confident wrong answer, not a refusal, which is why they stay
+  separate rows (`test_us_federal_with_district_state_nm_and_us_nm_agree_
+  on_long_forward_periods_and_differ_on_short`).
+
+`test_nm_short_period_excludes_weekends_and_holidays_when_verified` is
+`xfail(strict=True)`: it asserts the answer this module would compute if
+NM's short-period branch were `VERIFIED`. The day someone reads Rule 1-006
+NMRA's short-period text and flips `short_period_status`, this assertion
+starts passing and `strict=True` fails the suite until the marker is removed.

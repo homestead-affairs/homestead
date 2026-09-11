@@ -399,20 +399,50 @@ class CountingRule:
     `holidays.US()`'s per-year lazy-population cost) is deferred to the first
     date actually asked about — see `_federal_calendar`.
 
-    `short_period_max` is `None` for a jurisdiction that counts every period
-    the same way (the FRCP/FRBP shape since the 2009 amendment); a
-    jurisdiction whose short periods exclude intermediate closures sets it to
-    the largest period, in days, that applies to. `mail_days` /
-    `mail_days_source` are the separate FRCP 6(d) / FRBP 9006(f) citation — a
-    jurisdiction can have one branch settled and the other not.
+    **Four branches, four independent statuses.** `US-federal` shipped
+    (E1-dates-a) with one `status` covering everything, because every branch
+    of FRCP 6 / FRBP 9006 happened to rest on the same secondary-restatement
+    basis. `US-NM` and `US-OR` (E1-dates-b) do not: a state's forward-counting
+    rule can be corroborated by several converging summaries of a 2024
+    amendment while its backward-counting and mail-service rules are not
+    stated in anything this module could read. So each branch below carries
+    its own `RuleStatus` and its own citation string, and a caller asking for
+    one branch is refused or served on that branch's own evidence — never on
+    whether some *other* branch of the same rule happens to be settled:
+
+    * `status` / `source` — the ordinary forward branch (FRCP 6(a)(1)/(6);
+      periods of `short_period_max` days or more, or every period when
+      `short_period_max` is `None`).
+    * `short_period_status` / `short_period_source` — periods **strictly
+      less than** `short_period_max` days, which exclude intermediate
+      Saturdays, Sundays and legal holidays while counting rather than
+      merely rolling the last day (the shape `business_days` already
+      implements — see `court_days`). `short_period_max` is `None` for a
+      jurisdiction that counts every period the same way (the FRCP/FRBP
+      shape since the 2009 Time-Computation amendment repealed the
+      pre-2009 short-period exclusion); a jurisdiction whose short periods
+      still exclude intermediate closures sets it to the largest period,
+      in days, that rule applies to.
+    * `backward_status` / `backward_source` — FRCP 6(a)(5) / FRBP
+      9006(a)(5), a period measured *before* an event.
+    * `mail_days` / `mail_days_source` / `mail_status` — FRCP 6(d) / FRBP
+      9006(f), added to an already-rolled end.
+
+    A row may be `VERIFIED` on some branches and `UNCERTAIN` on others; each
+    counting function below checks only the branch(es) it needs.
     """
 
     jurisdiction: str
     source: str
+    status: RuleStatus
     short_period_max: int | None
+    short_period_source: str
+    short_period_status: RuleStatus
+    backward_source: str
+    backward_status: RuleStatus
     mail_days: int | None
     mail_days_source: str
-    status: RuleStatus
+    mail_status: RuleStatus
     calendar: Callable[[], Container]
 
 
@@ -434,6 +464,56 @@ def _federal_calendar() -> Container:
     key into it would be editing the calendar every other caller reads.
     """
     return holidays.US()
+
+
+class _MergedCalendar:
+    """Answers `in` against two calendars without merging or mutating either
+    — `holidays.US()` populates itself lazily, per year, so a `frozenset`
+    union up front would force both sources to answer for every year at once."""
+
+    __slots__ = ("_a", "_b")
+
+    def __init__(self, a: Container, b: Container) -> None:
+        self._a = a
+        self._b = b
+
+    def __contains__(self, day: object) -> bool:
+        return day in self._a or day in self._b
+
+
+@lru_cache(maxsize=64)
+def _state_calendar(state: str) -> Container:
+    """`holidays.US(subdiv=state)`, built once. Its `NotImplementedError` for
+    an unrecognized code becomes a named refusal instead of a traceback
+    surfacing a dependency the caller may not know is involved."""
+    try:
+        return holidays.US(subdiv=state)
+    except NotImplementedError as exc:
+        raise UnparseableDate(
+            f"{state!r} is not a US state or territory `holidays` recognizes "
+            f"as a court subdivision: {exc}"
+        ) from None
+
+
+@lru_cache(maxsize=8)
+def _nm_calendar() -> Container:
+    """`holidays.US(subdiv="NM")` **unioned with** the federal calendar, built
+    once — see the module-level union note below `_or_calendar` for why the
+    union, not the subdivision alone, is the jurisdiction's calendar."""
+    return _MergedCalendar(_federal_calendar(), _state_calendar("NM"))
+
+
+@lru_cache(maxsize=8)
+def _or_calendar() -> Container:
+    """`holidays.US(subdiv="OR")` **unioned with** the federal calendar, built
+    once. `holidays.US(subdiv=...)` is not a superset of `holidays.US()` —
+    New Mexico drops Washington's Birthday for its own Presidents' Day (the
+    Friday after Thanksgiving; see `test_i41_a_district_state_calendar_may_
+    only_add_closures_never_remove_one`) and Oregon drops Columbus Day — so a
+    jurisdiction's own calendar is pinned as the union here, the same
+    `_MergedCalendar` shape `_district_calendar` already uses for FRBP
+    9006(a)(6)(C), rather than the subdivision calendar substituted alone."""
+    return _MergedCalendar(_federal_calendar(), _state_calendar("OR"))
 
 
 #: One row per implemented jurisdiction. `JURISDICTIONS` below is *derived*
@@ -475,7 +555,37 @@ RULES: dict[str, CountingRule] = {
             "sentence with a primary quotation the first time one can be "
             "read; do not delete it without one."
         ),
+        status=RuleStatus.VERIFIED,
         short_period_max=None,
+        short_period_source=(
+            "FRCP 6(a)'s pre-2009 short-period exclusion — periods under 11 "
+            "days excluded intermediate Saturdays, Sundays and legal "
+            "holidays while counting — was repealed by the 2009 "
+            "Time-Computation amendment; its committee note is 'time is now "
+            "computed in the same way' for every period, which is why "
+            "`short_period_max=None` here: there is no separate short-period "
+            "shape left to verify. PROVENANCE, 2026-09-11: the same "
+            "converging-secondary-restatement basis as `source` above, "
+            "unreachable from this environment for the same reason — "
+            "law.cornell.edu, uscourts.gov, govinfo.gov, uscode.house.gov and "
+            "supremecourt.gov are all refused by the egress proxy."
+        ),
+        short_period_status=RuleStatus.VERIFIED,
+        backward_source=(
+            "FRCP 6(a)(5) / FRBP 9006(a)(5): 'the \"next day\" is determined "
+            "by continuing to count forward when the period is measured "
+            "after an event and backward when measured before an event' — a "
+            "period measured before an event excludes the event day, counts "
+            "every day including intermediate Saturdays, Sundays and legal "
+            "holidays (6(a)(1)(B), unchanged by direction), and rolls "
+            "BACKWARD off a Saturday, Sunday or legal holiday landing on the "
+            "last (earliest) day counted. PROVENANCE, 2026-09-11: quoted "
+            "from converging independent secondary restatements, not from a "
+            "primary text read here — the same blocked hosts named in "
+            "`source` above (law.cornell.edu, uscourts.gov, govinfo.gov, "
+            "uscode.house.gov, supremecourt.gov)."
+        ),
+        backward_status=RuleStatus.VERIFIED,
         mail_days=3,
         mail_days_source=(
             "FRCP 6(d) / FRBP 9006(f): when a party may or must act within a "
@@ -496,8 +606,158 @@ RULES: dict[str, CountingRule] = {
             "`source` above for which hosts are blocked and what VERIFIED is "
             "being claimed on."
         ),
-        status=RuleStatus.VERIFIED,
+        mail_status=RuleStatus.VERIFIED,
         calendar=_federal_calendar,
+    ),
+    "US-NM": CountingRule(
+        jurisdiction="US-NM",
+        source=(
+            "Rule 1-006(A) NMRA (eff. 2024-11-01): in computing a period "
+            "prescribed by rule, court order or applicable statute, exclude "
+            "the day of the act or event that triggers the period; count "
+            "every day, including intermediate Saturdays, Sundays and legal "
+            "holidays, unless the period is less than 11 days (see "
+            "`short_period_source` below); include the last day, unless it "
+            "is a Saturday, Sunday or legal holiday, in which case the "
+            "period runs to the next day that is none of those. NMSA 1978 "
+            "§ 12-2A-7 governs computation of statutory time periods and is "
+            "reported to be consistent with this shape. PROVENANCE, "
+            "2026-09-11: tried supremecourt.nmcourts.gov/wp-content/uploads/"
+            "sites/2/2024/11/Rule-1-006-NMRA.pdf, law.justia.com/codes/"
+            "new-mexico/2021/chapter-12/article-2a/section-12-2a-7/ and "
+            "nmonesource.com/nmos/nmra/en/item/5661/index.do — each refused "
+            "by this environment's egress proxy (EGRESS_BLOCKED) before the "
+            "request left the box. VERIFIED-secondary is claimed for this "
+            "≥11-day forward branch only: multiple independent secondary "
+            "summaries of the 2024-11-01 amendment agree, clause for "
+            "clause, that periods of 11 days or more now count every day "
+            "and roll forward off a closed last day — the post-2009 federal "
+            "shape. Replace this sentence with a primary quotation the "
+            "first time one of the three URLs above can be read."
+        ),
+        status=RuleStatus.VERIFIED,
+        short_period_max=11,
+        short_period_source=(
+            "Rule 1-006(A) NMRA is reported, by the same secondary "
+            "summaries as `source` above, to keep a pre-2009-FRCP-style "
+            "exclusion for periods under 11 days: intermediate Saturdays, "
+            "Sundays and legal holidays are excluded from the count rather "
+            "than only rolling the last day. UNCERTAIN, 2026-09-11: none of "
+            "the three candidate sources loads from this environment — "
+            "supremecourt.nmcourts.gov/wp-content/uploads/sites/2/2024/11/"
+            "Rule-1-006-NMRA.pdf, law.justia.com/codes/new-mexico/2021/"
+            "chapter-12/article-2a/section-12-2a-7/, nmonesource.com/nmos/"
+            "nmra/en/item/5661/index.do — each EGRESS_BLOCKED before the "
+            "request left the box. Refusing rather than guessing at the "
+            "exact boundary and exclusion set; read one of the three and "
+            "quote the operative sentence here to flip this to VERIFIED."
+        ),
+        short_period_status=RuleStatus.UNCERTAIN,
+        backward_source=(
+            "Not stated in anything this module could read. Every secondary "
+            "summary of Rule 1-006 NMRA found so far speaks only to periods "
+            "measured forward from an act or event; none confirms whether "
+            "New Mexico has a rule for a period measured backward from a "
+            "hearing or filing date (the FRCP 6(a)(5) shape), or what it "
+            "says if it does. UNCERTAIN, 2026-09-11: the same three URLs "
+            "tried for `source` above — supremecourt.nmcourts.gov/"
+            "wp-content/uploads/sites/2/2024/11/Rule-1-006-NMRA.pdf, "
+            "law.justia.com/codes/new-mexico/2021/chapter-12/article-2a/"
+            "section-12-2a-7/, nmonesource.com/nmos/nmra/en/item/5661/"
+            "index.do — are all EGRESS_BLOCKED. Refuse rather than assume "
+            "New Mexico mirrors FRCP 6(a)(5); read a primary text to settle "
+            "it either way."
+        ),
+        backward_status=RuleStatus.UNCERTAIN,
+        mail_days=3,
+        mail_days_source=(
+            "Rule 1-006(D)-ish (secondary summaries describe a 3-day "
+            "addition for service by mail); the 2024-11-01 amendment is "
+            "also reported to add 3 days for service made via a court "
+            "facility under Rule 1-005(C)(1)(e) NMRA. UNCERTAIN, "
+            "2026-09-11: neither the figure's exact rule letter nor how the "
+            "re-roll onto a closed landing day is computed is confirmed "
+            "against a primary text — supremecourt.nmcourts.gov/wp-content/"
+            "uploads/sites/2/2024/11/Rule-1-006-NMRA.pdf, law.justia.com/"
+            "codes/new-mexico/2021/chapter-12/article-2a/section-12-2a-7/ "
+            "and nmonesource.com/nmos/nmra/en/item/5661/index.do are all "
+            "EGRESS_BLOCKED. Refusing the re-roll rather than guessing "
+            "which calendar or roll direction governs it."
+        ),
+        mail_status=RuleStatus.UNCERTAIN,
+        calendar=_nm_calendar,
+    ),
+    "US-OR": CountingRule(
+        jurisdiction="US-OR",
+        source=(
+            "ORCP 10 A: in computing a period of time prescribed or allowed "
+            "by these rules, by court order, or by an applicable statute, "
+            "exclude the day of the act or event from which the period "
+            "begins to run; count every day, including intermediate "
+            "Saturdays, Sundays and legal holidays, unless the period is "
+            "less than 7 days (see `short_period_source` below); include "
+            "the last day, unless it is a Saturday, Sunday or legal "
+            "holiday, in which case the period runs until the next day "
+            "that is none of those. ORS 187.010 and 187.020 define "
+            "Oregon's legal holidays. PROVENANCE, 2026-09-11: tried "
+            "oregon.public.law/rules-of-civil-procedure/orcp-10-time/, "
+            "refused by this environment's egress proxy (EGRESS_BLOCKED) "
+            "before the request left the box. VERIFIED-secondary on "
+            "converging independent secondary restatements of ORCP 10 A, "
+            "which mirror the FRCP 6(a) shape for periods of 7 days or "
+            "more. Replace this sentence with a primary quotation the "
+            "first time oregon.public.law or another primary host can be "
+            "read."
+        ),
+        status=RuleStatus.VERIFIED,
+        short_period_max=7,
+        short_period_source=(
+            "ORCP 10 A's short-period clause, as secondarily restated: "
+            "when the prescribed period is less than 7 days, intermediate "
+            "Saturdays, Sundays and legal holidays are excluded from the "
+            "computation rather than only rolling the last day — the "
+            "pre-2009-FRCP shape most surviving state short-period rules "
+            "share. PROVENANCE, 2026-09-11: tried oregon.public.law/"
+            "rules-of-civil-procedure/orcp-10-time/ — where the rule text "
+            "is reported to be quoted — refused by this environment's "
+            "egress proxy (EGRESS_BLOCKED) before the request left the "
+            "box. VERIFIED-secondary on converging independent secondary "
+            "restatements that describe this exclusion identically. "
+            "Replace this sentence with a primary quotation the first time "
+            "oregon.public.law can be read."
+        ),
+        short_period_status=RuleStatus.VERIFIED,
+        backward_source=(
+            "Not stated in anything this module could read. ORCP 10's "
+            "secondary restatements speak only to periods measured forward "
+            "from an act or event; none confirms whether Oregon has a rule "
+            "for a period measured backward from a hearing or filing date "
+            "(the FRCP 6(a)(5) shape), or what it says if it does. "
+            "UNCERTAIN, 2026-09-11: tried oregon.public.law/"
+            "rules-of-civil-procedure/orcp-10-time/, EGRESS_BLOCKED before "
+            "the request left the box. Refuse rather than assume Oregon "
+            "mirrors FRCP 6(a)(5); read a primary text to settle it either "
+            "way."
+        ),
+        backward_status=RuleStatus.UNCERTAIN,
+        mail_days=3,
+        mail_days_source=(
+            "ORCP 10 C (letter UNCERTAIN): secondary reporting of Harvey v. "
+            "Christie (Or. App. 2010) — reporter citation not confirmed "
+            "here, name and year only — describes a 3-day mail addition "
+            "applied under ORCP 10 C. Oregon's civil "
+            "procedure rules are amended biennially by the Council on Court "
+            "Procedures, and this module could not confirm from a primary "
+            "text that the mail-days clause is still lettered 'C' after the "
+            "amendments since 2010 — UNCERTAIN, 2026-09-11: tried "
+            "oregon.public.law/rules-of-civil-procedure/orcp-10-time/, "
+            "EGRESS_BLOCKED before the request left the box. Refusing to "
+            "add 3 days under a section letter that might not be current; "
+            "read the current rule to confirm the letter and flip this to "
+            "VERIFIED."
+        ),
+        mail_status=RuleStatus.UNCERTAIN,
+        calendar=_or_calendar,
     ),
 }
 
@@ -543,10 +803,16 @@ def _rule_for(jurisdiction: Any) -> CountingRule:
     return rule
 
 
-def _require_verified(rule: CountingRule, *, needs: str, source: str) -> None:
+def _require_verified(rule: CountingRule, *, needs: str, status: RuleStatus, source: str) -> None:
     """Fail closed (I-11): `UNCERTAIN: ...`, naming the jurisdiction and the
-    citation the caller would otherwise be trusting unchecked."""
-    if rule.status is not RuleStatus.VERIFIED:
+    citation the caller would otherwise be trusting unchecked.
+
+    `status` and `source` are the caller's — one `CountingRule` carries four
+    independent branches (forward, short-period, backward, mail; see
+    `CountingRule`'s docstring), and which one is being trusted right now is
+    the caller's to say, not something this function guesses from the rule.
+    """
+    if status is not RuleStatus.VERIFIED:
         raise UnparseableDate(
             f"UNCERTAIN: {needs} for {rule.jurisdiction} is not verified "
             f"against a primary source — {source}. Refusing rather than "
@@ -555,42 +821,20 @@ def _require_verified(rule: CountingRule, *, needs: str, source: str) -> None:
         )
 
 
-def _verified_rule(jurisdiction: Any, *, needs: str, mail: bool = False) -> CountingRule:
-    """`_rule_for` plus the I-11 status check. `mail=True` checks (and names,
-    on refusal) `mail_days_source` instead of `source` — the two branches of
-    one rule are verified independently."""
-    rule = _rule_for(jurisdiction)
-    _require_verified(rule, needs=needs, source=rule.mail_days_source if mail else rule.source)
-    return rule
+def _short_period_max_for(jurisdiction: Any) -> int | None:
+    """The jurisdiction's short-period threshold, read without requiring the
+    rule to exist or be verified.
 
-
-class _MergedCalendar:
-    """Answers `in` against two calendars without merging or mutating either
-    — `holidays.US()` populates itself lazily, per year, so a `frozenset`
-    union up front would force both sources to answer for every year at once."""
-
-    __slots__ = ("_a", "_b")
-
-    def __init__(self, a: Container, b: Container) -> None:
-        self._a = a
-        self._b = b
-
-    def __contains__(self, day: object) -> bool:
-        return day in self._a or day in self._b
-
-
-@lru_cache(maxsize=64)
-def _state_calendar(state: str) -> Container:
-    """`holidays.US(subdiv=state)`, built once. Its `NotImplementedError` for
-    an unrecognized code becomes a named refusal instead of a traceback
-    surfacing a dependency the caller may not know is involved."""
-    try:
-        return holidays.US(subdiv=state)
-    except NotImplementedError as exc:
-        raise UnparseableDate(
-            f"{state!r} is not a US state or territory `holidays` recognizes "
-            f"as a court subdivision: {exc}"
-        ) from None
+    Used only so a `holiday_calendar` override can replace *the calendar*
+    without also replacing *which counting shape applies* — see `court_days`.
+    An unrecognized jurisdiction (a label the caller invented for their own
+    calendar, e.g. `"US-County"`) has no rule and therefore no short-period
+    shape to preserve, so this returns `None` rather than raising; the
+    already-verified-or-refused path for a *known* jurisdiction with no
+    override is `_rule_for`, not this.
+    """
+    rule = RULES.get(jurisdiction) if isinstance(jurisdiction, str) else None
+    return rule.short_period_max if rule is not None else None
 
 
 def _district_calendar(rule: CountingRule, district_state: Any) -> Container:
@@ -613,6 +857,26 @@ def _is_closed(day: date, calendar: Container) -> bool:
     return day.weekday() >= 5 or day in calendar
 
 
+def _count_open_days(begin: date, n: int, calendar: Container) -> date:
+    """`n` open days forward from `begin` (excluded), skipping closures WHILE
+    counting rather than only rolling the last one. One loop, read from two
+    call sites — `business_days` and `court_days`'s short-period branch —
+    so the two shapes can never silently drift apart on the same
+    jurisdiction; `n=0` rolls `begin` itself forward if it is closed, the
+    same degenerate case `court_days`'s ordinary branch has."""
+    day = begin
+    if n == 0:
+        while _is_closed(day, calendar):
+            day += timedelta(days=1)
+    else:
+        counted = 0
+        while counted < n:
+            day += timedelta(days=1)
+            if not _is_closed(day, calendar):
+                counted += 1
+    return day
+
+
 def court_days(
     start: Any,
     n: int,
@@ -633,13 +897,27 @@ def court_days(
       a Sunday or a legal holiday, the period runs to the next day that is none
       of those. **6(a)(6)** is what "legal holiday" means.
 
-    **The name says days, and it means calendar days.** This is *not* a
-    business-day or "court day" counter. `court_days(start, 5)` is five
-    calendar days with a roll at the end, not five open days — the pre-2009
-    FRCP short-period rule that skipped weekends while counting was repealed
-    for federal periods (`RULES["US-federal"].short_period_max is None`), but
-    its state analogues are alive elsewhere and are not this jurisdiction's
-    rule. Use `business_days` for a counter that skips intermediate closures.
+    **The name says days, and it means calendar days — for `US-federal`.**
+    `court_days(start, 5)` under `US-federal` is five calendar days with a
+    roll at the end, not five open days — the pre-2009 FRCP short-period rule
+    that skipped weekends while counting was repealed for federal periods
+    (`RULES["US-federal"].short_period_max is None`).
+
+    **Its state analogues are alive elsewhere, and this function implements
+    them too, from the same rule table.** When `jurisdiction`'s
+    `short_period_max` is not `None` and `n` is strictly less than it, this
+    function switches shape: intermediate Saturdays, Sundays and legal
+    holidays are *excluded while counting* — the `business_days` shape,
+    reused here rather than duplicated — instead of counted and only rolled
+    off the last day. `US-NM` (`short_period_max=11`) and `US-OR`
+    (`short_period_max=7`) both work this way below that threshold and the
+    ordinary FRCP shape at or above it; that boundary, and whether either
+    branch is verified, is read from `RULES` — see `short_period_status` on
+    `CountingRule`. A caller who wants the ordinary shape unconditionally,
+    regardless of jurisdiction, is `business_days`'s opposite number and has
+    no separate function here: it *is* what `court_days` does at or above the
+    threshold, including the federal `None` case where there is no threshold
+    to be below.
 
     What else is deliberately absent, because claiming it would be worse than
     lacking it:
@@ -675,9 +953,17 @@ def court_days(
     `tuple` is re-read through this module's parser, so a list of ISO strings
     works and a list of unparseable ones is refused rather than silently
     matching nothing. When it is supplied it **replaces** the jurisdiction's
-    calendar entirely and `jurisdiction` becomes a label the caller owns;
-    nothing else in this module reads it, and the jurisdiction's `RULES` row
-    (and its `status`) is not consulted at all.
+    calendar and bypasses the `RULES` status check — but it does **not**
+    replace which counting *shape* applies. `short_period_max` still comes
+    from `RULES[jurisdiction]` when the jurisdiction is known, so
+    `court_days("...", 5, jurisdiction="US-NM", holiday_calendar=my_cal)`
+    still excludes intermediate closures while counting (NM's short-period
+    shape, `short_period_max=11`) even though NM's short-period branch is
+    otherwise `UNCERTAIN` — the caller supplied the calendar, not the
+    counting rule, and the counting rule is not in question here. Only for a
+    jurisdiction with **no** row in `RULES` at all (a label the caller
+    invented, e.g. `"US-County"`) is there no shape to preserve, and the
+    ordinary shape is used.
 
     What it does **not** replace is Saturday and Sunday. 6(a)(1)(C) names
     "a Saturday, a Sunday, or a legal holiday" as three separate things, and
@@ -718,8 +1004,20 @@ def court_days(
                 "so add the state's closures to it yourself"
             )
         calendar = _closed_set(holiday_calendar)
+        short_max = _short_period_max_for(jurisdiction)
     else:
-        rule = _verified_rule(jurisdiction, needs="forward counting")
+        rule = _rule_for(jurisdiction)
+        short_max = rule.short_period_max
+        if short_max is not None and n < short_max:
+            _require_verified(
+                rule, needs="short-period counting",
+                status=rule.short_period_status, source=rule.short_period_source,
+            )
+        else:
+            _require_verified(
+                rule, needs="forward counting",
+                status=rule.status, source=rule.source,
+            )
         calendar = (
             _district_calendar(rule, district_state) if district_state is not None
             else rule.calendar()
@@ -727,11 +1025,20 @@ def court_days(
 
     begin = _as_date(start, what="start")
     reference = start.reference if isinstance(start, Deadline) else None
+    short = short_max is not None and n < short_max
 
     try:
-        day = begin + timedelta(days=n)
-        while _is_closed(day, calendar):
-            day += timedelta(days=1)
+        if short:
+            # The `business_days` shape: closures are excluded WHILE
+            # counting, not just rolled off at the end — see the module
+            # docstring's "short_period_max" note on `CountingRule`. The
+            # same loop `business_days` runs, via `_count_open_days`, so
+            # this branch and that function can never silently disagree.
+            day = _count_open_days(begin, n, calendar)
+        else:
+            day = begin + timedelta(days=n)
+            while _is_closed(day, calendar):
+                day += timedelta(days=1)
     except OverflowError:
         raise UnparseableDate(
             f"{n} days from {begin.isoformat()} falls outside the calendar "
@@ -786,8 +1093,12 @@ def court_days_before(
 
     `holiday_calendar` behaves exactly as on `court_days`, including that it
     does not make weekends open: supplied, it replaces the jurisdiction's
-    calendar and bypasses the `RULES` status check. `end` takes the same
-    forms as `start` there.
+    calendar and bypasses the `RULES` status check — here, `backward_status`
+    on `CountingRule`, checked independently of the forward branch's
+    `status` (`US-NM` and `US-OR` verify forward counting on the 2024/ORCP
+    text while their backward branch is `UNCERTAIN`; a caller who wants the
+    forward answer is unaffected by that). `end` takes the same forms as
+    `start` there.
     """
     if isinstance(n, bool) or not isinstance(n, int):
         raise UnparseableDate(
@@ -803,10 +1114,15 @@ def court_days_before(
     if not isinstance(jurisdiction, str) or not jurisdiction.strip():
         raise UnparseableDate("jurisdiction must be a non-empty string")
 
-    calendar = (
-        _closed_set(holiday_calendar) if holiday_calendar is not None
-        else _verified_rule(jurisdiction, needs="backward counting").calendar()
-    )
+    if holiday_calendar is not None:
+        calendar = _closed_set(holiday_calendar)
+    else:
+        rule = _rule_for(jurisdiction)
+        _require_verified(
+            rule, needs="backward counting",
+            status=rule.backward_status, source=rule.backward_source,
+        )
+        calendar = rule.calendar()
 
     finish = _as_date(end, what="end")
     reference = end.reference if isinstance(end, Deadline) else None
@@ -843,8 +1159,9 @@ def add_mail_days(
     closed landing still moves to the next open day rather than standing.
 
     Refuses (`"UNCERTAIN: ..."`) when the jurisdiction's mail-days branch
-    (`mail_days_source`) is not `RuleStatus.VERIFIED`, regardless of whether
-    its counting branch is — and refuses if the rule records no figure at all
+    (`mail_status`, checked against `mail_days_source`) is not
+    `RuleStatus.VERIFIED`, regardless of whether its forward, short-period or
+    backward branch is — and refuses if the rule records no figure at all
     (`mail_days is None`); a verified "there is no mail rule" is not a number
     **`holiday_calendar` is a narrower seam here than on the other three
     functions, and the difference is deliberate.** Supplied, it replaces the
@@ -883,7 +1200,11 @@ def add_mail_days(
     if not isinstance(jurisdiction, str) or not jurisdiction.strip():
         raise UnparseableDate("jurisdiction must be a non-empty string")
 
-    rule = _verified_rule(jurisdiction, needs="the added-mail-days rule", mail=True)
+    rule = _rule_for(jurisdiction)
+    _require_verified(
+        rule, needs="the added-mail-days rule",
+        status=rule.mail_status, source=rule.mail_days_source,
+    )
     if rule.mail_days is None:
         raise UnparseableDate(
             f"{rule.jurisdiction} records no mail-days figure to add"
@@ -929,12 +1250,14 @@ def business_days(
     """`n` **open** days from `start` — Saturdays, Sundays and legal holidays
     are skipped *while counting*, not just rolled off at the end.
 
-    This is the counter `court_days` deliberately is not: FRCP 6(a)(1)(B) /
-    FRBP 9006(a)(1)(B) count intermediate closures rather than skip them.
-    `business_days` is the other shape a "days" period can take — the pre-2009
-    short-period shape, and the one this module's future NM/OR short-period
-    rules are expected to need — kept as a general-purpose counter rather than
-    a bespoke loop per jurisdiction.
+    This is the counter federal `court_days` deliberately is not: FRCP
+    6(a)(1)(B) / FRBP 9006(a)(1)(B) count intermediate closures rather than
+    skip them. `business_days` is the other shape a "days" period can take —
+    the pre-2009 short-period shape — kept as a general-purpose counter
+    rather than a bespoke loop per jurisdiction; `court_days` reuses this
+    exact shape internally for `US-NM` and `US-OR` below their
+    `short_period_max`, so this function and that branch of `court_days`
+    always agree by construction (one loop, not two copies of it).
 
     `start` is excluded (6(a)(1)(A)'s framing) and `n` open days are counted
     forward; the landing day is always open by construction, so there is no
@@ -944,7 +1267,11 @@ def business_days(
     Forward only: `n` must be non-negative, since there is no established
     backward business-day rule the way `court_days_before` encodes one for
     calendar days. `jurisdiction`, `holiday_calendar` and the `RULES` status
-    check behave exactly as on `court_days`.
+    check behave exactly as on `court_days`'s ordinary (forward, `status`/
+    `source`) branch — this function is not itself one of the four branches
+    a `CountingRule` distinguishes; it always trusts the jurisdiction's
+    ordinary forward status, regardless of that jurisdiction's short-period
+    or backward status.
     """
     if isinstance(n, bool) or not isinstance(n, int):
         raise UnparseableDate(
@@ -959,25 +1286,21 @@ def business_days(
     if not isinstance(jurisdiction, str) or not jurisdiction.strip():
         raise UnparseableDate("jurisdiction must be a non-empty string")
 
-    calendar = (
-        _closed_set(holiday_calendar) if holiday_calendar is not None
-        else _verified_rule(jurisdiction, needs="business-day counting").calendar()
-    )
+    if holiday_calendar is not None:
+        calendar = _closed_set(holiday_calendar)
+    else:
+        rule = _rule_for(jurisdiction)
+        _require_verified(
+            rule, needs="business-day counting",
+            status=rule.status, source=rule.source,
+        )
+        calendar = rule.calendar()
 
     begin = _as_date(start, what="start")
     reference = start.reference if isinstance(start, Deadline) else None
 
     try:
-        day = begin
-        if n == 0:
-            while _is_closed(day, calendar):
-                day += timedelta(days=1)
-        else:
-            counted = 0
-            while counted < n:
-                day += timedelta(days=1)
-                if not _is_closed(day, calendar):
-                    counted += 1
+        day = _count_open_days(begin, n, calendar)
     except OverflowError:
         raise UnparseableDate(
             f"{n} business days from {begin.isoformat()} falls outside the "
