@@ -30,7 +30,9 @@ def main(argv: list[str] | None = None) -> int:
         # the check that would have caught the excludes that made the first
         # binary die on startup.
         from homestead.app import demo, theme, view, window  # noqa: F401
-        from homestead.keep import advise, export, logs, paths, record, rungs  # noqa: F401
+        from homestead.keep import (  # noqa: F401
+            advise, export, household, logs, paths, record, rungs, sync,
+        )
         print("homestead: smoke ok")
         return 0
 
