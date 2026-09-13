@@ -97,7 +97,7 @@ fleet = ["psycopg[binary]>=3.1,<4"]
 # against (HKDF and AESGCM are both stable well before it); the cap follows
 # the same "verified against, not indefinitely trusted" posture as the
 # `holidays` and `psycopg` ranges above.
-sealed = ["cryptography>=42,<47"]
+sealed = ["cryptography>=42,<51"]
 
 [project.scripts]
 # ~~homestead-law = "homestead.app.__main__:main"~~ (struck 2026-09-11): the
